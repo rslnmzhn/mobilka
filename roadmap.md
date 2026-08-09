@@ -32,7 +32,7 @@
 - [x] 27. Add token/context budget indicators and clear endpoint errors.
 
 ## Milestone 3 — Markdown memory and agents
-- [ ] 28. Implement serialized/mutex-protected Markdown reads and writes.
+- [x] 28. Implement serialized/mutex-protected Markdown reads and writes.
 - [ ] 29. Implement Context Injector for selected memory files.
 - [ ] 30. Implement safe `update_memory_file` tool calls with diff preview and audit log.
 - [ ] 31. Parse standardized agent `.md` frontmatter and validate schemas.

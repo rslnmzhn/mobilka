@@ -49,6 +49,7 @@ dependencies:
   flutter_markdown_plus: ^1.0.12
   flutter_highlight: ^0.7.0
   highlight: ^0.7.0
+  synchronized: ^3.4.0
 
 dev_dependencies:
   flutter_test:

@@ -6,8 +6,10 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:saf/saf.dart';
+import 'package:synchronized/synchronized.dart';
 
 import '../../../core/storage/app_boxes.dart';
+import 'memory_file_store.dart';
 
 part 'memory_repository.g.dart';
 
@@ -23,6 +25,7 @@ class MemoryLocation {
 class MemoryRepository {
   MemoryRepository(this._saf);
   final Saf _saf;
+  final Lock _safLock = Lock();
 
   static const templates = {
     'user_profile.md':
@@ -69,40 +72,26 @@ class MemoryRepository {
   }
 
   Future<void> _writeSafTemplates(String uri) async {
-    for (final entry in templates.entries) {
-      try {
-        await _saf.writeFileBytes(
-          uri,
-          entry.key,
-          'text/markdown',
-          Uint8List.fromList(utf8.encode(entry.value)),
-        );
-      } on SafAlreadyExistsException {
-        // Existing user-owned memory is never overwritten.
+    await _safLock.synchronized(() async {
+      for (final entry in templates.entries) {
+        try {
+          await _saf.writeFileBytes(
+            uri,
+            entry.key,
+            'text/markdown',
+            Uint8List.fromList(utf8.encode(entry.value)),
+          );
+        } on SafAlreadyExistsException {
+          // Existing user-owned memory is never overwritten.
+        }
       }
-    }
+    });
   }
 
   Future<void> _writePathTemplates(String path) async {
-    final directory = Directory(path);
-    final canonicalDirectory = await directory.resolveSymbolicLinks();
+    final store = PathMemoryFileStore(path);
     for (final entry in templates.entries) {
-      final file = File(
-        '$canonicalDirectory${Platform.pathSeparator}${entry.key}',
-      );
-      if (await FileSystemEntity.type(file.path, followLinks: false) ==
-          FileSystemEntityType.notFound) {
-        final temporary = File(
-          '${file.path}.mobilka-${DateTime.now().microsecondsSinceEpoch}.tmp',
-        );
-        await temporary.writeAsString(entry.value, flush: true);
-        if (await FileSystemEntity.type(file.path, followLinks: false) ==
-            FileSystemEntityType.notFound) {
-          await temporary.rename(file.path);
-        } else {
-          await temporary.delete();
-        }
-      }
+      await store.createIfMissing(entry.key, entry.value);
     }
   }
 }
