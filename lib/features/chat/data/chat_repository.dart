@@ -1,8 +1,12 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:saf/saf.dart';
 
 import '../../settings/data/settings_repository.dart';
+import '../../memory/application/context_injector.dart';
+import '../../memory/data/context_sources.dart';
+import '../../memory/data/memory_selection_store.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_stream_event.dart';
 import 'chat_api_client.dart';
@@ -20,6 +24,13 @@ ChatRepository chatRepository(Ref ref) => ChatRepository(
     ),
   ),
   ref.watch(settingsRepositoryProvider),
+  ContextInjector(
+    StoredMemoryContextSource(
+      MemorySelectionStore(),
+      SafMemoryReaderAdapter(Saf()),
+    ),
+    AssetAgentPromptSource(),
+  ),
 );
 
 abstract interface class ChatCompletionStreamer {
@@ -31,10 +42,15 @@ abstract interface class ChatCompletionStreamer {
 }
 
 class ChatRepository implements ChatCompletionStreamer {
-  ChatRepository(this._apiClient, this._settingsRepository);
+  ChatRepository(
+    this._apiClient,
+    this._settingsRepository,
+    this._contextInjector,
+  );
 
   final ChatApiClient _apiClient;
   final SettingsRepository _settingsRepository;
+  final ContextInjector _contextInjector;
 
   Future<ChatCompletion> createCompletion({
     required String model,
@@ -42,11 +58,12 @@ class ChatRepository implements ChatCompletionStreamer {
   }) async {
     final settings = await _settingsRepository.load();
     final apiKey = await _settingsRepository.readApiKey();
+    final injectedMessages = await _contextInjector.inject(messages);
     return _apiClient.createCompletion(
       baseUrl: settings.baseUrl,
       apiKey: apiKey,
       model: model,
-      messages: messages,
+      messages: injectedMessages,
     );
   }
 
@@ -58,11 +75,12 @@ class ChatRepository implements ChatCompletionStreamer {
   }) async* {
     final settings = await _settingsRepository.load();
     final apiKey = await _settingsRepository.readApiKey();
+    final injectedMessages = await _contextInjector.inject(messages);
     yield* _apiClient.streamCompletion(
       baseUrl: settings.baseUrl,
       apiKey: apiKey,
       model: model,
-      messages: messages,
+      messages: injectedMessages,
       cancelToken: cancelToken,
     );
   }

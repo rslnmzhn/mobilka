@@ -33,7 +33,7 @@
 
 ## Milestone 3 — Markdown memory and agents
 - [x] 28. Implement serialized/mutex-protected Markdown reads and writes.
-- [ ] 29. Implement Context Injector for selected memory files.
+- [x] 29. Implement Context Injector for selected memory files.
 - [ ] 30. Implement safe `update_memory_file` tool calls with diff preview and audit log.
 - [ ] 31. Parse standardized agent `.md` frontmatter and validate schemas.
 - [ ] 32. Discover, import, create, edit, hide, favorite, and select agents.
