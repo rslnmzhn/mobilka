@@ -41,6 +41,7 @@
 - [x] 34. Add user controls for memory inclusion, editing, backup, and restore.
 
 ## Milestone 4 — Tool calling and artifacts
+- [x] Fix memory folder cancellation state loss and location-provider rebuilds.
 - [ ] 35. Implement native OpenAI-compatible `tool_calls` orchestration.
 - [ ] 36. Implement fallback parsing for tool calls embedded in Markdown/JSON blocks.
 - [ ] 37. Add collapsible tool cards with running, completed, and failed states.
