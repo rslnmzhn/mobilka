@@ -7,7 +7,6 @@ import 'package:saf/saf.dart';
 import '../../../core/storage/app_boxes.dart';
 import '../application/context_injector.dart';
 import 'memory_file_store.dart';
-import 'memory_selection_store.dart';
 
 abstract interface class SafMemoryReader {
   Future<String?> readChild(String directoryUri, String fileName);
@@ -29,22 +28,20 @@ class SafMemoryReaderAdapter implements SafMemoryReader {
 }
 
 class StoredMemoryContextSource implements MemoryContextSource {
-  StoredMemoryContextSource(this._selectionStore, this._safReader);
+  StoredMemoryContextSource(this._safReader);
 
-  final MemorySelectionStore _selectionStore;
   final SafMemoryReader _safReader;
 
   @override
-  Future<String?> readSelected(String fileName) async {
-    if (!_selectionStore.load().contains(fileName)) return null;
+  Future<String?> read(String fileName) async {
     final value = preferencesBox.get('memoryLocation') as String?;
     if (value == null) return null;
     final isUri =
         preferencesBox.get('memoryLocationIsUri', defaultValue: false) as bool;
     try {
-      return isUri
+      return await (isUri
           ? _safReader.readChild(value, fileName)
-          : PathMemoryFileStore(value).read(fileName);
+          : PathMemoryFileStore(value).read(fileName));
     } on Object {
       return null;
     }

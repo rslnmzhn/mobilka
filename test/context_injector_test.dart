@@ -11,6 +11,7 @@ void main() {
         'memory_log.md': 'Log',
       }),
       const _AgentSource('Agent prompt'),
+      () => {'user_profile.md', 'system_instructions.md', 'memory_log.md'},
     );
     final result = await injector.inject([
       ChatMessage(
@@ -45,6 +46,7 @@ void main() {
         unreadable: {'project_context.md'},
       ),
       const _AgentSource(null),
+      () => {'user_profile.md', 'project_context.md'},
     );
     final result = await injector.inject(const []);
     expect(result.single.content, contains('Profile'));
@@ -55,6 +57,7 @@ void main() {
     final result = await ContextInjector(
       _MemorySource(const {}),
       const _AgentSource(null),
+      () => const {},
     ).inject(const []);
     expect(result, isEmpty);
   });
@@ -66,7 +69,7 @@ class _MemorySource implements MemoryContextSource {
   final Set<String> unreadable;
 
   @override
-  Future<String?> readSelected(String fileName) async {
+  Future<String?> read(String fileName) async {
     if (unreadable.contains(fileName)) return null;
     return values[fileName];
   }

@@ -6,8 +6,8 @@ import 'package:saf/saf.dart';
 import '../../settings/data/settings_repository.dart';
 import '../../agents/application/agents_controller.dart';
 import '../../memory/application/context_injector.dart';
+import '../../memory/application/memory_selection_controller.dart';
 import '../../memory/data/context_sources.dart';
-import '../../memory/data/memory_selection_store.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_stream_event.dart';
 import 'chat_api_client.dart';
@@ -26,11 +26,9 @@ ChatRepository chatRepository(Ref ref) => ChatRepository(
   ),
   ref.watch(settingsRepositoryProvider),
   ContextInjector(
-    StoredMemoryContextSource(
-      MemorySelectionStore(),
-      SafMemoryReaderAdapter(Saf()),
-    ),
+    StoredMemoryContextSource(SafMemoryReaderAdapter(Saf())),
     ref.watch(selectedAgentPromptAdapterProvider),
+    () => ref.read(memorySelectionControllerProvider),
   ),
 );
 

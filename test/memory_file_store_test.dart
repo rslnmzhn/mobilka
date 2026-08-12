@@ -94,6 +94,29 @@ void main() {
     );
     expect(access.calls, 0);
   });
+
+  test('desktop transaction keeps reads and writes on one adapter', () async {
+    await store.createIfMissing('user_profile.md', 'before');
+    await store.transaction((files) async {
+      expect(await files.read('user_profile.md'), 'before');
+      await files.write('user_profile.md', 'after');
+    });
+    expect(await store.read('user_profile.md'), 'after');
+  });
+
+  test(
+    'SAF create preserves existing files and creates missing files',
+    () async {
+      final access = _FakeSafMemoryAccess({'user_profile.md': 'existing'});
+      final safStore = SafMemoryFileStore('content://memory', access);
+      await safStore.createIfMissing('user_profile.md', 'replacement');
+      await safStore.createIfMissing('memory_log.md', 'created');
+
+      expect(access.files['user_profile.md'], 'existing');
+      expect(access.files['memory_log.md'], 'created');
+      expect(access.lastOverwrite, isFalse);
+    },
+  );
 }
 
 class _FakeSafMemoryAccess implements SafMemoryAccess {

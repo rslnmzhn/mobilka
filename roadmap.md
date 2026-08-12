@@ -38,7 +38,7 @@
 - [x] 31. Parse standardized agent `.md` frontmatter and validate schemas.
 - [x] 32. Discover, import, create, edit, hide, favorite, and select agents.
 - [x] 33. Implement primary-agent/subagent discovery and delegation contracts.
-- [ ] 34. Add user controls for memory inclusion, editing, backup, and restore.
+- [x] 34. Add user controls for memory inclusion, editing, backup, and restore.
 
 ## Milestone 4 — Tool calling and artifacts
 - [ ] 35. Implement native OpenAI-compatible `tool_calls` orchestration.

@@ -3,8 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/memory_controller.dart';
+import '../application/memory_file_editor.dart';
+import '../application/memory_selection_controller.dart';
 import '../application/update_memory_file_service.dart';
 import '../data/memory_repository.dart';
+import 'memory_backup_card.dart';
+import 'memory_editor_sheet.dart';
 
 class MemoryScreen extends ConsumerWidget {
   const MemoryScreen({super.key});
@@ -12,6 +16,8 @@ class MemoryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final memory = ref.watch(memoryControllerProvider);
+    final selection = ref.watch(memorySelectionControllerProvider);
+    final editor = ref.watch(memoryFileEditorProvider);
     return Scaffold(
       appBar: AppBar(title: Text('memory.title'.tr())),
       body: Center(
@@ -71,28 +77,48 @@ class MemoryScreen extends ConsumerWidget {
               const SizedBox(height: 8),
               ...MemoryRepository.templates.keys.map(
                 (name) => Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.description_outlined),
+                  child: SwitchListTile(
+                    key: Key('memory-inclusion-$name'),
+                    secondary: const Icon(Icons.description_outlined),
                     title: Text(name),
-                    trailing:
-                        name == 'memory_log.md' ||
-                            ref.watch(updateMemoryFileProvider) == null
-                        ? null
-                        : IconButton(
-                            tooltip: 'memory.previewUpdate'.tr(),
-                            onPressed: () => showModalBottomSheet<void>(
-                              context: context,
-                              isScrollControlled: true,
-                              builder: (_) => MemoryUpdateSheet(
-                                fileName: name,
-                                service: ref.read(updateMemoryFileProvider)!,
+                    subtitle: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: TextButton.icon(
+                        key: Key('memory-edit-$name'),
+                        onPressed: editor == null
+                            ? null
+                            : () => showModalBottomSheet<void>(
+                                context: context,
+                                isScrollControlled: true,
+                                builder: (_) => MemoryEditorSheet(
+                                  fileName: name,
+                                  editor: editor,
+                                ),
                               ),
-                            ),
-                            icon: const Icon(Icons.edit_outlined),
+                        icon: const Icon(Icons.edit_outlined),
+                        label: Text('memory.openEdit'.tr()),
+                      ),
+                    ),
+                    value: selection.contains(name),
+                    onChanged: (included) async {
+                      try {
+                        await ref
+                            .read(memorySelectionControllerProvider.notifier)
+                            .setIncluded(name, included: included);
+                      } on Object catch (error) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${'common.error'.tr()}: $error'),
                           ),
+                        );
+                      }
+                    },
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+              MemoryBackupCard(enabled: memory.valueOrNull != null),
             ],
           ),
         ),

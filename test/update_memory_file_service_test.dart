@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobilka/features/memory/application/update_memory_file_service.dart';
+import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/presentation/memory_screen.dart';
 import 'package:synchronized/synchronized.dart';
@@ -22,8 +23,11 @@ void main() {
     });
     service = UpdateMemoryFileService(
       boundary,
+      MemoryMutationCoordinator(
+        boundary,
+        now: () => DateTime.utc(2026, 8, 12, 10, 30),
+      ),
       tokenFactory: () => 'token-${token++}',
-      now: () => DateTime.utc(2026, 8, 12, 10, 30),
     );
   });
 
@@ -206,6 +210,7 @@ void main() {
   test('shared owner serializes separate update services', () async {
     final otherService = UpdateMemoryFileService(
       boundary,
+      MemoryMutationCoordinator(boundary),
       tokenFactory: () => 'other-token',
     );
     final first = await service.preparePreview(

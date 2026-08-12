@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:mobilka/features/memory/data/context_sources.dart';
-import 'package:mobilka/features/memory/data/memory_selection_store.dart';
 
 void main() {
   late Directory hiveDirectory;
@@ -23,9 +22,7 @@ void main() {
     await memoryDirectory.delete(recursive: true);
   });
 
-  test('persists selection and reads only selected desktop files', () async {
-    final selection = MemorySelectionStore();
-    await selection.save({'user_profile.md'});
+  test('reads desktop memory files without owning selection', () async {
     await File(
       '${memoryDirectory.path}${Platform.pathSeparator}user_profile.md',
     ).writeAsString('Profile');
@@ -33,24 +30,21 @@ void main() {
       'preferences',
     ).put('memoryLocation', memoryDirectory.path);
     await Hive.box<dynamic>('preferences').put('memoryLocationIsUri', false);
-    final source = StoredMemoryContextSource(selection, _SafReader());
+    final source = StoredMemoryContextSource(_SafReader());
 
-    expect(selection.load(), {'user_profile.md'});
-    expect(await source.readSelected('user_profile.md'), 'Profile');
-    expect(await source.readSelected('memory_log.md'), isNull);
+    expect(await source.read('user_profile.md'), 'Profile');
+    expect(await source.read('memory_log.md'), isNull);
   });
 
   test('uses SAF adapter for content URI locations', () async {
-    final selection = MemorySelectionStore();
-    await selection.save({'memory_log.md'});
     await Hive.box<dynamic>(
       'preferences',
     ).put('memoryLocation', 'content://folder');
     await Hive.box<dynamic>('preferences').put('memoryLocationIsUri', true);
     final reader = _SafReader(value: 'Log');
-    final source = StoredMemoryContextSource(selection, reader);
+    final source = StoredMemoryContextSource(reader);
 
-    expect(await source.readSelected('memory_log.md'), 'Log');
+    expect(await source.read('memory_log.md'), 'Log');
     expect(reader.lastDirectory, 'content://folder');
   });
 

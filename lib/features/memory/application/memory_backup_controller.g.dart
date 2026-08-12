@@ -1,29 +1,30 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'memory_controller.dart';
+part of 'memory_backup_controller.dart';
 
 // **************************************************************************
 // RiverpodGenerator
 // **************************************************************************
 
-String _$memoryControllerHash() => r'f8a27465b899fe2a681fcc130ae9d0ce6f48bec8';
+String _$memoryBackupControllerHash() =>
+    r'c26a4d413a430f2a8ffb08b54bba151cabbb458a';
 
-/// See also [MemoryController].
-@ProviderFor(MemoryController)
-final memoryControllerProvider =
-    AutoDisposeAsyncNotifierProvider<
-      MemoryController,
-      MemoryLocation?
+/// See also [MemoryBackupController].
+@ProviderFor(MemoryBackupController)
+final memoryBackupControllerProvider =
+    AutoDisposeNotifierProvider<
+      MemoryBackupController,
+      MemoryBackupState
     >.internal(
-      MemoryController.new,
-      name: r'memoryControllerProvider',
+      MemoryBackupController.new,
+      name: r'memoryBackupControllerProvider',
       debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
           ? null
-          : _$memoryControllerHash,
+          : _$memoryBackupControllerHash,
       dependencies: null,
       allTransitiveDependencies: null,
     );
 
-typedef _$MemoryController = AutoDisposeAsyncNotifier<MemoryLocation?>;
+typedef _$MemoryBackupController = AutoDisposeNotifier<MemoryBackupState>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member
