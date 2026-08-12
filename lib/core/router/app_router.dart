@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/chat/presentation/chat_screen.dart';
+import '../../features/agents/presentation/agents_screen.dart';
 import '../../features/memory/presentation/memory_screen.dart';
 import '../../features/models/presentation/models_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
@@ -22,6 +23,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(
             routes: [
               GoRoute(path: '/models', builder: (_, _) => const ModelsScreen()),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/agents', builder: (_, _) => const AgentsScreen()),
             ],
           ),
           StatefulShellBranch(

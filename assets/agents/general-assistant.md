@@ -1,10 +1,8 @@
 ---
-name: "general-assistant"
-display_name: "General Assistant"
+id: "general-assistant"
+name: "General Assistant"
 description: "Default general-purpose mobilka agent"
 mode: "primary"
-model_preference: "auto"
-subagents: []
 tools:
   - "update_memory_file"
 ---

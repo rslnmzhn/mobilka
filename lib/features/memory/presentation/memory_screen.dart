@@ -3,7 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/memory_controller.dart';
+import '../application/memory_file_editor.dart';
+import '../application/memory_selection_controller.dart';
+import '../application/update_memory_file_service.dart';
 import '../data/memory_repository.dart';
+import 'memory_backup_card.dart';
+import 'memory_editor_sheet.dart';
 
 class MemoryScreen extends ConsumerWidget {
   const MemoryScreen({super.key});
@@ -11,6 +16,8 @@ class MemoryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final memory = ref.watch(memoryControllerProvider);
+    final selection = ref.watch(memorySelectionControllerProvider);
+    final editor = ref.watch(memoryFileEditorProvider);
     return Scaffold(
       appBar: AppBar(title: Text('memory.title'.tr())),
       body: Center(
@@ -70,12 +77,215 @@ class MemoryScreen extends ConsumerWidget {
               const SizedBox(height: 8),
               ...MemoryRepository.templates.keys.map(
                 (name) => Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.description_outlined),
+                  child: SwitchListTile(
+                    key: Key('memory-inclusion-$name'),
+                    secondary: const Icon(Icons.description_outlined),
                     title: Text(name),
+                    subtitle: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: TextButton.icon(
+                        key: Key('memory-edit-$name'),
+                        onPressed: editor == null
+                            ? null
+                            : () => showModalBottomSheet<void>(
+                                context: context,
+                                isScrollControlled: true,
+                                builder: (_) => MemoryEditorSheet(
+                                  fileName: name,
+                                  editor: editor,
+                                ),
+                              ),
+                        icon: const Icon(Icons.edit_outlined),
+                        label: Text('memory.openEdit'.tr()),
+                      ),
+                    ),
+                    value: selection.contains(name),
+                    onChanged: (included) async {
+                      try {
+                        await ref
+                            .read(memorySelectionControllerProvider.notifier)
+                            .setIncluded(name, included: included);
+                      } on Object catch (error) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${'common.error'.tr()}: $error'),
+                          ),
+                        );
+                      }
+                    },
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+              MemoryBackupCard(enabled: memory.valueOrNull != null),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class MemoryUpdateSheet extends StatefulWidget {
+  const MemoryUpdateSheet({
+    required this.fileName,
+    required this.service,
+    super.key,
+  });
+
+  final String fileName;
+  final UpdateMemoryFileService service;
+
+  @override
+  State<MemoryUpdateSheet> createState() => _MemoryUpdateSheetState();
+}
+
+class _MemoryUpdateSheetState extends State<MemoryUpdateSheet> {
+  final _controller = TextEditingController();
+  MemoryUpdatePreview? _preview;
+  Object? _error;
+  var _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.service
+        .readCurrent(widget.fileName)
+        .then(
+          (content) {
+            if (!mounted) return;
+            setState(() {
+              _controller.text = content;
+              _loading = false;
+            });
+          },
+          onError: (Object error) {
+            if (!mounted) return;
+            setState(() {
+              _error = error;
+              _loading = false;
+            });
+          },
+        );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _prepare() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final preview = await widget.service.preparePreview(
+        widget.fileName,
+        _controller.text,
+      );
+      if (mounted) setState(() => _preview = preview);
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = error);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _confirm() async {
+    final preview = _preview!;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await widget.service.apply(
+        confirmationToken: preview.confirmationToken,
+        version: preview.version,
+      );
+      if (mounted) Navigator.pop(context);
+    } on Object catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = error;
+          _preview = null;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = _preview;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.fileName,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              if (_loading) const LinearProgressIndicator(),
+              if (_error != null) Text('${'common.error'.tr()}: $_error'),
+              if (preview == null) ...[
+                TextField(
+                  key: const Key('memory-update-content'),
+                  controller: _controller,
+                  minLines: 8,
+                  maxLines: 18,
+                  enabled: !_loading,
+                  decoration: InputDecoration(
+                    labelText: 'memory.proposedContent'.tr(),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: _loading ? null : _prepare,
+                  child: Text('memory.previewUpdate'.tr()),
+                ),
+              ] else ...[
+                Text('memory.diffPreview'.tr()),
+                const SizedBox(height: 8),
+                SelectableText(
+                  preview.diff,
+                  key: const Key('memory-update-diff'),
+                ),
+                const SizedBox(height: 8),
+                SelectableText(
+                  '${'memory.version'.tr()}: ${preview.version}',
+                  key: const Key('memory-update-version'),
+                ),
+                SelectableText(
+                  '${'memory.confirmationToken'.tr()}: ${preview.confirmationToken}',
+                  key: const Key('memory-update-token'),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  key: const Key('memory-update-confirm'),
+                  onPressed: _loading ? null : _confirm,
+                  child: Text('memory.confirmExactUpdate'.tr()),
+                ),
+                TextButton(
+                  onPressed: _loading
+                      ? null
+                      : () => setState(() => _preview = null),
+                  child: Text('memory.editAgain'.tr()),
+                ),
+              ],
             ],
           ),
         ),

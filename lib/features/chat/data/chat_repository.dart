@@ -3,6 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../settings/data/settings_repository.dart';
+import '../../agents/application/agents_controller.dart';
+import '../../memory/application/context_injector.dart';
+import '../../memory/application/memory_selection_controller.dart';
+import '../../memory/application/memory_mutation_coordinator.dart';
+import '../../memory/data/context_sources.dart';
+import '../../memory/data/memory_repository.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_stream_event.dart';
 import 'chat_api_client.dart';
@@ -20,6 +26,14 @@ ChatRepository chatRepository(Ref ref) => ChatRepository(
     ),
   ),
   ref.watch(settingsRepositoryProvider),
+  ContextInjector(
+    StoredMemoryContextSource(
+      ref.watch(memoryRepositoryProvider),
+      ref.watch(memoryMutationCoordinatorProvider),
+    ),
+    ref.watch(selectedAgentPromptAdapterProvider),
+    () => ref.read(memorySelectionControllerProvider),
+  ),
 );
 
 abstract interface class ChatCompletionStreamer {
@@ -30,11 +44,25 @@ abstract interface class ChatCompletionStreamer {
   });
 }
 
-class ChatRepository implements ChatCompletionStreamer {
-  ChatRepository(this._apiClient, this._settingsRepository);
+abstract interface class SubagentCompletionStreamer {
+  Stream<ChatStreamEvent> streamSubagentCompletion({
+    required String model,
+    required List<ChatMessage> messages,
+    required CancelToken cancelToken,
+  });
+}
+
+class ChatRepository
+    implements ChatCompletionStreamer, SubagentCompletionStreamer {
+  ChatRepository(
+    this._apiClient,
+    this._settingsRepository,
+    this._contextInjector,
+  );
 
   final ChatApiClient _apiClient;
   final SettingsRepository _settingsRepository;
+  final ContextInjector _contextInjector;
 
   Future<ChatCompletion> createCompletion({
     required String model,
@@ -42,16 +70,35 @@ class ChatRepository implements ChatCompletionStreamer {
   }) async {
     final settings = await _settingsRepository.load();
     final apiKey = await _settingsRepository.readApiKey();
+    final injectedMessages = await _contextInjector.inject(messages);
     return _apiClient.createCompletion(
       baseUrl: settings.baseUrl,
       apiKey: apiKey,
       model: model,
-      messages: messages,
+      messages: injectedMessages,
     );
   }
 
   @override
   Stream<ChatStreamEvent> streamCompletion({
+    required String model,
+    required List<ChatMessage> messages,
+    required CancelToken cancelToken,
+  }) async* {
+    final settings = await _settingsRepository.load();
+    final apiKey = await _settingsRepository.readApiKey();
+    final injectedMessages = await _contextInjector.inject(messages);
+    yield* _apiClient.streamCompletion(
+      baseUrl: settings.baseUrl,
+      apiKey: apiKey,
+      model: model,
+      messages: injectedMessages,
+      cancelToken: cancelToken,
+    );
+  }
+
+  @override
+  Stream<ChatStreamEvent> streamSubagentCompletion({
     required String model,
     required List<ChatMessage> messages,
     required CancelToken cancelToken,

@@ -32,13 +32,13 @@
 - [x] 27. Add token/context budget indicators and clear endpoint errors.
 
 ## Milestone 3 — Markdown memory and agents
-- [ ] 28. Implement serialized/mutex-protected Markdown reads and writes.
-- [ ] 29. Implement Context Injector for selected memory files.
-- [ ] 30. Implement safe `update_memory_file` tool calls with diff preview and audit log.
-- [ ] 31. Parse standardized agent `.md` frontmatter and validate schemas.
-- [ ] 32. Discover, import, create, edit, hide, favorite, and select agents.
-- [ ] 33. Implement primary-agent/subagent discovery and delegation contracts.
-- [ ] 34. Add user controls for memory inclusion, editing, backup, and restore.
+- [x] 28. Implement serialized/mutex-protected Markdown reads and writes.
+- [x] 29. Implement Context Injector for selected memory files.
+- [x] 30. Implement safe `update_memory_file` tool calls with diff preview, durable hash-verified recovery, context-read gating, and an idempotent audit log.
+- [x] 31. Parse standardized agent `.md` frontmatter and validate schemas.
+- [x] 32. Discover, import, create, edit, hide, favorite, and select agents.
+- [x] 33. Implement primary-agent/subagent discovery and delegation contracts.
+- [x] 34. Add user controls for memory inclusion, editing, backup, and restore.
 
 ## Milestone 4 — Tool calling and artifacts
 - [ ] 35. Implement native OpenAI-compatible `tool_calls` orchestration.

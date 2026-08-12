@@ -1,6 +1,4 @@
-import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +6,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:saf/saf.dart';
 
 import '../../../core/storage/app_boxes.dart';
+import 'memory_file_store.dart';
 
 part 'memory_repository.g.dart';
 
@@ -45,6 +44,11 @@ class MemoryRepository {
     );
   }
 
+  MemoryFileBoundary boundaryFor(MemoryLocation location) =>
+      location.isContentUri
+      ? SafMemoryFileStore(location.value, SafMemoryAccessAdapter(_saf))
+      : PathMemoryFileStore(location.value);
+
   Future<MemoryLocation?> chooseAndInitialize() async {
     if (Platform.isAndroid) {
       final directory = await _saf.pickDirectory();
@@ -69,40 +73,16 @@ class MemoryRepository {
   }
 
   Future<void> _writeSafTemplates(String uri) async {
+    final store = SafMemoryFileStore(uri, SafMemoryAccessAdapter(_saf));
     for (final entry in templates.entries) {
-      try {
-        await _saf.writeFileBytes(
-          uri,
-          entry.key,
-          'text/markdown',
-          Uint8List.fromList(utf8.encode(entry.value)),
-        );
-      } on SafAlreadyExistsException {
-        // Existing user-owned memory is never overwritten.
-      }
+      await store.createIfMissing(entry.key, entry.value);
     }
   }
 
   Future<void> _writePathTemplates(String path) async {
-    final directory = Directory(path);
-    final canonicalDirectory = await directory.resolveSymbolicLinks();
+    final store = PathMemoryFileStore(path);
     for (final entry in templates.entries) {
-      final file = File(
-        '$canonicalDirectory${Platform.pathSeparator}${entry.key}',
-      );
-      if (await FileSystemEntity.type(file.path, followLinks: false) ==
-          FileSystemEntityType.notFound) {
-        final temporary = File(
-          '${file.path}.mobilka-${DateTime.now().microsecondsSinceEpoch}.tmp',
-        );
-        await temporary.writeAsString(entry.value, flush: true);
-        if (await FileSystemEntity.type(file.path, followLinks: false) ==
-            FileSystemEntityType.notFound) {
-          await temporary.rename(file.path);
-        } else {
-          await temporary.delete();
-        }
-      }
+      await store.createIfMissing(entry.key, entry.value);
     }
   }
 }
