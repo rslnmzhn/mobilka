@@ -19,21 +19,19 @@ AgentMetadataService agentMetadataService(Ref ref) =>
     const AgentMetadataService(AgentMetadataStore());
 
 @Riverpod(keepAlive: true)
+AgentMetadataStore agentMetadataStore(Ref ref) => const AgentMetadataStore();
+
+@Riverpod(keepAlive: true)
 AgentImportPicker agentImportPicker(Ref ref) => AgentImportPicker();
 
 @Riverpod(keepAlive: true)
 SelectedAgentPromptAdapter selectedAgentPromptAdapter(Ref ref) =>
-    SelectedAgentPromptAdapter(
-      ref.watch(agentCatalogStorageProvider),
-      ref.watch(agentMetadataServiceProvider),
-    );
+    SelectedAgentPromptAdapter(ref.watch(agentsControllerProvider.future));
 
-@riverpod
+@Riverpod(keepAlive: true)
 class AgentsController extends _$AgentsController {
   @override
   Future<AgentCatalog> build() => _load();
-
-  Future<void> refresh() => _mutate(() async {});
 
   Future<void> importAgent() => _mutate(() async {
     final definition = await ref.read(agentImportPickerProvider).pick();
@@ -52,6 +50,9 @@ class AgentsController extends _$AgentsController {
         await ref
             .read(agentMetadataServiceProvider)
             .move(existingId, definition.id);
+        if (_selectedId == existingId) {
+          await _setSelected(definition.id);
+        }
       }
     },
   );
@@ -59,6 +60,7 @@ class AgentsController extends _$AgentsController {
   Future<void> delete(String id) => _mutate(() async {
     await ref.read(agentCatalogStorageProvider).delete(id);
     await ref.read(agentMetadataServiceProvider).remove(id);
+    if (_selectedId == id) await _setSelected(null);
   });
 
   Future<void> toggleHidden(AgentCatalogEntry entry) => _mutate(() async {
@@ -66,6 +68,9 @@ class AgentsController extends _$AgentsController {
     await ref
         .read(agentMetadataServiceProvider)
         .setHidden(catalog, entry.definition.id, !entry.isHidden);
+    if (!entry.isHidden && _selectedId == entry.definition.id) {
+      await _setSelected(null);
+    }
   });
 
   Future<void> toggleFavorite(AgentCatalogEntry entry) => _mutate(() async {
@@ -76,12 +81,46 @@ class AgentsController extends _$AgentsController {
   });
 
   Future<void> select(String id) => _mutate(() async {
-    await ref.read(agentMetadataServiceProvider).select(await _load(), id);
+    final catalog = await _load();
+    final entry = catalog.agents
+        .where((agent) => agent.definition.id == id)
+        .firstOrNull;
+    if (entry == null || !entry.isSelectable) {
+      throw StateError('Selected agent must be a visible valid primary agent');
+    }
+    await _setSelected(id);
   });
 
-  Future<AgentCatalog> _load() async => ref
-      .read(agentMetadataServiceProvider)
-      .compose(await ref.read(agentCatalogStorageProvider).discover());
+  AgentMetadataStore get _metadataStore => ref.read(agentMetadataStoreProvider);
+
+  String? get _selectedId => _metadataStore.selectedId;
+
+  Future<void> _setSelected(String? id) => _metadataStore.setSelected(id);
+
+  Future<AgentCatalog> _load() async {
+    final metadata = ref.read(agentMetadataServiceProvider);
+    final discovery = await ref.read(agentCatalogStorageProvider).discover();
+    var selected = _metadataStore.selectedId;
+    var catalog = metadata.compose(discovery, selected);
+    final selectedValid = catalog.selected?.isSelectable == true;
+    if (!_metadataStore.hasSelectedValue) {
+      selected = catalog.agents
+          .where(
+            (entry) =>
+                entry.definition.id == 'general-assistant' &&
+                entry.isSelectable,
+          )
+          .firstOrNull
+          ?.definition
+          .id;
+      await _setSelected(selected);
+    } else if (!selectedValid && selected != null) {
+      selected = null;
+      await _setSelected(null);
+    }
+    catalog = metadata.compose(discovery, selected);
+    return catalog;
+  }
 
   Future<void> _mutate(Future<void> Function() operation) async {
     state = const AsyncLoading<AgentCatalog>().copyWithPrevious(state);

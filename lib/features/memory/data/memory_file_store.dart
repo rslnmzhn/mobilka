@@ -23,6 +23,8 @@ abstract interface class MemoryFileStore implements MemoryFileBoundary {
   Future<void> createIfMissing(String fileName, String content);
 }
 
+const maxMemoryFileBytes = 1024 * 1024;
+
 class PathMemoryFileStore implements MemoryFileStore {
   PathMemoryFileStore(this.directoryPath);
 
@@ -30,12 +32,16 @@ class PathMemoryFileStore implements MemoryFileStore {
   static final Map<String, Lock> _directoryLocks = {};
 
   @override
-  Future<String> read(String fileName) =>
-      transaction((files) => files.read(fileName));
+  Future<String> read(String fileName) {
+    _validateFileName(fileName);
+    return transaction((files) => files.read(fileName));
+  }
 
   @override
-  Future<void> write(String fileName, String content) =>
-      transaction((files) => files.write(fileName, content));
+  Future<void> write(String fileName, String content) {
+    _validateFileName(fileName);
+    return transaction((files) => files.write(fileName, content));
+  }
 
   @override
   Future<T> transaction<T>(
@@ -57,7 +63,7 @@ class PathMemoryFileStore implements MemoryFileStore {
       final file = transaction.target(fileName);
       final type = await FileSystemEntity.type(file.path, followLinks: false);
       if (type == FileSystemEntityType.notFound) {
-        await file.writeAsString(content, flush: true);
+        await transaction.write(fileName, content);
       } else if (type != FileSystemEntityType.file) {
         throw const FileSystemException('Unsafe memory file target');
       }
@@ -76,17 +82,37 @@ class _PathMemoryFileTransaction implements MemoryFileTransaction {
   }
 
   @override
-  Future<String> read(String fileName) => target(fileName).readAsString();
+  Future<String> read(String fileName) async {
+    final file = target(fileName);
+    if (await FileSystemEntity.type(file.path, followLinks: false) !=
+        FileSystemEntityType.file) {
+      throw const FileSystemException('Unsafe memory file target');
+    }
+    final bytes = await file.readAsBytes();
+    return _decodeMemoryFile(bytes);
+  }
 
   @override
   Future<void> write(String fileName, String content) async {
     final file = target(fileName);
-    final type = await FileSystemEntity.type(file.path, followLinks: false);
-    if (type != FileSystemEntityType.file &&
-        type != FileSystemEntityType.notFound) {
-      throw const FileSystemException('Unsafe memory file target');
+    final bytes = _encodeMemoryFile(content);
+    final temporary = File(
+      '$directoryPath${Platform.pathSeparator}.$fileName.'
+      '${DateTime.now().microsecondsSinceEpoch}.${identityHashCode(this)}.tmp',
+    );
+    try {
+      await temporary.writeAsBytes(bytes, flush: true);
+      // Dart has no portable no-follow open. Revalidate immediately before an
+      // atomic replacement so the checked target is never reopened or followed.
+      final type = await FileSystemEntity.type(file.path, followLinks: false);
+      if (type != FileSystemEntityType.file &&
+          type != FileSystemEntityType.notFound) {
+        throw const FileSystemException('Unsafe memory file target');
+      }
+      await temporary.rename(file.path);
+    } finally {
+      if (await temporary.exists()) await temporary.delete();
     }
-    await file.writeAsString(content, flush: true);
   }
 }
 
@@ -160,20 +186,27 @@ class SafMemoryFileStore implements MemoryFileStore {
   Lock get _lock => _directoryLocks.putIfAbsent(directoryUri, Lock.new);
 
   @override
-  Future<String> read(String fileName) =>
-      transaction((files) => files.read(fileName));
+  Future<String> read(String fileName) {
+    _validateFileName(fileName);
+    return transaction((files) => files.read(fileName));
+  }
 
   @override
-  Future<void> write(String fileName, String content) =>
-      transaction((files) => files.write(fileName, content));
+  Future<void> write(String fileName, String content) {
+    _validateFileName(fileName);
+    return transaction((files) => files.write(fileName, content));
+  }
 
   @override
   Future<T> transaction<T>(
     Future<T> Function(MemoryFileTransaction files) action,
   ) {
-    return _lock.synchronized(
-      () => action(_SafMemoryFileTransaction(directoryUri, _access)),
-    );
+    return _lock.synchronized(() async {
+      final documents = await _access.list(directoryUri);
+      return action(
+        _SafMemoryFileTransaction(directoryUri, _access, documents),
+      );
+    });
   }
 
   @override
@@ -199,22 +232,20 @@ class SafMemoryFileStore implements MemoryFileStore {
 }
 
 class _SafMemoryFileTransaction implements MemoryFileTransaction {
-  const _SafMemoryFileTransaction(this.directoryUri, this.access);
+  _SafMemoryFileTransaction(this.directoryUri, this.access, this.documents);
 
   final String directoryUri;
   final SafMemoryAccess access;
+  final List<SafMemoryDocument> documents;
 
   @override
   Future<String> read(String fileName) async {
     _validateFileName(fileName);
-    final documents = await access.list(directoryUri);
-    final matches = documents.where(
-      (document) => !document.isDirectory && document.name == fileName,
-    );
-    if (matches.length != 1) {
+    final matches = documents.where((document) => document.name == fileName);
+    if (matches.length != 1 || matches.single.isDirectory) {
       throw StateError('Memory file not found or ambiguous: $fileName');
     }
-    return utf8.decode(await access.read(matches.single.uri));
+    return _decodeMemoryFile(await access.read(matches.single.uri));
   }
 
   @override
@@ -223,10 +254,25 @@ class _SafMemoryFileTransaction implements MemoryFileTransaction {
     await access.write(
       directoryUri,
       fileName,
-      Uint8List.fromList(utf8.encode(content)),
+      _encodeMemoryFile(content),
       overwrite: true,
     );
   }
+}
+
+Uint8List _encodeMemoryFile(String content) {
+  final bytes = utf8.encode(content);
+  if (bytes.length > maxMemoryFileBytes) {
+    throw const FormatException('Memory file exceeds the size limit');
+  }
+  return Uint8List.fromList(bytes);
+}
+
+String _decodeMemoryFile(List<int> bytes) {
+  if (bytes.length > maxMemoryFileBytes) {
+    throw const FormatException('Memory file exceeds the size limit');
+  }
+  return utf8.decode(bytes, allowMalformed: false);
 }
 
 bool _isSafeMarkdownName(String fileName) =>

@@ -23,7 +23,6 @@ class AgentMetadataStore {
   Future<void> remove(String id) async {
     await _removeFlag(_hiddenKey, id);
     await _removeFlag(_favoriteKey, id);
-    if (selectedId == id) await setSelected(null);
   }
 
   Future<void> move(String from, String to) async {

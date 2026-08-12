@@ -90,7 +90,37 @@ class _MemoryBackupCardState extends ConsumerState<MemoryBackupCard> {
                 ),
                 key: const Key('memory-restore-preview'),
               ),
-              ...preview.files.keys.map((name) => Text(name)),
+              Text(
+                'memory.restoreWarning'.tr(),
+                key: const Key('memory-restore-warning'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              ...preview.files.entries.map(
+                (entry) => ExpansionTile(
+                  key: Key('memory-restore-file-${entry.key}'),
+                  title: Text(entry.key),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  children: [
+                    Text('memory.currentContent'.tr()),
+                    SelectableText(
+                      entry.value.current,
+                      key: Key('memory-restore-current-${entry.key}'),
+                    ),
+                    const SizedBox(height: 8),
+                    Text('memory.incomingContent'.tr()),
+                    SelectableText(
+                      entry.value.incoming,
+                      key: Key('memory-restore-incoming-${entry.key}'),
+                    ),
+                    const SizedBox(height: 8),
+                    Text('memory.exactDiff'.tr()),
+                    SelectableText(
+                      entry.value.diff,
+                      key: Key('memory-restore-diff-${entry.key}'),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 12),
               FilledButton(
                 key: const Key('memory-confirm-restore'),

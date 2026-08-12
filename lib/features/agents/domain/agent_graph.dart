@@ -42,61 +42,28 @@ class AgentGraphResolver {
   const AgentGraphResolver();
 
   AgentGraph resolve(AgentCatalog catalog) {
-    final byId = <String, AgentCatalogEntry>{};
-    final duplicateIds = <String>{};
-    for (final entry in catalog.agents) {
-      if (byId.containsKey(entry.definition.id)) {
-        duplicateIds.add(entry.definition.id);
-      } else {
-        byId[entry.definition.id] = entry;
-      }
-    }
-
+    final (:byId, :duplicateIds) = _indexAgents(catalog.agents);
     final issues = <AgentGraphIssue>[];
     final validPrimaries = <String, AgentCatalogEntry>{};
     final relations = <String, List<AgentCatalogEntry>>{};
     for (final entry in catalog.agents) {
       final definition = entry.definition;
-      if (definition.mode != AgentMode.primary ||
-          duplicateIds.contains(definition.id)) {
-        if (duplicateIds.contains(definition.id)) {
-          issues.add(
-            AgentGraphIssue(
-              agentId: definition.id,
-              message: 'Duplicate agent id: ${definition.id}',
-            ),
-          );
-        }
+      if (duplicateIds.contains(definition.id)) {
+        issues.add(
+          AgentGraphIssue(
+            agentId: definition.id,
+            message: 'Duplicate agent id: ${definition.id}',
+          ),
+        );
         continue;
       }
+      if (definition.mode != AgentMode.primary) continue;
 
-      final seen = <String>{};
-      final resolved = <AgentCatalogEntry>[];
-      String? invalid;
-      for (final subagentId in definition.subagents) {
-        if (!seen.add(subagentId)) {
-          invalid = 'Duplicate subagent relation: $subagentId';
-          break;
-        }
-        final target = byId[subagentId];
-        if (target == null || duplicateIds.contains(subagentId)) {
-          invalid = 'Missing or ambiguous subagent: $subagentId';
-          break;
-        }
-        if (target.isHidden) {
-          invalid = 'Hidden subagent: $subagentId';
-          break;
-        }
-        if (target.definition.mode != AgentMode.subagent) {
-          invalid = 'Referenced agent is not a subagent: $subagentId';
-          break;
-        }
-        if (_reaches(target.definition, definition.id, byId, <String>{})) {
-          invalid = 'Agent relation cycle through: $subagentId';
-          break;
-        }
-        resolved.add(target);
-      }
+      final (:resolved, :invalid) = _resolveRelations(
+        definition,
+        byId,
+        duplicateIds,
+      );
       if (invalid != null) {
         issues.add(AgentGraphIssue(agentId: definition.id, message: invalid));
         continue;
@@ -114,6 +81,65 @@ class AgentGraphResolver {
       issues: issues,
       selectedPrimaryId: selected,
     );
+  }
+
+  ({Map<String, AgentCatalogEntry> byId, Set<String> duplicateIds})
+  _indexAgents(List<AgentCatalogEntry> agents) {
+    final byId = <String, AgentCatalogEntry>{};
+    final duplicateIds = <String>{};
+    for (final entry in agents) {
+      if (byId.containsKey(entry.definition.id)) {
+        duplicateIds.add(entry.definition.id);
+      } else {
+        byId[entry.definition.id] = entry;
+      }
+    }
+    return (byId: byId, duplicateIds: duplicateIds);
+  }
+
+  ({List<AgentCatalogEntry> resolved, String? invalid}) _resolveRelations(
+    AgentDefinition definition,
+    Map<String, AgentCatalogEntry> byId,
+    Set<String> duplicateIds,
+  ) {
+    final seen = <String>{};
+    final resolved = <AgentCatalogEntry>[];
+    for (final subagentId in definition.subagents) {
+      final invalid = _validateRelation(
+        subagentId,
+        definition.id,
+        seen,
+        byId,
+        duplicateIds,
+      );
+      if (invalid != null) return (resolved: resolved, invalid: invalid);
+      resolved.add(byId[subagentId]!);
+    }
+    return (resolved: resolved, invalid: null);
+  }
+
+  String? _validateRelation(
+    String subagentId,
+    String primaryId,
+    Set<String> seen,
+    Map<String, AgentCatalogEntry> byId,
+    Set<String> duplicateIds,
+  ) {
+    if (!seen.add(subagentId)) {
+      return 'Duplicate subagent relation: $subagentId';
+    }
+    final target = byId[subagentId];
+    if (target == null || duplicateIds.contains(subagentId)) {
+      return 'Missing or ambiguous subagent: $subagentId';
+    }
+    if (target.isHidden) return 'Hidden subagent: $subagentId';
+    if (target.definition.mode != AgentMode.subagent) {
+      return 'Referenced agent is not a subagent: $subagentId';
+    }
+    if (_reaches(target.definition, primaryId, byId, <String>{})) {
+      return 'Agent relation cycle through: $subagentId';
+    }
+    return null;
   }
 
   bool _reaches(

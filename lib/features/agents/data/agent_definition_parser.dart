@@ -147,35 +147,9 @@ class AgentDefinitionParser {
       if (line.trim().isEmpty || line.trimLeft().startsWith('#')) continue;
       final keyMatch = _keyLine.firstMatch(line);
       if (keyMatch != null) {
-        if (activeList != null && !activeListHasEntries) {
-          throw AgentDefinitionFormatException(
-            '$activeList must contain at least one list entry',
-          );
-        }
-        final key = keyMatch.group(1)!;
-        if (!keys.add(key)) {
-          throw AgentDefinitionFormatException(
-            'Duplicate frontmatter field: $key',
-          );
-        }
-        final value = keyMatch.group(2)!.trimLeft();
-        if (_listKeys.contains(key)) {
-          if (value.isNotEmpty) {
-            throw AgentDefinitionFormatException(
-              '$key must use an indented block list',
-            );
-          }
-          activeList = key;
-          activeListHasEntries = false;
-        } else {
-          if (value.isEmpty) {
-            throw AgentDefinitionFormatException(
-              '$key must use a single-line scalar value',
-            );
-          }
-          _validateScalarSyntax(value);
-          activeList = null;
-        }
+        _requirePopulatedList(activeList, activeListHasEntries);
+        activeList = _validateKeyLine(keyMatch, keys);
+        activeListHasEntries = false;
         continue;
       }
       final listMatch = _listLine.firstMatch(line);
@@ -188,7 +162,34 @@ class AgentDefinitionParser {
         'Unsupported frontmatter syntax: ${line.trim()}',
       );
     }
-    if (activeList != null && !activeListHasEntries) {
+    _requirePopulatedList(activeList, activeListHasEntries);
+  }
+
+  String? _validateKeyLine(RegExpMatch keyMatch, Set<String> keys) {
+    final key = keyMatch.group(1)!;
+    if (!keys.add(key)) {
+      throw AgentDefinitionFormatException('Duplicate frontmatter field: $key');
+    }
+    final value = keyMatch.group(2)!.trimLeft();
+    if (_listKeys.contains(key)) {
+      if (value.isNotEmpty) {
+        throw AgentDefinitionFormatException(
+          '$key must use an indented block list',
+        );
+      }
+      return key;
+    }
+    if (value.isEmpty) {
+      throw AgentDefinitionFormatException(
+        '$key must use a single-line scalar value',
+      );
+    }
+    _validateScalarSyntax(value);
+    return null;
+  }
+
+  void _requirePopulatedList(String? activeList, bool hasEntries) {
+    if (activeList != null && !hasEntries) {
       throw AgentDefinitionFormatException(
         '$activeList must contain at least one list entry',
       );

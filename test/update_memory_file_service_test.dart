@@ -127,31 +127,19 @@ void main() {
     );
   });
 
-  test('audit failure rolls back the target update', () async {
+  test('audit failure after target apply is finalized as committed', () async {
     final preview = await service.preparePreview(
       'user_profile.md',
       '# User\nnew\n',
     );
-    boundary.failWriteNumber = 3;
+    boundary.failWriteNumber = 2;
 
-    await expectLater(
-      service.apply(
-        confirmationToken: preview.confirmationToken,
-        version: preview.version,
-      ),
-      throwsA(
-        isA<MemoryAuditException>().having(
-          (error) => error.rollbackSucceeded,
-          'rollbackSucceeded',
-          isTrue,
-        ),
-      ),
+    await service.apply(
+      confirmationToken: preview.confirmationToken,
+      version: preview.version,
     );
-    expect(boundary.files['user_profile.md'], '# User\nold\n');
-    expect(boundary.files['memory_log.md'], contains('"status":"pending"'));
-    boundary.failWriteNumber = null;
-    await service.recover();
-    expect(boundary.files['memory_log.md'], contains('"status":"failed"'));
+    expect(boundary.files['user_profile.md'], '# User\nnew\n');
+    expect(boundary.files['memory_log.md'], contains('"status":"committed"'));
   });
 
   test(
@@ -166,11 +154,7 @@ void main() {
         version: preview.version,
       );
 
-      expect(boundary.writes, [
-        'memory_log.md',
-        'project_context.md',
-        'memory_log.md',
-      ]);
+      expect(boundary.writes, ['project_context.md', 'memory_log.md']);
       final logLines = boundary.files['memory_log.md']!.trim().split('\n');
       final entry = jsonDecode(logLines.last) as Map<String, dynamic>;
       expect(entry['event'], 'update_memory_file');
@@ -257,12 +241,12 @@ void main() {
     },
   );
 
-  test('failed commit audit never overwrites an intervening edit', () async {
+  test('partial target failure never overwrites an intervening edit', () async {
     final preview = await service.preparePreview(
       'user_profile.md',
       '# User\nnew\n',
     );
-    boundary.failWriteNumber = 3;
+    boundary.failWriteNumber = 1;
     boundary.onFailedWrite = () {
       boundary.files['user_profile.md'] = '# User\nintervening\n';
     };
@@ -287,24 +271,23 @@ void main() {
     );
   });
 
-  test('partial committed audit write is recovered as success', () async {
+  test('audit mirror failure after durable apply is finalized once', () async {
     final preview = await service.preparePreview(
       'user_profile.md',
       '# User\nnew\n',
     );
-    boundary.failAfterWriteNumber = 3;
+    boundary.failAfterWriteNumber = 2;
 
-    final result = await service.apply(
+    await service.apply(
       confirmationToken: preview.confirmationToken,
       version: preview.version,
     );
 
-    expect(result.version, isNot(preview.version));
     expect(boundary.files['user_profile.md'], '# User\nnew\n');
     expect(boundary.files['memory_log.md'], contains('"status":"committed"'));
     expect(
-      boundary.files['memory_log.md'],
-      isNot(contains('"status":"failed"')),
+      '"status":"committed"'.allMatches(boundary.files['memory_log.md']!),
+      hasLength(1),
     );
   });
 

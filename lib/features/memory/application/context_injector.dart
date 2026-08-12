@@ -1,7 +1,7 @@
 import '../../chat/domain/chat_message.dart';
 
 abstract interface class MemoryContextSource {
-  Future<String?> read(String fileName);
+  Future<Map<String, String>> readSnapshot(Iterable<String> fileNames);
 }
 
 abstract interface class AgentPromptSource {
@@ -33,8 +33,10 @@ class ContextInjector {
       sections.add('<active_agent>\n${agentPrompt.trim()}\n</active_agent>');
     }
     final selected = Set<String>.unmodifiable(_selectedMemoryFiles());
-    for (final fileName in orderedMemoryFiles.where(selected.contains)) {
-      final content = await _memorySource.read(fileName);
+    final names = orderedMemoryFiles.where(selected.contains).toList();
+    final memory = await _memorySource.readSnapshot(names);
+    for (final fileName in names) {
+      final content = memory[fileName];
       if (content != null && content.trim().isNotEmpty) {
         sections.add(
           '<memory_file name="$fileName">\n${content.trim()}\n</memory_file>',

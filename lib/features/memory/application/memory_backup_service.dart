@@ -12,7 +12,6 @@ class MemoryBackupService {
   }) : _codec = codec,
        _now = now ?? DateTime.now;
 
-  static const documentExtension = MemoryBackupCodec.documentExtension;
   static const maxFileBytes = MemoryBackupCodec.maxFileBytes;
   static const maxDocumentBytes = MemoryBackupCodec.maxDocumentBytes;
 
@@ -37,12 +36,39 @@ class MemoryBackupService {
     );
   }
 
-  Future<void> restore(MemoryRestorePayload payload, String operationId) =>
-      _mutations.mutate(
-        event: 'restore_memory_backup',
-        replacements: payload.files,
-        operationId: operationId,
+  Future<MemoryRestorePreview> preparePreview(
+    MemoryRestorePayload payload,
+    String confirmationToken,
+  ) => _boundary.transaction((files) async {
+    final previews = <String, MemoryRestoreFilePreview>{};
+    for (final entry in payload.files.entries) {
+      final current = await files.read(entry.key);
+      previews[entry.key] = MemoryRestoreFilePreview(
+        current: current,
+        incoming: entry.value,
+        diff: _buildDiff(entry.key, current, entry.value),
+        currentVersion: checksum(current),
       );
+    }
+    return MemoryRestorePreview(
+      confirmationToken: confirmationToken,
+      files: previews,
+      totalBytes: payload.totalBytes,
+    );
+  });
+
+  Future<void> restore(
+    MemoryRestorePayload payload,
+    MemoryRestorePreview preview,
+  ) => _mutations.mutate(
+    event: 'restore_memory_backup',
+    replacements: payload.files,
+    expectedVersions: {
+      for (final entry in preview.files.entries)
+        entry.key: entry.value.currentVersion,
+    },
+    operationId: preview.confirmationToken,
+  );
 }
 
 class MemoryRestorePayload {
@@ -57,12 +83,32 @@ class MemoryRestorePayload {
 class MemoryRestorePreview {
   MemoryRestorePreview({
     required this.confirmationToken,
-    required Map<String, String> files,
+    required Map<String, MemoryRestoreFilePreview> files,
     required this.totalBytes,
   }) : files = Map.unmodifiable(Map.of(files));
   final String confirmationToken;
-  final Map<String, String> files;
+  final Map<String, MemoryRestoreFilePreview> files;
   final int totalBytes;
+}
+
+class MemoryRestoreFilePreview {
+  const MemoryRestoreFilePreview({
+    required this.current,
+    required this.incoming,
+    required this.diff,
+    required this.currentVersion,
+  });
+
+  final String current;
+  final String incoming;
+  final String diff;
+  final String currentVersion;
+}
+
+String _buildDiff(String fileName, String before, String after) {
+  final beforeLines = before.split('\n');
+  final afterLines = after.split('\n');
+  return '${['--- current/$fileName', '+++ incoming/$fileName', ...beforeLines.map((line) => '-$line'), ...afterLines.map((line) => '+$line')].join('\n')}\n';
 }
 
 class UnknownMemoryRestoreException implements Exception {

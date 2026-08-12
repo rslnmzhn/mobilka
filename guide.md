@@ -155,3 +155,12 @@
 ### 6.6. Конфликты параллельной записи в файлы памяти (`.md`)
 - **Проблема**: Если несколько агентов или процессов попытаются одновременно обновить `user_profile.md`, возможна потеря данных или блокировка файла.
 - **Архитектурное решение**: Реализовать асинхронную очередь с блокировкой (Async Mutex / Lock) в `MemoryManager`, гарантирующую последовательную запись в `.md` файлы.
+# Desktop memory file safety
+
+Dart does not expose a portable no-follow regular-file open. Desktop memory
+writes therefore use same-directory temporary files and atomic replacement
+under a canonical-directory lock. The destination is revalidated with
+`followLinks: false` immediately before rename, and links or non-files are
+rejected. Adversarial replacement tests cover a link substituted at the final
+replacement boundary. This protects app-mediated concurrent access; processes
+outside the app do not participate in the in-process directory lock.

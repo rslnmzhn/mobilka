@@ -12,21 +12,36 @@ import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
 
 void main() {
-  test('state owns raw payload and an immutable preview', () async {
-    final fixture = _Fixture(['first']);
-    addTearDown(fixture.dispose);
+  test(
+    'state exposes exact immutable current, incoming, and diff content',
+    () async {
+      final fixture = _Fixture(['first']);
+      addTearDown(fixture.dispose);
 
-    await fixture.controller.chooseRestore();
-    final state = fixture.container.read(memoryBackupControllerProvider);
+      await fixture.controller.chooseRestore();
+      final state = fixture.container.read(memoryBackupControllerProvider);
 
-    expect(state.hasPendingRestore, isTrue);
-    expect(state.payload!.files['user_profile.md'], 'first');
-    expect(state.preview!.files['user_profile.md'], 'first');
-    expect(
-      () => state.preview!.files['user_profile.md'] = 'changed',
-      throwsUnsupportedError,
-    );
-  });
+      expect(state.hasPendingRestore, isTrue);
+      expect(state.payload!.files['user_profile.md'], 'first');
+      final file = state.preview!.files['user_profile.md']!;
+      expect(file.current, MemoryRepository.templates['user_profile.md']);
+      expect(file.incoming, 'first');
+      expect(
+        file.diff,
+        '--- current/user_profile.md\n'
+        '+++ incoming/user_profile.md\n'
+        '-# User Profile\n'
+        '-\n'
+        '-Add stable facts and preferences here.\n'
+        '-\n'
+        '+first\n',
+      );
+      expect(
+        () => state.preview!.files['user_profile.md'] = file,
+        throwsUnsupportedError,
+      );
+    },
+  );
 
   test('replacement makes only the latest restore confirmable', () async {
     final fixture = _Fixture(['first', 'second']);

@@ -1,74 +1,100 @@
-import 'dart:io';
+import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
+import 'package:mobilka/features/memory/application/memory_recovery_journal.dart';
 import 'package:mobilka/features/memory/data/context_sources.dart';
+import 'package:mobilka/features/memory/data/memory_file_store.dart';
+import 'package:mobilka/features/memory/data/memory_repository.dart';
+import 'package:saf/saf.dart';
 
 void main() {
-  late Directory hiveDirectory;
-  late Directory memoryDirectory;
-
-  setUp(() async {
-    hiveDirectory = await Directory.systemTemp.createTemp('mobilka-hive-');
-    memoryDirectory = await Directory.systemTemp.createTemp('mobilka-context-');
-    Hive.init(hiveDirectory.path);
-    await Hive.openBox<dynamic>('preferences');
-  });
-
-  tearDown(() async {
-    await Hive.close();
-    await hiveDirectory.delete(recursive: true);
-    await memoryDirectory.delete(recursive: true);
-  });
-
-  test('reads desktop memory files without owning selection', () async {
-    await File(
-      '${memoryDirectory.path}${Platform.pathSeparator}user_profile.md',
-    ).writeAsString('Profile');
-    await Hive.box<dynamic>(
-      'preferences',
-    ).put('memoryLocation', memoryDirectory.path);
-    await Hive.box<dynamic>('preferences').put('memoryLocationIsUri', false);
-    final source = StoredMemoryContextSource(_SafReader());
-
-    expect(await source.read('user_profile.md'), 'Profile');
-    expect(await source.read('memory_log.md'), isNull);
-  });
-
-  test('uses SAF adapter for content URI locations', () async {
-    await Hive.box<dynamic>(
-      'preferences',
-    ).put('memoryLocation', 'content://folder');
-    await Hive.box<dynamic>('preferences').put('memoryLocationIsUri', true);
-    final reader = _SafReader(value: 'Log');
-    final source = StoredMemoryContextSource(reader);
-
-    expect(await source.read('memory_log.md'), 'Log');
-    expect(reader.lastDirectory, 'content://folder');
-  });
-
-  test('loads active agent and tolerates missing asset', () async {
-    final source = AssetAgentPromptSource(
-      loader: (path) async => 'Agent: $path',
+  test('reads every selected file in one boundary snapshot', () async {
+    final boundary = _Boundary({
+      'user_profile.md': 'profile',
+      'project_context.md': 'project',
+    });
+    final source = StoredMemoryContextSource(
+      _Repository(boundary),
+      MemoryMutationCoordinator(boundary),
     );
-    expect(await source.readActivePrompt(), contains('general-assistant.md'));
 
-    final missing = AssetAgentPromptSource(
-      loader: (_) => throw FlutterError('missing'),
+    expect(
+      await source.readSnapshot(['user_profile.md', 'project_context.md']),
+      {'user_profile.md': 'profile', 'project_context.md': 'project'},
     );
-    expect(await missing.readActivePrompt(), isNull);
+    expect(boundary.transactions, 1);
+  });
+
+  test('context snapshot awaits journal recovery before reading', () async {
+    final boundary = _Boundary({
+      'user_profile.md': 'after',
+      'project_context.md': 'unrelated',
+      'memory_log.md': '# Log\n',
+    });
+    final journal = InMemoryMemoryRecoveryJournal();
+    await journal.write('operation', {
+      'operationId': 'operation',
+      'status': 'pending',
+      'terminalAuditWritten': false,
+      'previous': {
+        'user_profile.md': base64Encode(utf8.encode('before')),
+        'project_context.md': base64Encode(utf8.encode('project-before')),
+        'memory_log.md': base64Encode(utf8.encode('# Log\n')),
+      },
+      'beforeHashes': {
+        'user_profile.md': checksum('before'),
+        'project_context.md': checksum('project-before'),
+        'memory_log.md': checksum('# Log\n'),
+      },
+      'afterHashes': {
+        'user_profile.md': checksum('after'),
+        'project_context.md': checksum('project-after'),
+      },
+    });
+    final source = StoredMemoryContextSource(
+      _Repository(boundary),
+      MemoryMutationCoordinator(boundary, journal: journal),
+    );
+
+    expect(await source.readSnapshot(['user_profile.md']), {
+      'user_profile.md': 'before',
+    });
+    expect(boundary.transactions, 1);
+    expect(await journal.readAll(), isEmpty);
   });
 }
 
-class _SafReader implements SafMemoryReader {
-  _SafReader({this.value});
-  final String? value;
-  String? lastDirectory;
+class _Repository extends MemoryRepository {
+  _Repository(this.boundary) : super(Saf());
+  final MemoryFileBoundary boundary;
 
   @override
-  Future<String?> readChild(String directoryUri, String fileName) async {
-    lastDirectory = directoryUri;
-    return value;
+  MemoryLocation? savedLocation() =>
+      const MemoryLocation(value: 'test', isContentUri: false);
+
+  @override
+  MemoryFileBoundary boundaryFor(MemoryLocation location) => boundary;
+}
+
+class _Boundary implements MemoryFileBoundary, MemoryFileTransaction {
+  _Boundary(this.files);
+  final Map<String, String> files;
+  int transactions = 0;
+
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function(MemoryFileTransaction files) action,
+  ) async {
+    transactions++;
+    return action(this);
+  }
+
+  @override
+  Future<String> read(String fileName) async => files[fileName]!;
+
+  @override
+  Future<void> write(String fileName, String content) async {
+    files[fileName] = content;
   }
 }

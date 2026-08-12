@@ -48,11 +48,7 @@ class MemoryBackupController extends _$MemoryBackupController {
     if (document == null) return null;
     final payload = _service.decodeRestore(document);
     final token = _token();
-    final preview = MemoryRestorePreview(
-      confirmationToken: token,
-      files: payload.files,
-      totalBytes: payload.totalBytes,
-    );
+    final preview = await _service.preparePreview(payload, token);
     state = MemoryBackupState.pending(payload: payload, preview: preview);
     return preview;
   }
@@ -63,10 +59,7 @@ class MemoryBackupController extends _$MemoryBackupController {
       throw const UnknownMemoryRestoreException();
     }
     state = const MemoryBackupState.empty();
-    await _service.restore(
-      pending.payload!,
-      pending.preview!.confirmationToken,
-    );
+    await _service.restore(pending.payload!, pending.preview!);
   }
 
   void cancelRestore() => state = const MemoryBackupState.empty();

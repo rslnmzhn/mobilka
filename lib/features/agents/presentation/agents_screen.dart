@@ -36,8 +36,10 @@ class AgentsScreen extends ConsumerWidget {
       ),
       body: state.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) =>
-            _ErrorView(error: error, onRetry: controller.refresh),
+        error: (error, _) => _ErrorView(
+          error: error,
+          onRetry: () => ref.invalidate(agentsControllerProvider),
+        ),
         data: (catalog) => _AgentList(catalog: catalog, controller: controller),
       ),
       floatingActionButton: MediaQuery.sizeOf(context).width < 600

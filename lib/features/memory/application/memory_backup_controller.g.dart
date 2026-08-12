@@ -7,7 +7,7 @@ part of 'memory_backup_controller.dart';
 // **************************************************************************
 
 String _$memoryBackupControllerHash() =>
-    r'c26a4d413a430f2a8ffb08b54bba151cabbb458a';
+    r'b669144a619e0998422d0bae7a90155f6a396bb1';
 
 /// See also [MemoryBackupController].
 @ProviderFor(MemoryBackupController)

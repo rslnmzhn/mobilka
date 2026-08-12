@@ -38,6 +38,22 @@ final agentMetadataServiceProvider = Provider<AgentMetadataService>.internal(
 );
 
 typedef AgentMetadataServiceRef = ProviderRef<AgentMetadataService>;
+String _$agentMetadataStoreHash() =>
+    r'1d47f3500b56cbd1f86e32b35a265670e75f8e5e';
+
+/// See also [agentMetadataStore].
+@ProviderFor(agentMetadataStore)
+final agentMetadataStoreProvider = Provider<AgentMetadataStore>.internal(
+  agentMetadataStore,
+  name: r'agentMetadataStoreProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$agentMetadataStoreHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
+
+typedef AgentMetadataStoreRef = ProviderRef<AgentMetadataStore>;
 String _$agentImportPickerHash() => r'e6bd03a5c2b644b90e6781424a12fb40243ef18d';
 
 /// See also [agentImportPicker].
@@ -54,7 +70,7 @@ final agentImportPickerProvider = Provider<AgentImportPicker>.internal(
 
 typedef AgentImportPickerRef = ProviderRef<AgentImportPicker>;
 String _$selectedAgentPromptAdapterHash() =>
-    r'94a222b77c96712a687af0f65f2771cd51db4d1d';
+    r'6c6ba800bc12ddbf2467398a276c52403007b025';
 
 /// See also [selectedAgentPromptAdapter].
 @ProviderFor(selectedAgentPromptAdapter)
@@ -70,12 +86,12 @@ final selectedAgentPromptAdapterProvider =
     );
 
 typedef SelectedAgentPromptAdapterRef = ProviderRef<SelectedAgentPromptAdapter>;
-String _$agentsControllerHash() => r'24da8d92ea34c4a685e8593344e7c431b40702c4';
+String _$agentsControllerHash() => r'b72df854c6efabd6a14bb3bc30be0a83a56936cd';
 
 /// See also [AgentsController].
 @ProviderFor(AgentsController)
 final agentsControllerProvider =
-    AutoDisposeAsyncNotifierProvider<AgentsController, AgentCatalog>.internal(
+    AsyncNotifierProvider<AgentsController, AgentCatalog>.internal(
       AgentsController.new,
       name: r'agentsControllerProvider',
       debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
@@ -85,6 +101,6 @@ final agentsControllerProvider =
       allTransitiveDependencies: null,
     );
 
-typedef _$AgentsController = AutoDisposeAsyncNotifier<AgentCatalog>;
+typedef _$AgentsController = AsyncNotifier<AgentCatalog>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member

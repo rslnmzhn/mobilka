@@ -10,12 +10,14 @@ import 'package:mobilka/features/agents/domain/agent_catalog.dart';
 void main() {
   late Directory root;
   late AgentMetadataService service;
+  late AgentMetadataStore store;
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('agent-metadata-');
     Hive.init(root.path);
     await Hive.openBox<dynamic>('preferences');
-    service = const AgentMetadataService(AgentMetadataStore());
+    store = const AgentMetadataStore();
+    service = AgentMetadataService(store);
   });
   tearDown(() async {
     await Hive.close();
@@ -26,20 +28,26 @@ void main() {
     'metadata store exclusively overlays hidden and favorite state',
     () async {
       final discovery = result();
-      var catalog = await service.compose(discovery);
+      var catalog = service.compose(discovery, null);
       await service.setFavorite(catalog, 'writer', true);
-      await service.select(catalog, 'writer');
+      await store.setSelected('writer');
       await service.setHidden(catalog, 'writer', true);
 
-      catalog = await service.compose(discovery);
+      catalog = service.compose(discovery, store.selectedId);
       final writer = catalog.agents.singleWhere(
         (e) => e.definition.id == 'writer',
       );
       expect(writer.isFavorite, isTrue);
       expect(writer.isHidden, isTrue);
-      expect(catalog.selectedId, isNull);
+      expect(catalog.selectedId, 'writer');
     },
   );
+
+  test('compose never initializes or repairs selection', () async {
+    final catalog = service.compose(result(), 'missing');
+    expect(catalog.selectedId, 'missing');
+    expect(store.hasSelectedValue, isFalse);
+  });
 }
 
 AgentDiscoveryResult result() {

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/memory/application/memory_controller.dart';
+import 'package:mobilka/features/memory/application/memory_backup_controller.dart';
+import 'package:mobilka/features/memory/application/memory_backup_service.dart';
 import 'package:mobilka/features/memory/application/memory_file_editor.dart';
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
 import 'package:mobilka/features/memory/application/memory_selection_controller.dart';
@@ -9,9 +11,51 @@ import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
 import 'package:mobilka/features/memory/data/memory_selection_store.dart';
 import 'package:mobilka/features/memory/presentation/memory_editor_sheet.dart';
+import 'package:mobilka/features/memory/presentation/memory_backup_card.dart';
 import 'package:mobilka/features/memory/presentation/memory_screen.dart';
 
 void main() {
+  testWidgets('restore UI exposes exact reviewed content before confirmation', (
+    tester,
+  ) async {
+    const current = 'current profile';
+    const incoming = 'incoming profile';
+    const diff = '--- current/user_profile.md\n+++ incoming/user_profile.md\n';
+    final preview = MemoryRestorePreview(
+      confirmationToken: 'token',
+      files: const {
+        'user_profile.md': MemoryRestoreFilePreview(
+          current: current,
+          incoming: incoming,
+          diff: diff,
+          currentVersion: 'version',
+        ),
+      },
+      totalBytes: incoming.length,
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          memoryBackupControllerProvider.overrideWith(
+            () => _PreviewBackupController(preview),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: MemoryBackupCard(enabled: true)),
+        ),
+      ),
+    );
+    await tester.tap(
+      find.byKey(const Key('memory-restore-file-user_profile.md')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(current), findsOneWidget);
+    expect(find.text(incoming), findsOneWidget);
+    expect(find.text(diff), findsOneWidget);
+    expect(find.byKey(const Key('memory-confirm-restore')), findsOneWidget);
+  });
+
   test(
     'selection controller persists toggles and restores state on failure',
     () async {
@@ -156,31 +200,37 @@ void main() {
     expect(boundary.files['user_profile.md'], 'changed elsewhere');
   });
 
-  test('manual edit rolls back when journal commit fails', () async {
+  test('manual edit finalizes when audit initially fails', () async {
     final boundary = _Boundary(Map.of(MemoryRepository.templates));
     final editor = MemoryFileEditor(
       boundary,
       MemoryMutationCoordinator(boundary),
     );
     final snapshot = await editor.read('user_profile.md');
-    boundary.failWriteNumber = 3;
+    boundary.failWriteNumber = 2;
 
-    await expectLater(
-      editor.save(
-        'user_profile.md',
-        'edited',
-        expectedVersion: snapshot.version,
-      ),
-      throwsA(
-        isA<MemoryMutationException>().having(
-          (error) => error.rollbackSucceeded,
-          'rollbackSucceeded',
-          isTrue,
-        ),
-      ),
+    await editor.save(
+      'user_profile.md',
+      'edited',
+      expectedVersion: snapshot.version,
     );
-    expect(boundary.files['user_profile.md'], snapshot.content);
+    expect(boundary.files['user_profile.md'], 'edited');
+    expect(boundary.files['memory_log.md'], contains('"status":"committed"'));
   });
+}
+
+class _PreviewBackupController extends MemoryBackupController {
+  _PreviewBackupController(this.preview);
+  final MemoryRestorePreview preview;
+
+  @override
+  MemoryBackupState build() => MemoryBackupState.pending(
+    payload: MemoryRestorePayload(
+      files: const {'user_profile.md': 'incoming profile'},
+      totalBytes: 'incoming profile'.length,
+    ),
+    preview: preview,
+  );
 }
 
 class _MemoryLocationController extends MemoryController {

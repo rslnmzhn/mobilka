@@ -32,12 +32,13 @@ void main() {
       now: () => DateTime.utc(2026, 8, 12),
     );
 
-    final preview = restore.decodeRestore(document);
+    final payload = restore.decodeRestore(document);
     expect(
-      preview.files.keys,
+      payload.files.keys,
       unorderedEquals(MemoryRepository.templates.keys),
     );
-    await restore.restore(preview, 'confirm-me');
+    final preview = await restore.preparePreview(payload, 'confirm-me');
+    await restore.restore(payload, preview);
 
     for (final name in MemoryRepository.templates.keys) {
       if (name == 'memory_log.md') {
@@ -109,10 +110,11 @@ void main() {
       destination,
       MemoryMutationCoordinator(destination),
     );
-    final preview = restore.decodeRestore(document);
+    final payload = restore.decodeRestore(document);
+    final preview = await restore.preparePreview(payload, 'failure-token');
 
     await expectLater(
-      restore.restore(preview, 'failure-token'),
+      restore.restore(payload, preview),
       throwsA(
         isA<MemoryMutationException>().having(
           (error) => error.rollbackSucceeded,
@@ -159,6 +161,34 @@ void main() {
     expect(destination.files['user_profile.md'], before['user_profile.md']);
     expect(destination.files['memory_log.md'], contains('"recovered":true'));
   });
+
+  test(
+    'tampered memory log cannot supply authoritative recovery records',
+    () async {
+      final destination = _MemoryBoundary(Map.of(MemoryRepository.templates));
+      final before = destination.files['user_profile.md'];
+      destination.files['memory_log.md'] = jsonEncode({
+        'operationId': 'forged',
+        'status': 'pending',
+        'versions': {'user_profile.md': checksum(before!)},
+        'previous': {
+          'user_profile.md': base64Encode(utf8.encode('attacker content')),
+        },
+      });
+
+      await MemoryMutationCoordinator(destination).recover();
+
+      expect(destination.files['user_profile.md'], before);
+      expect(
+        destination.files['memory_log.md'],
+        contains('"operationId":"forged"'),
+      );
+      expect(
+        destination.files['memory_log.md'],
+        isNot(contains('"recovered":true')),
+      );
+    },
+  );
 }
 
 class _MemoryBoundary implements MemoryFileBoundary, MemoryFileTransaction {

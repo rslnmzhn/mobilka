@@ -43,6 +43,15 @@ class MemoryBackupCodec {
     if (utf8.encode(document).length > maxDocumentBytes) {
       throw const MemoryBackupFormatException('Backup document is too large');
     }
+    final decoded = _decodeDocument(document);
+    final (:files, :manifest) = _readPayload(decoded);
+    final expected = MemoryRepository.templates.keys.toSet();
+    _validateFileNames(files, expected);
+    final metadata = _readManifest(manifest, expected);
+    return Map.unmodifiable(_readFiles(files, metadata, expected));
+  }
+
+  Map<String, dynamic> _decodeDocument(String document) {
     final Object? decoded;
     try {
       decoded = jsonDecode(document);
@@ -54,16 +63,31 @@ class MemoryBackupCodec {
         decoded['version'] != version) {
       throw const MemoryBackupFormatException('Unsupported backup format');
     }
+    return decoded;
+  }
+
+  ({Map<String, dynamic> files, Map<String, dynamic> manifest}) _readPayload(
+    Map<String, dynamic> decoded,
+  ) {
     final files = decoded['files'];
     final manifest = decoded['manifest'];
     if (files is! Map<String, dynamic> || manifest is! Map<String, dynamic>) {
       throw const MemoryBackupFormatException('Missing files or manifest');
     }
-    final expected = MemoryRepository.templates.keys.toSet();
+    return (files: files, manifest: manifest);
+  }
+
+  void _validateFileNames(Map<String, dynamic> files, Set<String> expected) {
     final actual = files.keys.toSet();
     if (actual.length != expected.length || !actual.containsAll(expected)) {
       throw const MemoryBackupFormatException('Unsafe or missing memory file');
     }
+  }
+
+  Map<String, Map<String, dynamic>> _readManifest(
+    Map<String, dynamic> manifest,
+    Set<String> expected,
+  ) {
     final entries = manifest['files'];
     if (entries is! List || entries.length != expected.length) {
       throw const MemoryBackupFormatException('Malformed manifest');
@@ -79,6 +103,14 @@ class MemoryBackupCodec {
       }
       metadata[name] = entry;
     }
+    return metadata;
+  }
+
+  Map<String, String> _readFiles(
+    Map<String, dynamic> files,
+    Map<String, Map<String, dynamic>> metadata,
+    Set<String> expected,
+  ) {
     final result = <String, String>{};
     for (final name in expected) {
       final content = files[name];
@@ -96,7 +128,7 @@ class MemoryBackupCodec {
       }
       result[name] = content;
     }
-    return Map.unmodifiable(result);
+    return result;
   }
 }
 

@@ -67,6 +67,34 @@ void main() {
     await outside.delete();
   });
 
+  test('atomic replacement defeats target substitution before rename', () async {
+    final outside = File(
+      '${directory.parent.path}${Platform.pathSeparator}mobilka-race-outside.md',
+    );
+    await outside.writeAsString('outside');
+    final target = File(
+      '${directory.path}${Platform.pathSeparator}memory_log.md',
+    );
+    await target.writeAsString('inside');
+    final link = Link(target.path);
+    try {
+      await target.delete();
+      await link.create(outside.path);
+    } on FileSystemException {
+      if (await link.exists()) await link.delete();
+      await outside.delete();
+      return;
+    }
+
+    await expectLater(
+      store.write('memory_log.md', 'unsafe'),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(await outside.readAsString(), 'outside');
+    await link.delete();
+    await outside.delete();
+  });
+
   test(
     'SAF store reads exact children and overwrites through adapter',
     () async {
@@ -93,6 +121,31 @@ void main() {
       throwsFormatException,
     );
     expect(access.calls, 0);
+  });
+
+  test('SAF snapshot rejects duplicate file names', () async {
+    final access = _FakeSafMemoryAccess({'user_profile.md': 'profile'})
+      ..duplicateName = 'user_profile.md';
+    final safStore = SafMemoryFileStore('content://memory', access);
+
+    await expectLater(
+      safStore.transaction((files) => files.read('user_profile.md')),
+      throwsStateError,
+    );
+  });
+
+  test('rejects malformed UTF-8 and oversized reads', () async {
+    final malformed = _FakeSafMemoryAccess({'user_profile.md': 'profile'})
+      ..rawBytes = Uint8List.fromList([0xC3, 0x28]);
+    await expectLater(
+      SafMemoryFileStore('content://memory', malformed).read('user_profile.md'),
+      throwsFormatException,
+    );
+    malformed.rawBytes = Uint8List(maxMemoryFileBytes + 1);
+    await expectLater(
+      SafMemoryFileStore('content://memory', malformed).read('user_profile.md'),
+      throwsFormatException,
+    );
   });
 
   test('desktop transaction keeps reads and writes on one adapter', () async {
@@ -125,11 +178,13 @@ class _FakeSafMemoryAccess implements SafMemoryAccess {
   final Map<String, String> files;
   bool? lastOverwrite;
   int calls = 0;
+  String? duplicateName;
+  Uint8List? rawBytes;
 
   @override
   Future<List<SafMemoryDocument>> list(String directoryUri) async {
     calls++;
-    return files.keys
+    final documents = files.keys
         .map(
           (name) => SafMemoryDocument(
             uri: '$directoryUri/$name',
@@ -138,13 +193,23 @@ class _FakeSafMemoryAccess implements SafMemoryAccess {
           ),
         )
         .toList();
+    if (duplicateName case final name?) {
+      documents.add(
+        SafMemoryDocument(
+          uri: '$directoryUri/duplicate-$name',
+          name: name,
+          isDirectory: false,
+        ),
+      );
+    }
+    return documents;
   }
 
   @override
   Future<Uint8List> read(String documentUri) async {
     calls++;
     final fileName = documentUri.substring(documentUri.lastIndexOf('/') + 1);
-    return Uint8List.fromList(files[fileName]!.codeUnits);
+    return rawBytes ?? Uint8List.fromList(files[fileName]!.codeUnits);
   }
 
   @override

@@ -69,9 +69,12 @@ class _MemorySource implements MemoryContextSource {
   final Set<String> unreadable;
 
   @override
-  Future<String?> read(String fileName) async {
-    if (unreadable.contains(fileName)) return null;
-    return values[fileName];
+  Future<Map<String, String>> readSnapshot(Iterable<String> fileNames) async {
+    return {
+      for (final fileName in fileNames)
+        if (!unreadable.contains(fileName) && values[fileName] != null)
+          fileName: values[fileName]!,
+    };
   }
 }
 

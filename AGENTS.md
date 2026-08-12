@@ -13,7 +13,10 @@ format: dart format .
 - OpenAI-compatible endpoints may use explicitly user-configured HTTP or HTTPS; send bearer API keys using the configured scheme.
 - Automatic HTTP redirects must remain disabled whenever an `Authorization` header is present to prevent credential forwarding.
 - Hermes-style `.md` memory architecture is stored in the app sandbox or a user-chosen external folder, using an Android SAF package on Android and `file_selector` on desktop.
+- Manual edits, tool updates, and restores share an app-private Hive recovery journal and a single location transaction coordinator for memory mutations.
+- Context injection performs pending-memory recovery before taking one atomic snapshot of the selected memory files.
 - Current local persistence is Hive for chat history, favorites, model cache, and artifacts; retain Isar as a future architecture option and use `flutter_secure_storage` for API keys.
+- Agent catalog/controller state owns active-agent selection and user-authored agent files in the app sandbox.
 - The chat application separates model/catalog state in the catalog controller from request streaming lifecycle in the streaming coordinator.
 - Streaming coordination is bound to immutable conversation, request, and assistant-message IDs rather than mutable active-chat state.
 - UI paradigm: Streaming chat with collapsible tool-calling cards, theme presets, and slide-up bottom sheets for artifacts, memory files, and tool execution logs.
@@ -30,10 +33,12 @@ format: dart format .
 
 ## Business rules
 - Memory stored in human-readable Markdown files (`user_profile.md`, `project_context.md`, `system_instructions.md`, `memory_log.md`).
+- `memory_log.md` is a human-readable audit mirror; the app-private Hive journal is the recovery authority.
 - Context Injector must prepend `.md` memory files and active Agent system prompts into System Prompt before sending requests.
 - Agents update memory via `update_memory_file` tool calls.
 - User retains 100% full control and manual editing capabilities over memory files and agent prompt files.
-- Agents and subagents use dynamically discovered structured `.md` definitions with frontmatter for identity, mode, model preference, subagents, and tools; users can create, import, edit, and select them.
+- Agents use dynamically discovered structured `.md` definitions whose frontmatter declares identity, primary/subagent mode, model preference, subagents, and tools; users can create, import, edit, and select them.
+- Subagent delegation has bounded depth and does not mutate parent conversation history or memory.
 - OpenAI-compatible model discovery uses `/v1/models`; settings support model search, visibility, and favorites, while chat provides quick model selection.
 - Persist conversations, messages, and request lifecycle state in Hive before issuing network requests.
 - SSE completion requires an explicit terminal event; a stream that closes prematurely remains interrupted and retryable.
@@ -88,7 +93,7 @@ format: dart format .
 - Tool Calling Fallback Parser: Scan raw Markdown JSON blocks if model fails native tool_calls API.
 - File sharing: Use `open_file_plus`/`share_plus` and Android `FileProvider` / iOS security-scoped URLs.
 - Vision OOM prevention: Downscale/compress images before base64 encoding and transmission.
-- Memory file mutex: Use Async Mutex/Lock for all `.md` file writes in `MemoryManager`.
+- Memory mutation serialization: Route manual edits, tool updates, and restores through the shared location transaction coordinator rather than independent file locks.
 
 ## Blocked items
 - none
