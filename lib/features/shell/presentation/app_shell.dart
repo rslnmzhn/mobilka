@@ -8,31 +8,56 @@ class AppShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: shell,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: shell.currentIndex,
-        onDestinationSelected: (index) =>
-            shell.goBranch(index, initialLocation: index == shell.currentIndex),
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.chat_bubble_outline),
-            label: 'nav.chat'.tr(),
+    final destinations = [
+      (Icons.chat_bubble_outline, 'nav.chat'.tr()),
+      (Icons.hub_outlined, 'nav.models'.tr()),
+      (Icons.smart_toy_outlined, 'nav.agents'.tr()),
+      (Icons.folder_copy_outlined, 'nav.memory'.tr()),
+      (Icons.tune, 'nav.settings'.tr()),
+    ];
+    void select(int index) =>
+        shell.goBranch(index, initialLocation: index == shell.currentIndex);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 840) {
+          return Scaffold(
+            body: Row(
+              children: [
+                NavigationRail(
+                  selectedIndex: shell.currentIndex,
+                  onDestinationSelected: select,
+                  labelType: NavigationRailLabelType.all,
+                  destinations: destinations
+                      .map(
+                        (destination) => NavigationRailDestination(
+                          icon: Icon(destination.$1),
+                          label: Text(destination.$2),
+                        ),
+                      )
+                      .toList(),
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: shell),
+              ],
+            ),
+          );
+        }
+        return Scaffold(
+          body: shell,
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: shell.currentIndex,
+            onDestinationSelected: select,
+            destinations: destinations
+                .map(
+                  (destination) => NavigationDestination(
+                    icon: Icon(destination.$1),
+                    label: destination.$2,
+                  ),
+                )
+                .toList(),
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.hub_outlined),
-            label: 'nav.models'.tr(),
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.folder_copy_outlined),
-            label: 'nav.memory'.tr(),
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.tune),
-            label: 'nav.settings'.tr(),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

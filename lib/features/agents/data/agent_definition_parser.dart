@@ -26,8 +26,6 @@ class AgentDefinitionParser {
     'model_preference',
     'subagents',
     'tools',
-    'hidden',
-    'favorite',
   };
   static const _listKeys = {'subagents', 'tools'};
 
@@ -103,8 +101,6 @@ class AgentDefinitionParser {
       modelPreference: modelPreference,
       subagents: List.unmodifiable(subagents),
       tools: List.unmodifiable(tools),
-      isHidden: _optionalBool(values, 'hidden'),
-      isFavorite: _optionalBool(values, 'favorite'),
       prompt: source.substring(closing.bodyStart),
     );
   }
@@ -259,15 +255,6 @@ class AgentDefinitionParser {
       result.add(id);
     }
     return result;
-  }
-
-  bool _optionalBool(Map<Object?, Object?> values, String key) {
-    final value = values[key];
-    if (value == null) return false;
-    if (value is! bool) {
-      throw AgentDefinitionFormatException('$key must be a boolean');
-    }
-    return value;
   }
 
   void _requireSafeId(String value, String field) {

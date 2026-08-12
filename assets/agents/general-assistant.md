@@ -5,8 +5,6 @@ description: "Default general-purpose mobilka agent"
 mode: "primary"
 tools:
   - "update_memory_file"
-hidden: false
-favorite: false
 ---
 
 ## Role & System Instructions

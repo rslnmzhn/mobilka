@@ -4,6 +4,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:saf/saf.dart';
 
 import '../../settings/data/settings_repository.dart';
+import '../../agents/application/agents_controller.dart';
 import '../../memory/application/context_injector.dart';
 import '../../memory/data/context_sources.dart';
 import '../../memory/data/memory_selection_store.dart';
@@ -29,7 +30,7 @@ ChatRepository chatRepository(Ref ref) => ChatRepository(
       MemorySelectionStore(),
       SafMemoryReaderAdapter(Saf()),
     ),
-    AssetAgentPromptSource(),
+    ref.watch(selectedAgentPromptAdapterProvider),
   ),
 );
 

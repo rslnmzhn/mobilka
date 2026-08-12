@@ -1,0 +1,61 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hive/hive.dart';
+import 'package:mobilka/features/agents/data/agent_definition_parser.dart';
+import 'package:mobilka/features/agents/data/agent_metadata_service.dart';
+import 'package:mobilka/features/agents/data/agent_metadata_store.dart';
+import 'package:mobilka/features/agents/domain/agent_catalog.dart';
+
+void main() {
+  late Directory root;
+  late AgentMetadataService service;
+
+  setUp(() async {
+    root = await Directory.systemTemp.createTemp('agent-metadata-');
+    Hive.init(root.path);
+    await Hive.openBox<dynamic>('preferences');
+    service = const AgentMetadataService(AgentMetadataStore());
+  });
+  tearDown(() async {
+    await Hive.close();
+    await root.delete(recursive: true);
+  });
+
+  test(
+    'metadata store exclusively overlays hidden and favorite state',
+    () async {
+      final discovery = result();
+      var catalog = await service.compose(discovery);
+      await service.setFavorite(catalog, 'writer', true);
+      await service.select(catalog, 'writer');
+      await service.setHidden(catalog, 'writer', true);
+
+      catalog = await service.compose(discovery);
+      final writer = catalog.agents.singleWhere(
+        (e) => e.definition.id == 'writer',
+      );
+      expect(writer.isFavorite, isTrue);
+      expect(writer.isHidden, isTrue);
+      expect(catalog.selectedId, isNull);
+    },
+  );
+}
+
+AgentDiscoveryResult result() {
+  const parser = AgentDefinitionParser();
+  AgentDocument parse(String id, String mode) => AgentDocument(
+    definition: parser.parse(
+      '---\nid: $id\nname: $id\ndescription: Description\nmode: $mode\n---\nPrompt',
+    ),
+    origin: AgentOrigin.user,
+    location: '$id.md',
+  );
+  return AgentDiscoveryResult(
+    documents: [
+      parse('general-assistant', 'primary'),
+      parse('writer', 'primary'),
+    ],
+    issues: const [],
+  );
+}

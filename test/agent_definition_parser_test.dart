@@ -17,8 +17,6 @@ subagents:
   - test-runner
 tools:
   - update_memory_file
-hidden: true
-favorite: false
 ---
 # Exact prompt
 
@@ -35,8 +33,6 @@ Keep this trailing whitespace.
     expect(definition.modelPreference, 'openai/gpt-5');
     expect(definition.subagents, ['test-runner']);
     expect(definition.tools, ['update_memory_file']);
-    expect(definition.isHidden, isTrue);
-    expect(definition.isFavorite, isFalse);
     expect(
       definition.prompt,
       '# Exact prompt\n\nKeep this trailing whitespace.  \n',
@@ -54,8 +50,6 @@ Keep this trailing whitespace.
     expect(definition.modelPreference, isNull);
     expect(definition.subagents, isEmpty);
     expect(definition.tools, isEmpty);
-    expect(definition.isHidden, isFalse);
-    expect(definition.isFavorite, isFalse);
     expect(definition.prompt, 'Prompt\r\n');
   });
 
@@ -162,7 +156,7 @@ Keep this trailing whitespace.
       expectInvalid(
         replace(validDocument, 'name: "Code Assistant"', 'name: 3'),
       );
-      expectInvalid(replace(validDocument, 'hidden: true', 'hidden: "true"'));
+      expectInvalid('${minimalHeader()}hidden: true\n---\nPrompt');
       expectInvalid(
         replace(
           validDocument,

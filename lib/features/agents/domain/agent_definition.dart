@@ -10,8 +10,6 @@ class AgentDefinition {
     this.modelPreference,
     this.subagents = const [],
     this.tools = const [],
-    this.isHidden = false,
-    this.isFavorite = false,
   });
 
   /// Stable identifier used by agent and delegation references.
@@ -22,8 +20,6 @@ class AgentDefinition {
   final String? modelPreference;
   final List<String> subagents;
   final List<String> tools;
-  final bool isHidden;
-  final bool isFavorite;
 
   /// Markdown after the closing frontmatter delimiter, preserved verbatim.
   final String prompt;
