@@ -1,16 +1,17 @@
 enum AgentMode { primary, subagent }
 
 class AgentDefinition {
-  const AgentDefinition({
+  AgentDefinition({
     required this.id,
     required this.name,
     required this.description,
     required this.mode,
     required this.prompt,
     this.modelPreference,
-    this.subagents = const [],
-    this.tools = const [],
-  });
+    List<String> subagents = const [],
+    List<String> tools = const [],
+  }) : subagents = List.unmodifiable(subagents),
+       tools = List.unmodifiable(tools);
 
   /// Stable identifier used by agent and delegation references.
   final String id;

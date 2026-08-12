@@ -42,7 +42,16 @@ abstract interface class ChatCompletionStreamer {
   });
 }
 
-class ChatRepository implements ChatCompletionStreamer {
+abstract interface class SubagentCompletionStreamer {
+  Stream<ChatStreamEvent> streamSubagentCompletion({
+    required String model,
+    required List<ChatMessage> messages,
+    required CancelToken cancelToken,
+  });
+}
+
+class ChatRepository
+    implements ChatCompletionStreamer, SubagentCompletionStreamer {
   ChatRepository(
     this._apiClient,
     this._settingsRepository,
@@ -82,6 +91,23 @@ class ChatRepository implements ChatCompletionStreamer {
       apiKey: apiKey,
       model: model,
       messages: injectedMessages,
+      cancelToken: cancelToken,
+    );
+  }
+
+  @override
+  Stream<ChatStreamEvent> streamSubagentCompletion({
+    required String model,
+    required List<ChatMessage> messages,
+    required CancelToken cancelToken,
+  }) async* {
+    final settings = await _settingsRepository.load();
+    final apiKey = await _settingsRepository.readApiKey();
+    yield* _apiClient.streamCompletion(
+      baseUrl: settings.baseUrl,
+      apiKey: apiKey,
+      model: model,
+      messages: messages,
       cancelToken: cancelToken,
     );
   }

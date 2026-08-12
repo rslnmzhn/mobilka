@@ -37,7 +37,7 @@
 - [x] 30. Implement safe `update_memory_file` tool calls with diff preview and audit log.
 - [x] 31. Parse standardized agent `.md` frontmatter and validate schemas.
 - [x] 32. Discover, import, create, edit, hide, favorite, and select agents.
-- [ ] 33. Implement primary-agent/subagent discovery and delegation contracts.
+- [x] 33. Implement primary-agent/subagent discovery and delegation contracts.
 - [ ] 34. Add user controls for memory inclusion, editing, backup, and restore.
 
 ## Milestone 4 — Tool calling and artifacts

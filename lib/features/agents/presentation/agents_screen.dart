@@ -2,9 +2,12 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/application/models_controller.dart';
 import '../application/agents_controller.dart';
+import '../application/subagent_executor.dart';
 import '../domain/agent_catalog.dart';
 import '../domain/agent_definition.dart';
+import 'delegation_sheet.dart';
 
 class AgentsScreen extends ConsumerWidget {
   const AgentsScreen({super.key});
@@ -69,14 +72,14 @@ class AgentsScreen extends ConsumerWidget {
   }
 }
 
-class _AgentList extends StatelessWidget {
+class _AgentList extends ConsumerWidget {
   const _AgentList({required this.catalog, required this.controller});
 
   final AgentCatalog catalog;
   final AgentsController controller;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (catalog.agents.isEmpty && catalog.issues.isEmpty) {
       return Center(child: Text('agents.empty'.tr()));
     }
@@ -86,6 +89,38 @@ class _AgentList extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
           children: [
+            ref
+                .watch(agentGraphProvider)
+                .when(
+                  data: (graph) => graph.selectedPrimary == null
+                      ? const SizedBox.shrink()
+                      : Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.account_tree_outlined),
+                            title: Text('agents.availableSubagents'.tr()),
+                            subtitle: Text(
+                              graph.selectedAvailableSubagents.isEmpty
+                                  ? 'agents.noAvailableSubagents'.tr()
+                                  : graph.selectedAvailableSubagents
+                                        .map((entry) => entry.definition.name)
+                                        .join(', '),
+                            ),
+                            trailing: graph.selectedAvailableSubagents.isEmpty
+                                ? null
+                                : IconButton(
+                                    tooltip: 'agents.delegate'.tr(),
+                                    icon: const Icon(Icons.call_split),
+                                    onPressed: () => _showDelegation(
+                                      context,
+                                      ref,
+                                      graph.selectedAvailableSubagents,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                  loading: () => const LinearProgressIndicator(),
+                  error: (error, _) => Text(error.toString()),
+                ),
             if (catalog.issues.isNotEmpty)
               Card(
                 color: Theme.of(context).colorScheme.errorContainer,
@@ -188,6 +223,21 @@ class _AgentList extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _showDelegation(
+    BuildContext context,
+    WidgetRef ref,
+    List<AgentCatalogEntry> subagents,
+  ) async {
+    final model = ref.read(modelsControllerProvider).value?.selectedModelId;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) =>
+          DelegationSheet(subagents: subagents, fallbackModel: model ?? ''),
     );
   }
 }
