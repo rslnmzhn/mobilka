@@ -1,5 +1,6 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'update_memory_file_service.dart';
 import '../data/memory_repository.dart';
 
 part 'memory_controller.g.dart';
@@ -15,5 +16,6 @@ class MemoryController extends _$MemoryController {
     state = await AsyncValue.guard(
       () => ref.read(memoryRepositoryProvider).chooseAndInitialize(),
     );
+    ref.invalidate(updateMemoryFileProvider);
   }
 }

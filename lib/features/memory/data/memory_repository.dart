@@ -1,12 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:saf/saf.dart';
-import 'package:synchronized/synchronized.dart';
 
 import '../../../core/storage/app_boxes.dart';
 import 'memory_file_store.dart';
@@ -25,7 +22,6 @@ class MemoryLocation {
 class MemoryRepository {
   MemoryRepository(this._saf);
   final Saf _saf;
-  final Lock _safLock = Lock();
 
   static const templates = {
     'user_profile.md':
@@ -47,6 +43,11 @@ class MemoryRepository {
               as bool,
     );
   }
+
+  MemoryFileBoundary boundaryFor(MemoryLocation location) =>
+      location.isContentUri
+      ? SafMemoryFileStore(location.value, SafMemoryAccessAdapter(_saf))
+      : PathMemoryFileStore(location.value);
 
   Future<MemoryLocation?> chooseAndInitialize() async {
     if (Platform.isAndroid) {
@@ -72,20 +73,10 @@ class MemoryRepository {
   }
 
   Future<void> _writeSafTemplates(String uri) async {
-    await _safLock.synchronized(() async {
-      for (final entry in templates.entries) {
-        try {
-          await _saf.writeFileBytes(
-            uri,
-            entry.key,
-            'text/markdown',
-            Uint8List.fromList(utf8.encode(entry.value)),
-          );
-        } on SafAlreadyExistsException {
-          // Existing user-owned memory is never overwritten.
-        }
-      }
-    });
+    final store = SafMemoryFileStore(uri, SafMemoryAccessAdapter(_saf));
+    for (final entry in templates.entries) {
+      await store.createIfMissing(entry.key, entry.value);
+    }
   }
 
   Future<void> _writePathTemplates(String path) async {

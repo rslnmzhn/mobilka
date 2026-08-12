@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/memory_controller.dart';
+import '../application/update_memory_file_service.dart';
 import '../data/memory_repository.dart';
 
 class MemoryScreen extends ConsumerWidget {
@@ -73,9 +74,192 @@ class MemoryScreen extends ConsumerWidget {
                   child: ListTile(
                     leading: const Icon(Icons.description_outlined),
                     title: Text(name),
+                    trailing:
+                        name == 'memory_log.md' ||
+                            ref.watch(updateMemoryFileProvider) == null
+                        ? null
+                        : IconButton(
+                            tooltip: 'memory.previewUpdate'.tr(),
+                            onPressed: () => showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              builder: (_) => MemoryUpdateSheet(
+                                fileName: name,
+                                service: ref.read(updateMemoryFileProvider)!,
+                              ),
+                            ),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
                   ),
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class MemoryUpdateSheet extends StatefulWidget {
+  const MemoryUpdateSheet({
+    required this.fileName,
+    required this.service,
+    super.key,
+  });
+
+  final String fileName;
+  final UpdateMemoryFileService service;
+
+  @override
+  State<MemoryUpdateSheet> createState() => _MemoryUpdateSheetState();
+}
+
+class _MemoryUpdateSheetState extends State<MemoryUpdateSheet> {
+  final _controller = TextEditingController();
+  MemoryUpdatePreview? _preview;
+  Object? _error;
+  var _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.service
+        .readCurrent(widget.fileName)
+        .then(
+          (content) {
+            if (!mounted) return;
+            setState(() {
+              _controller.text = content;
+              _loading = false;
+            });
+          },
+          onError: (Object error) {
+            if (!mounted) return;
+            setState(() {
+              _error = error;
+              _loading = false;
+            });
+          },
+        );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _prepare() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final preview = await widget.service.preparePreview(
+        widget.fileName,
+        _controller.text,
+      );
+      if (mounted) setState(() => _preview = preview);
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = error);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _confirm() async {
+    final preview = _preview!;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await widget.service.apply(
+        confirmationToken: preview.confirmationToken,
+        version: preview.version,
+      );
+      if (mounted) Navigator.pop(context);
+    } on Object catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = error;
+          _preview = null;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = _preview;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.fileName,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              if (_loading) const LinearProgressIndicator(),
+              if (_error != null) Text('${'common.error'.tr()}: $_error'),
+              if (preview == null) ...[
+                TextField(
+                  key: const Key('memory-update-content'),
+                  controller: _controller,
+                  minLines: 8,
+                  maxLines: 18,
+                  enabled: !_loading,
+                  decoration: InputDecoration(
+                    labelText: 'memory.proposedContent'.tr(),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: _loading ? null : _prepare,
+                  child: Text('memory.previewUpdate'.tr()),
+                ),
+              ] else ...[
+                Text('memory.diffPreview'.tr()),
+                const SizedBox(height: 8),
+                SelectableText(
+                  preview.diff,
+                  key: const Key('memory-update-diff'),
+                ),
+                const SizedBox(height: 8),
+                SelectableText(
+                  '${'memory.version'.tr()}: ${preview.version}',
+                  key: const Key('memory-update-version'),
+                ),
+                SelectableText(
+                  '${'memory.confirmationToken'.tr()}: ${preview.confirmationToken}',
+                  key: const Key('memory-update-token'),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  key: const Key('memory-update-confirm'),
+                  onPressed: _loading ? null : _confirm,
+                  child: Text('memory.confirmExactUpdate'.tr()),
+                ),
+                TextButton(
+                  onPressed: _loading
+                      ? null
+                      : () => setState(() => _preview = null),
+                  child: Text('memory.editAgain'.tr()),
+                ),
+              ],
             ],
           ),
         ),

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
@@ -65,4 +66,73 @@ void main() {
     expect(await outside.readAsString(), 'outside');
     await outside.delete();
   });
+
+  test(
+    'SAF store reads exact children and overwrites through adapter',
+    () async {
+      final access = _FakeSafMemoryAccess({
+        'user_profile.md': 'old',
+        'user_profile.md.bak': 'backup',
+      });
+      final safStore = SafMemoryFileStore('content://memory', access);
+
+      expect(await safStore.read('user_profile.md'), 'old');
+      await safStore.write('user_profile.md', 'new');
+
+      expect(await safStore.read('user_profile.md'), 'new');
+      expect(access.lastOverwrite, isTrue);
+    },
+  );
+
+  test('SAF store rejects traversal before accessing the adapter', () async {
+    final access = _FakeSafMemoryAccess({});
+    final safStore = SafMemoryFileStore('content://memory', access);
+
+    expect(
+      () => safStore.write('../user_profile.md', 'unsafe'),
+      throwsFormatException,
+    );
+    expect(access.calls, 0);
+  });
+}
+
+class _FakeSafMemoryAccess implements SafMemoryAccess {
+  _FakeSafMemoryAccess(this.files);
+
+  final Map<String, String> files;
+  bool? lastOverwrite;
+  int calls = 0;
+
+  @override
+  Future<List<SafMemoryDocument>> list(String directoryUri) async {
+    calls++;
+    return files.keys
+        .map(
+          (name) => SafMemoryDocument(
+            uri: '$directoryUri/$name',
+            name: name,
+            isDirectory: false,
+          ),
+        )
+        .toList();
+  }
+
+  @override
+  Future<Uint8List> read(String documentUri) async {
+    calls++;
+    final fileName = documentUri.substring(documentUri.lastIndexOf('/') + 1);
+    return Uint8List.fromList(files[fileName]!.codeUnits);
+  }
+
+  @override
+  Future<void> write(
+    String directoryUri,
+    String fileName,
+    Uint8List content, {
+    required bool overwrite,
+  }) async {
+    calls++;
+    lastOverwrite = overwrite;
+    files[fileName] = String.fromCharCodes(content);
+  }
 }
