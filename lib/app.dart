@@ -14,7 +14,7 @@ class MobilkaApp extends ConsumerWidget {
     final theme = ref.watch(themeControllerProvider);
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      title: 'mobilka',
+      title: 'Hermes Workbench',
       routerConfig: ref.watch(appRouterProvider),
       localizationsDelegates: context.localizationDelegates,
       supportedLocales: context.supportedLocales,

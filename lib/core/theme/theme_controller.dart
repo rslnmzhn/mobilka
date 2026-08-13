@@ -17,12 +17,13 @@ class ThemeController extends _$ThemeController {
   @override
   ThemeState build() {
     final presetName =
-        preferencesBox.get('themePreset', defaultValue: 'claude') as String;
+        preferencesBox.get('themePreset', defaultValue: 'hermesWorkbench')
+            as String;
     final dark = preferencesBox.get('darkMode', defaultValue: true) as bool;
     return ThemeState(
       preset: ThemePreset.values.firstWhere(
         (value) => value.name == presetName,
-        orElse: () => ThemePreset.claude,
+        orElse: () => ThemePreset.hermesWorkbench,
       ),
       mode: dark ? ThemeMode.dark : ThemeMode.light,
     );

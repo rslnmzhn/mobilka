@@ -29,6 +29,59 @@ void main() {
     await root.delete(recursive: true);
   });
 
+  Future<void> pumpAppAtSize(WidgetTester tester, Size size) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      EasyLocalization(
+        supportedLocales: const [Locale('en')],
+        path: 'assets/translations',
+        fallbackLocale: const Locale('en'),
+        child: ProviderScope(
+          child: Consumer(
+            builder: (context, ref, _) => MaterialApp.router(
+              routerConfig: ref.watch(appRouterProvider),
+              localizationsDelegates: context.localizationDelegates,
+              supportedLocales: context.supportedLocales,
+              locale: context.locale,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('mobile shell shows bottom destinations without sidebar brand', (
+    tester,
+  ) async {
+    await pumpAppAtSize(tester, const Size(320, 720));
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    for (final label in ['Chat', 'Models', 'Agents', 'Memory', 'Settings']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(find.text('HERMES'), findsNothing);
+    expect(find.text('Workbench'), findsNothing);
+  });
+
+  testWidgets('expanded shell shows brand and destinations without overflow', (
+    tester,
+  ) async {
+    await pumpAppAtSize(tester, const Size(1280, 800));
+
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('HERMES'), findsOneWidget);
+    expect(find.text('Workbench'), findsOneWidget);
+    for (final label in ['Chat', 'Models', 'Agents', 'Memory', 'Settings']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('shell destinations navigate in exact branch order', (
     tester,
   ) async {

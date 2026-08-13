@@ -46,6 +46,12 @@ format: dart format .
 - Android backups remain disabled because chat history is unencrypted local data.
 
 ## Brand and design
+- Hermes Workbench is the default visual language; all existing theme presets remain supported.
+- Use warm paper, clay, and ink surfaces in light mode, and charcoal and ink surfaces in dark mode.
+- Favor fine technical dividers, clear editorial hierarchy, and compact desktop density.
+- Use a custom adaptive shell with a bottom dock on phones and side navigation on desktop.
+- Avoid generic default Material/MUI appearance, glassmorphism, decorative gradients, and network fonts.
+- Require responsive, overflow-free behavior at 320px and desktop widths; memory Open and Edit actions must remain independently visible.
 - Mobile-first adaptive UI with dark theme priority and customizable theme presets.
 - Theme presets include Claude, Dark Cyber, Midnight OLED, Solarized, Nord, and Classic; every preset provides both light and dark variants.
 - UI supports Russian and English localization through `easy_localization`.

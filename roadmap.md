@@ -41,6 +41,8 @@
 - [x] 34. Add user controls for memory inclusion, editing, backup, and restore.
 
 ## Milestone 4 — Tool calling and artifacts
+- [x] Implement the Hermes Workbench visual system and three-state adaptive application shell.
+- [x] Keep five-destination mobile navigation overflow-free on narrow screens.
 - [x] Fix memory folder cancellation state loss and location-provider rebuilds.
 - [ ] 35. Implement native OpenAI-compatible `tool_calls` orchestration.
 - [ ] 36. Implement fallback parsing for tool calls embedded in Markdown/JSON blocks.

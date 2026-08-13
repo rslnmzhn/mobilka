@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/workbench_widgets.dart';
 import '../application/models_controller.dart';
 
 class ModelsScreen extends ConsumerStatefulWidget {
@@ -19,7 +20,11 @@ class _ModelsScreenState extends ConsumerState<ModelsScreen> {
     final state = ref.watch(modelsControllerProvider);
     return Scaffold(
       appBar: AppBar(
-        title: Text('models.title'.tr()),
+        title: WorkbenchPageTitle(
+          icon: Icons.dns_outlined,
+          title: 'models.title'.tr(),
+          detail: 'REMOTE CATALOG',
+        ),
         actions: [
           IconButton(
             tooltip: 'models.refresh'.tr(),
@@ -55,11 +60,16 @@ class _ModelsScreenState extends ConsumerState<ModelsScreen> {
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: TextField(
-                  onChanged: (value) => setState(() => query = value),
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search),
-                    hintText: 'models.search'.tr(),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 880),
+                    child: TextField(
+                      onChanged: (value) => setState(() => query = value),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search),
+                        hintText: 'models.search'.tr(),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -73,33 +83,38 @@ class _ModelsScreenState extends ConsumerState<ModelsScreen> {
                           final model = filtered[index];
                           final favorite = data.favorites.contains(model.id);
                           final hidden = data.hidden.contains(model.id);
-                          return Card(
-                            child: ListTile(
-                              title: Text(model.id),
-                              subtitle: model.ownedBy == null
-                                  ? null
-                                  : Text(model.ownedBy!),
-                              leading: IconButton(
-                                tooltip: 'models.favorite'.tr(),
-                                onPressed: () => ref
-                                    .read(modelsControllerProvider.notifier)
-                                    .toggleFavorite(model.id),
-                                icon: Icon(
-                                  favorite ? Icons.star : Icons.star_border,
-                                  color: favorite ? Colors.amber : null,
-                                ),
-                              ),
-                              trailing: IconButton(
-                                tooltip: hidden
-                                    ? 'models.show'.tr()
-                                    : 'models.hide'.tr(),
-                                onPressed: () => ref
-                                    .read(modelsControllerProvider.notifier)
-                                    .toggleHidden(model.id),
-                                icon: Icon(
-                                  hidden
-                                      ? Icons.visibility_off
-                                      : Icons.visibility,
+                          return Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 880),
+                              child: Card(
+                                child: ListTile(
+                                  title: Text(model.id),
+                                  subtitle: model.ownedBy == null
+                                      ? null
+                                      : Text(model.ownedBy!),
+                                  leading: IconButton(
+                                    tooltip: 'models.favorite'.tr(),
+                                    onPressed: () => ref
+                                        .read(modelsControllerProvider.notifier)
+                                        .toggleFavorite(model.id),
+                                    icon: Icon(
+                                      favorite ? Icons.star : Icons.star_border,
+                                      color: favorite ? Colors.amber : null,
+                                    ),
+                                  ),
+                                  trailing: IconButton(
+                                    tooltip: hidden
+                                        ? 'models.show'.tr()
+                                        : 'models.hide'.tr(),
+                                    onPressed: () => ref
+                                        .read(modelsControllerProvider.notifier)
+                                        .toggleHidden(model.id),
+                                    icon: Icon(
+                                      hidden
+                                          ? Icons.visibility_off
+                                          : Icons.visibility,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),

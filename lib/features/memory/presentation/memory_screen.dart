@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/workbench_widgets.dart';
 import '../application/memory_controller.dart';
 import '../application/memory_file_editor.dart';
 import '../application/memory_selection_controller.dart';
@@ -19,13 +20,23 @@ class MemoryScreen extends ConsumerWidget {
     final selection = ref.watch(memorySelectionControllerProvider);
     final editor = ref.watch(memoryFileEditorProvider);
     return Scaffold(
-      appBar: AppBar(title: Text('memory.title'.tr())),
+      appBar: AppBar(
+        title: WorkbenchPageTitle(
+          icon: Icons.folder_copy_outlined,
+          title: 'memory.title'.tr(),
+          detail: 'MARKDOWN VAULT',
+        ),
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 720),
           child: ListView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
             children: [
+              WorkbenchSectionLabel(
+                label: 'memory.externalFolder'.tr(),
+                icon: Icons.folder_outlined,
+              ),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(20),
@@ -69,12 +80,11 @@ class MemoryScreen extends ConsumerWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
-              Text(
-                'memory.files'.tr(),
-                style: Theme.of(context).textTheme.titleMedium,
+              const SizedBox(height: 24),
+              WorkbenchSectionLabel(
+                label: 'memory.files'.tr(),
+                icon: Icons.description_outlined,
               ),
-              const SizedBox(height: 8),
               ...MemoryRepository.templates.keys.map(
                 (name) => Card(
                   child: SwitchListTile(

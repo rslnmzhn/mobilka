@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/workbench_widgets.dart';
 import '../../models/application/models_controller.dart';
 import '../application/agents_controller.dart';
 import '../application/subagent_executor.dart';
@@ -18,7 +19,11 @@ class AgentsScreen extends ConsumerWidget {
     final controller = ref.read(agentsControllerProvider.notifier);
     return Scaffold(
       appBar: AppBar(
-        title: Text('agents.title'.tr()),
+        title: WorkbenchPageTitle(
+          icon: Icons.smart_toy_outlined,
+          title: 'agents.title'.tr(),
+          detail: 'AGENT REGISTRY',
+        ),
         actions: [
           IconButton(
             tooltip: 'agents.import'.tr(),
@@ -89,8 +94,12 @@ class _AgentList extends ConsumerWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 880),
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
           children: [
+            WorkbenchSectionLabel(
+              label: 'agents.title'.tr(),
+              icon: Icons.account_tree_outlined,
+            ),
             ref
                 .watch(agentGraphProvider)
                 .when(

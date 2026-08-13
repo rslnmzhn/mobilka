@@ -6,6 +6,7 @@ import 'package:highlight/highlight.dart' as hl;
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/workbench_widgets.dart';
 import '../../models/application/models_controller.dart';
 import '../application/chat_controller.dart';
 import '../domain/chat_message.dart';
@@ -35,7 +36,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final models = ref.watch(modelsControllerProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('mobilka'),
+        title: WorkbenchPageTitle(
+          icon: Icons.forum_outlined,
+          title: 'nav.chat'.tr(),
+          detail: 'HERMES SESSION',
+        ),
         leading: Builder(
           builder: (context) => IconButton(
             onPressed: () => Scaffold.of(context).openDrawer(),
@@ -112,13 +117,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           }
                         },
                       )
-                    : ListView.builder(
-                        controller: scrollController,
-                        padding: const EdgeInsets.all(16),
-                        itemCount: conversation.messages.length,
-                        itemBuilder: (context, index) => _MessageCard(
-                          key: ValueKey(conversation.messages[index].id),
-                          message: conversation.messages[index],
+                    : Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 920),
+                          child: ListView.builder(
+                            controller: scrollController,
+                            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                            itemCount: conversation.messages.length,
+                            itemBuilder: (context, index) => _MessageCard(
+                              key: ValueKey(conversation.messages[index].id),
+                              message: conversation.messages[index],
+                            ),
+                          ),
                         ),
                       ),
               ),
