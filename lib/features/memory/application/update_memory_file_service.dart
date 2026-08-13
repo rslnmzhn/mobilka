@@ -32,7 +32,6 @@ class UpdateMemoryFileService {
   final MemoryFileBoundary _boundary;
   final MemoryMutationCoordinator _mutations;
   final ConfirmationTokenFactory _tokenFactory;
-  final Map<String, _PendingUpdate> _pending = {};
 
   Future<String> readCurrent(String fileName) {
     _validate(fileName);
@@ -44,31 +43,65 @@ class UpdateMemoryFileService {
     String proposedContent,
   ) async {
     _validate(fileName);
-    final current = await _boundary.read(fileName);
-    final version = checksum(current);
-    final token = _tokenFactory();
-    _pending[token] = _PendingUpdate(fileName, proposedContent, version);
+    final current = await _mutations.readIfExists(fileName);
+    final isCreate = current == null;
+    final version = isCreate ? missingVersion : checksum(current);
+    final nonce = _tokenFactory();
+    final token = _confirmationToken(nonce, fileName, proposedContent, version);
     return MemoryUpdatePreview(
       fileName: fileName,
-      diff: _buildDiff(fileName, current, proposedContent),
+      proposedContent: proposedContent,
+      diff: _buildDiff(fileName, current ?? '', proposedContent),
       confirmationToken: token,
       version: version,
+      isCreate: isCreate,
     );
   }
 
   Future<MemoryUpdateResult> apply({
     required String confirmationToken,
     required String version,
+  }) {
+    final payload = _decodeConfirmationToken(confirmationToken);
+    return applyPersisted(
+      fileName: payload.fileName,
+      proposedContent: payload.proposedContent,
+      confirmationToken: confirmationToken,
+      version: version,
+    );
+  }
+
+  Future<void> recover() => _mutations.recover();
+
+  Future<MemoryUpdateResult> applyPersisted({
+    required String fileName,
+    required String proposedContent,
+    required String confirmationToken,
+    required String version,
   }) async {
-    final update = _pending[confirmationToken];
-    if (update == null || update.version != version) {
-      throw const UnknownMemoryConfirmationException();
+    _validate(fileName);
+    _validateConfirmationToken(
+      fileName: fileName,
+      proposedContent: proposedContent,
+      confirmationToken: confirmationToken,
+      version: version,
+    );
+    final current = await _mutations.readIfExists(fileName);
+    final proposedVersion = checksum(proposedContent);
+    if (current != null && checksum(current) == proposedVersion) {
+      return MemoryUpdateResult(
+        fileName: fileName,
+        previousVersion: version,
+        version: proposedVersion,
+      );
     }
+    final isCreate = version == missingVersion;
     try {
       await _mutations.mutate(
         event: 'update_memory_file',
-        replacements: {update.fileName: update.content},
-        expectedVersions: {update.fileName: version},
+        replacements: {fileName: proposedContent},
+        expectedVersions: isCreate ? const {} : {fileName: version},
+        createIfMissing: isCreate ? {fileName} : const {},
         operationId: confirmationToken,
       );
     } on StaleMemoryMutationException {
@@ -78,36 +111,85 @@ class UpdateMemoryFileService {
         error.cause,
         rollbackSucceeded: error.rollbackSucceeded,
       );
-    } finally {
-      _pending.remove(confirmationToken);
     }
     return MemoryUpdateResult(
-      fileName: update.fileName,
+      fileName: fileName,
       previousVersion: version,
-      version: checksum(update.content),
+      version: proposedVersion,
     );
   }
 
-  Future<void> recover() => _mutations.recover();
+  String _confirmationToken(
+    String nonce,
+    String fileName,
+    String proposedContent,
+    String version,
+  ) {
+    final payload = base64Url.encode(
+      utf8.encode(jsonEncode({'file': fileName, 'content': proposedContent})),
+    );
+    return '$nonce.$payload.${checksum('$fileName\u0000$version\u0000$proposedContent\u0000$nonce')}';
+  }
+
+  ({String nonce, String fileName, String proposedContent})
+  _decodeConfirmationToken(String confirmationToken) {
+    final parts = confirmationToken.split('.');
+    if (parts.length != 3 || parts.any((part) => part.isEmpty)) {
+      throw const UnknownMemoryConfirmationException();
+    }
+    try {
+      final payload =
+          jsonDecode(utf8.decode(base64Url.decode(parts[1])))
+              as Map<String, dynamic>;
+      return (
+        nonce: parts[0],
+        fileName: payload['file'] as String,
+        proposedContent: payload['content'] as String,
+      );
+    } on Object {
+      throw const UnknownMemoryConfirmationException();
+    }
+  }
+
+  void _validateConfirmationToken({
+    required String fileName,
+    required String proposedContent,
+    required String confirmationToken,
+    required String version,
+  }) {
+    final payload = _decodeConfirmationToken(confirmationToken);
+    if (payload.fileName != fileName ||
+        payload.proposedContent != proposedContent ||
+        _confirmationToken(payload.nonce, fileName, proposedContent, version) !=
+            confirmationToken) {
+      throw const UnknownMemoryConfirmationException();
+    }
+  }
 
   static void _validate(String fileName) {
     if (!approvedFileNames.contains(fileName)) {
       throw FormatException('Memory file is not approved: $fileName');
     }
   }
+
+  static const missingVersion = 'missing';
 }
 
 class MemoryUpdatePreview {
   const MemoryUpdatePreview({
     required this.fileName,
+    required this.proposedContent,
     required this.diff,
     required this.confirmationToken,
     required this.version,
+    this.isCreate = false,
   });
   final String fileName;
+  final String proposedContent;
   final String diff;
   final String confirmationToken;
   final String version;
+  final bool isCreate;
 }
 
 class MemoryUpdateResult {
@@ -131,13 +213,6 @@ class StaleMemoryPreviewException implements Exception {
 
 class MemoryAuditException extends MemoryMutationException {
   const MemoryAuditException(super.cause, {required super.rollbackSucceeded});
-}
-
-class _PendingUpdate {
-  const _PendingUpdate(this.fileName, this.content, this.version);
-  final String fileName;
-  final String content;
-  final String version;
 }
 
 String _secureToken() {

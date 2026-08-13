@@ -1,0 +1,262 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mobilka/features/agents/domain/agent_catalog.dart';
+import 'package:mobilka/features/agents/domain/agent_definition.dart';
+import 'package:mobilka/features/chat/domain/chat_message.dart';
+import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
+import 'package:mobilka/features/memory/application/memory_chat_tool_runtime.dart';
+import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
+import 'package:mobilka/features/memory/application/update_memory_file_service.dart';
+import 'package:mobilka/features/memory/data/memory_file_store.dart';
+
+void main() {
+  late _MemoryBoundary boundary;
+  late UpdateMemoryFileService updates;
+
+  setUp(() {
+    boundary = _MemoryBoundary({
+      'user_profile.md': '# User\nold\n',
+      'project_context.md': '# Project\n',
+      'system_instructions.md': '# Instructions\n',
+      'memory_log.md': '# Memory Log\n',
+    });
+    updates = UpdateMemoryFileService(
+      boundary,
+      MemoryMutationCoordinator(boundary),
+      tokenFactory: () => 'confirmation-token',
+    );
+  });
+
+  test(
+    'exposes update_memory_file only to an authorized selected agent',
+    () async {
+      final authorized = _runtime(updates, tools: const ['update_memory_file']);
+      final unauthorized = _runtime(updates);
+
+      expect(
+        (await authorized.availableTools(const {
+          'update_memory_file',
+        })).single.name,
+        'update_memory_file',
+      );
+      expect(await unauthorized.availableTools(const {}), isEmpty);
+      expect(
+        MemoryChatToolRuntime
+            .updateMemoryFile
+            .parameters['additionalProperties'],
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'prepares a proposal without mutating memory before confirmation',
+    () async {
+      final runtime = _runtime(updates, tools: const ['update_memory_file']);
+
+      final proposal = await runtime.prepareMemoryProposal(
+        const ChatToolCall(
+          id: 'call-1',
+          name: 'update_memory_file',
+          arguments:
+              '{"file_name":"user_profile.md","content":"# User\\nnew\\n"}',
+        ),
+        'assistant-1',
+        'agent',
+        const {'update_memory_file'},
+      );
+
+      expect(proposal?.proposedContent, '# User\nnew\n');
+      expect(boundary.files['user_profile.md'], '# User\nold\n');
+      expect(boundary.writes, isEmpty);
+    },
+  );
+
+  test(
+    'strict arguments reject extras without preparing or mutating',
+    () async {
+      final runtime = _runtime(updates, tools: const ['update_memory_file']);
+
+      await expectLater(
+        runtime.prepareMemoryProposal(
+          const ChatToolCall(
+            id: 'call-1',
+            name: 'update_memory_file',
+            arguments:
+                '{"file_name":"user_profile.md","content":"new","extra":true}',
+          ),
+          'assistant-1',
+          'agent',
+          const {'update_memory_file'},
+        ),
+        throwsFormatException,
+      );
+      expect(boundary.writes, isEmpty);
+    },
+  );
+
+  test('executeTool cannot apply update_memory_file', () async {
+    final runtime = _runtime(updates, tools: const ['update_memory_file']);
+
+    await expectLater(
+      runtime.executeTool(
+        const ChatToolCall(
+          id: 'call-1',
+          name: 'update_memory_file',
+          arguments:
+              '{"file_name":"user_profile.md","content":"# User\\nnew\\n"}',
+        ),
+        const {'update_memory_file'},
+      ),
+      throwsFormatException,
+    );
+    expect(boundary.files['user_profile.md'], '# User\nold\n');
+    expect(boundary.writes, isEmpty);
+  });
+
+  test('unauthorized selected agent cannot prepare a proposal', () async {
+    final runtime = _runtime(updates);
+
+    await expectLater(
+      runtime.prepareMemoryProposal(
+        const ChatToolCall(
+          id: 'call-1',
+          name: 'update_memory_file',
+          arguments:
+              '{"file_name":"user_profile.md","content":"# User\\nnew\\n"}',
+        ),
+        'assistant-1',
+        'agent',
+        const {},
+      ),
+      throwsStateError,
+    );
+    expect(boundary.writes, isEmpty);
+  });
+
+  test(
+    'selection change during stream cannot grant a snapshotted tool',
+    () async {
+      final runtime = _runtime(updates, tools: const ['update_memory_file']);
+      expect(await runtime.availableTools(const {}), isEmpty);
+      await expectLater(
+        runtime.prepareMemoryProposal(
+          const ChatToolCall(
+            id: 'call-1',
+            name: 'update_memory_file',
+            arguments: '{"file_name":"user_profile.md","content":"new"}',
+          ),
+          'assistant-1',
+          'agent',
+          const {},
+        ),
+        throwsStateError,
+      );
+      expect(boundary.writes, isEmpty);
+    },
+  );
+
+  test('permission revoked before confirmation blocks mutation', () async {
+    var selected = _entry(const ['update_memory_file']);
+    final runtime = MemoryChatToolRuntime(
+      selectedAgent: () async => selected,
+      memoryUpdates: updates,
+    );
+    final proposal = await _proposal(runtime);
+    selected = _entry(const []);
+
+    await expectLater(
+      runtime.revalidateMemoryProposal(proposal),
+      throwsStateError,
+    );
+    expect(boundary.writes, isEmpty);
+  });
+
+  test('valid unchanged permission permits mutation', () async {
+    final runtime = _runtime(updates, tools: const ['update_memory_file']);
+    final proposal = await _proposal(runtime);
+    await runtime.revalidateMemoryProposal(proposal);
+    await updates.applyPersisted(
+      fileName: proposal.fileName,
+      proposedContent: proposal.proposedContent,
+      confirmationToken: proposal.confirmationToken,
+      version: proposal.version,
+    );
+    expect(boundary.files['user_profile.md'], '# User\nnew\n');
+  });
+}
+
+Future<PendingMemoryProposal> _proposal(MemoryChatToolRuntime runtime) async =>
+    (await runtime.prepareMemoryProposal(
+      const ChatToolCall(
+        id: 'call-1',
+        name: 'update_memory_file',
+        arguments:
+            '{"file_name":"user_profile.md","content":"# User\\nnew\\n"}',
+      ),
+      'assistant-1',
+      'agent',
+      const {'update_memory_file'},
+    ))!;
+
+MemoryChatToolRuntime _runtime(
+  UpdateMemoryFileService updates, {
+  List<String> tools = const [],
+}) => MemoryChatToolRuntime(
+  selectedAgent: () async => _entry(tools),
+  memoryUpdates: updates,
+  now: () => DateTime.utc(2026, 8, 14),
+);
+
+AgentCatalogEntry _entry(List<String> tools) => AgentCatalogEntry(
+  definition: AgentDefinition(
+    id: 'agent',
+    name: 'Agent',
+    description: 'Agent',
+    mode: AgentMode.primary,
+    prompt: 'Prompt',
+    tools: tools,
+  ),
+  origin: AgentOrigin.user,
+  location: 'agent.md',
+  isHidden: false,
+  isFavorite: false,
+);
+
+class _MemoryBoundary implements MemoryFileBoundary {
+  _MemoryBoundary(this.files);
+
+  final Map<String, String> files;
+  final List<String> writes = [];
+
+  @override
+  Future<String> read(String fileName) async => files[fileName]!;
+
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function(MemoryFileTransaction files) action,
+  ) => action(_MemoryTransaction(this));
+
+  @override
+  Future<void> write(String fileName, String content) async {
+    writes.add(fileName);
+    files[fileName] = content;
+  }
+}
+
+class _MemoryTransaction
+    implements MemoryFileTransaction, MissingAwareMemoryFileTransaction {
+  const _MemoryTransaction(this.boundary);
+
+  final _MemoryBoundary boundary;
+
+  @override
+  Future<String> read(String fileName) => boundary.read(fileName);
+
+  @override
+  Future<String?> readIfExists(String fileName) async =>
+      boundary.files[fileName];
+
+  @override
+  Future<void> write(String fileName, String content) =>
+      boundary.write(fileName, content);
+}

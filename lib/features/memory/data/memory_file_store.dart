@@ -19,6 +19,10 @@ abstract interface class MemoryFileTransaction {
   Future<void> write(String fileName, String content);
 }
 
+abstract interface class MissingAwareMemoryFileTransaction {
+  Future<String?> readIfExists(String fileName);
+}
+
 abstract interface class MemoryFileStore implements MemoryFileBoundary {
   Future<void> createIfMissing(String fileName, String content);
 }
@@ -71,7 +75,8 @@ class PathMemoryFileStore implements MemoryFileStore {
   }
 }
 
-class _PathMemoryFileTransaction implements MemoryFileTransaction {
+class _PathMemoryFileTransaction
+    implements MemoryFileTransaction, MissingAwareMemoryFileTransaction {
   const _PathMemoryFileTransaction(this.directoryPath);
 
   final String directoryPath;
@@ -90,6 +95,17 @@ class _PathMemoryFileTransaction implements MemoryFileTransaction {
     }
     final bytes = await file.readAsBytes();
     return _decodeMemoryFile(bytes);
+  }
+
+  @override
+  Future<String?> readIfExists(String fileName) async {
+    final file = target(fileName);
+    final type = await FileSystemEntity.type(file.path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) return null;
+    if (type != FileSystemEntityType.file) {
+      throw const FileSystemException('Unsafe memory file target');
+    }
+    return _decodeMemoryFile(await file.readAsBytes());
   }
 
   @override
@@ -231,7 +247,8 @@ class SafMemoryFileStore implements MemoryFileStore {
   }
 }
 
-class _SafMemoryFileTransaction implements MemoryFileTransaction {
+class _SafMemoryFileTransaction
+    implements MemoryFileTransaction, MissingAwareMemoryFileTransaction {
   _SafMemoryFileTransaction(this.directoryUri, this.access, this.documents);
 
   final String directoryUri;
@@ -244,6 +261,19 @@ class _SafMemoryFileTransaction implements MemoryFileTransaction {
     final matches = documents.where((document) => document.name == fileName);
     if (matches.length != 1 || matches.single.isDirectory) {
       throw StateError('Memory file not found or ambiguous: $fileName');
+    }
+    return _decodeMemoryFile(await access.read(matches.single.uri));
+  }
+
+  @override
+  Future<String?> readIfExists(String fileName) async {
+    _validateFileName(fileName);
+    final matches = documents
+        .where((document) => document.name == fileName)
+        .toList();
+    if (matches.isEmpty) return null;
+    if (matches.length != 1 || matches.single.isDirectory) {
+      throw StateError('Memory file is ambiguous or unsafe: $fileName');
     }
     return _decodeMemoryFile(await access.read(matches.single.uri));
   }

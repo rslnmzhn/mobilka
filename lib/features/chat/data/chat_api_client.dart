@@ -17,6 +17,7 @@ class ChatApiClient {
     required String model,
     required List<ChatMessage> messages,
     required CancelToken cancelToken,
+    List<Map<String, dynamic>> tools = const [],
   }) async* {
     final endpoint = endpointResourceUri(baseUrl, 'chat/completions');
     final headers = endpointAuthorizationHeaders(
@@ -30,6 +31,7 @@ class ChatApiClient {
         'messages': messages.map((message) => message.toJson()).toList(),
         'stream': true,
         'stream_options': {'include_usage': true},
+        if (tools.isNotEmpty) 'tools': tools,
       },
       cancelToken: cancelToken,
       options: Options(
@@ -61,11 +63,15 @@ class ChatApiClient {
       final choices = decoded['choices'];
       String delta = '';
       String? finishReason;
+      var toolCallDeltas = const <ChatToolCallDelta>[];
       if (choices is List && choices.isNotEmpty && choices.first is Map) {
         final choice = choices.first as Map;
         final deltaMap = choice['delta'];
         if (deltaMap is Map && deltaMap['content'] is String) {
           delta = deltaMap['content'] as String;
+        }
+        if (deltaMap is Map) {
+          toolCallDeltas = _parseToolCallDeltas(deltaMap['tool_calls']);
         }
         finishReason = choice['finish_reason']?.toString();
       }
@@ -74,9 +80,35 @@ class ChatApiClient {
         delta: delta,
         finishReason: finishReason,
         usage: usage is Map ? ChatUsage.fromJson(usage) : null,
-        isTerminal: finishReason != null,
+        toolCallDeltas: toolCallDeltas,
       );
     }
+  }
+
+  static List<ChatToolCallDelta> _parseToolCallDeltas(dynamic value) {
+    if (value == null) return const [];
+    if (value is! List) {
+      throw const FormatException('Invalid tool_calls delta');
+    }
+    return value
+        .map((item) {
+          if (item is! Map || item['index'] is! int) {
+            throw const FormatException('Invalid tool call delta');
+          }
+          final function = item['function'];
+          if (function != null && function is! Map) {
+            throw const FormatException('Invalid tool call function delta');
+          }
+          return ChatToolCallDelta(
+            index: item['index'] as int,
+            id: item['id']?.toString() ?? '',
+            name: function is Map ? function['name']?.toString() ?? '' : '',
+            arguments: function is Map
+                ? function['arguments']?.toString() ?? ''
+                : '',
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<ChatCompletion> createCompletion({

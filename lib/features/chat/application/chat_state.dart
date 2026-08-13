@@ -21,7 +21,9 @@ class ChatState {
 
   bool get isStreaming => activeConversation?.isStreaming ?? false;
 
-  bool get hasInFlightRequest => conversations.any((item) => item.isStreaming);
+  bool get hasInFlightRequest => conversations.any(
+    (item) => item.isStreaming || item.pendingMemoryProposal != null,
+  );
 
   List<Conversation> get visibleConversations => conversations
       .where((item) => item.isArchived == showArchived)

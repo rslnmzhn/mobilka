@@ -44,13 +44,24 @@ class MemoryMutationCoordinator {
     required String event,
     required Map<String, String> replacements,
     Map<String, String> expectedVersions = const {},
+    Set<String> createIfMissing = const {},
     String? operationId,
   }) => _boundary.transaction((files) async {
     await _recover(files);
     _validate(replacements.keys);
+    if (!replacements.keys.toSet().containsAll(createIfMissing)) {
+      throw const FormatException('Create targets must be replacements');
+    }
     final before = <String, String>{};
     for (final name in {...replacements.keys, auditFile}) {
-      before[name] = await files.read(name);
+      before[name] = createIfMissing.contains(name)
+          ? (await _readIfExists(files, name) ?? '')
+          : await files.read(name);
+    }
+    for (final name in createIfMissing) {
+      if (await _readIfExists(files, name) != null) {
+        throw const StaleMemoryMutationException();
+      }
     }
     for (final entry in expectedVersions.entries) {
       if (checksum(before[entry.key]!) != entry.value) {
@@ -67,6 +78,7 @@ class MemoryMutationCoordinator {
       'status': 'pending',
       'terminalAuditWritten': false,
       'files': replacements.keys.toList(growable: false),
+      'createdFiles': createIfMissing.toList(growable: false),
       'previous': {
         for (final entry in before.entries)
           entry.key: base64Encode(utf8.encode(entry.value)),
@@ -109,6 +121,12 @@ class MemoryMutationCoordinator {
 
   Future<void> recover() => _boundary.transaction(_recover);
 
+  Future<String?> readIfExists(String fileName) =>
+      _boundary.transaction((files) async {
+        await _recover(files);
+        return _readIfExists(files, fileName);
+      });
+
   Future<Map<String, String>> readContextSnapshot(Iterable<String> fileNames) =>
       _boundary.transaction((files) async {
         await _recover(files);
@@ -118,6 +136,13 @@ class MemoryMutationCoordinator {
         }
         return Map.unmodifiable(snapshot);
       });
+
+  Future<String?> _readIfExists(MemoryFileTransaction files, String fileName) {
+    if (files case final MissingAwareMemoryFileTransaction missingAware) {
+      return missingAware.readIfExists(fileName);
+    }
+    return files.read(fileName).then<String?>((content) => content);
+  }
 
   Future<void> _recover(MemoryFileTransaction files) async {
     for (final record in await _journal.readAll()) {

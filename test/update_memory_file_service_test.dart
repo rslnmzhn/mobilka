@@ -49,12 +49,32 @@ void main() {
       '# User\nnew\n',
     );
 
-    expect(preview.confirmationToken, 'token-0');
+    expect(preview.confirmationToken, startsWith('token-0.'));
     expect(preview.version, hasLength(64));
     expect(preview.diff, contains('-old'));
     expect(preview.diff, contains('+new'));
     expect(boundary.files['user_profile.md'], '# User\nold\n');
     expect(boundary.writes, isEmpty);
+  });
+
+  test('previews and confirms creation of a missing approved file', () async {
+    boundary.files.remove('project_context.md');
+
+    final preview = await service.preparePreview(
+      'project_context.md',
+      '# Project\ncreated\n',
+    );
+
+    expect(preview.isCreate, isTrue);
+    expect(preview.version, UpdateMemoryFileService.missingVersion);
+    expect(boundary.writes, isEmpty);
+
+    await service.apply(
+      confirmationToken: preview.confirmationToken,
+      version: preview.version,
+    );
+
+    expect(boundary.files['project_context.md'], '# Project\ncreated\n');
   });
 
   test('applies only with matching token and version', () async {
@@ -314,6 +334,55 @@ void main() {
     },
   );
 
+  test('persisted proposal confirmation is idempotent after apply', () async {
+    final preview = await service.preparePreview(
+      'user_profile.md',
+      '# User\nnew\n',
+    );
+
+    final first = await service.applyPersisted(
+      fileName: preview.fileName,
+      proposedContent: '# User\nnew\n',
+      confirmationToken: preview.confirmationToken,
+      version: preview.version,
+    );
+    final second = await service.applyPersisted(
+      fileName: preview.fileName,
+      proposedContent: '# User\nnew\n',
+      confirmationToken: preview.confirmationToken,
+      version: preview.version,
+    );
+
+    expect(second.version, first.version);
+    expect(
+      '"status":"committed"'.allMatches(boundary.files['memory_log.md']!),
+      hasLength(1),
+    );
+  });
+
+  test(
+    'preview survives service replacement without retained proposal state',
+    () async {
+      final preview = await service.preparePreview(
+        'user_profile.md',
+        '# User\nnew\n',
+      );
+      final replacement = UpdateMemoryFileService(
+        boundary,
+        MemoryMutationCoordinator(boundary),
+      );
+
+      await replacement.applyPersisted(
+        fileName: preview.fileName,
+        proposedContent: preview.proposedContent,
+        confirmationToken: preview.confirmationToken,
+        version: preview.version,
+      );
+
+      expect(boundary.files['user_profile.md'], '# User\nnew\n');
+    },
+  );
+
   testWidgets('preview displays and confirms the exact token and version', (
     tester,
   ) async {
@@ -415,13 +484,18 @@ class _FakeMemoryBoundary implements MemoryFileBoundary {
   }
 }
 
-class _FakeMemoryTransaction implements MemoryFileTransaction {
+class _FakeMemoryTransaction
+    implements MemoryFileTransaction, MissingAwareMemoryFileTransaction {
   const _FakeMemoryTransaction(this.boundary);
 
   final _FakeMemoryBoundary boundary;
 
   @override
   Future<String> read(String fileName) => boundary.read(fileName);
+
+  @override
+  Future<String?> readIfExists(String fileName) async =>
+      boundary.files[fileName];
 
   @override
   Future<void> write(String fileName, String content) =>

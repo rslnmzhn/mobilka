@@ -1,10 +1,16 @@
+import 'dart:convert';
+
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../agents/application/agents_controller.dart';
+import '../../memory/application/memory_chat_tool_runtime.dart';
+import '../../memory/application/update_memory_file_service.dart';
 import '../../models/application/models_controller.dart';
 import '../data/chat_repository.dart';
 import '../data/conversation_store.dart';
 import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
+import '../domain/pending_memory_proposal.dart';
 import 'chat_state.dart';
 import 'chat_streaming_coordinator.dart';
 
@@ -35,6 +41,7 @@ class ChatController extends _$ChatController {
         publishError: (message) {
           state = AsyncData(state.requireValue.copyWith(errorMessage: message));
         },
+        toolRuntime: ref.read(memoryChatToolRuntimeProvider),
       );
 
   Future<void> createConversation(String modelId) async {
@@ -112,11 +119,80 @@ class ChatController extends _$ChatController {
     if (current.hasInFlightRequest) return;
     final conversation = current.conversationById(conversationId);
     if (conversation == null) return;
-    final retry = prepareInterruptedRetry(conversation, DateTime.now());
+    final policy = await _selectedToolPolicy();
+    final retry = prepareInterruptedRetry(
+      conversation,
+      DateTime.now(),
+      selectedAgentId: policy.agentId,
+      allowedTools: policy.allowedTools,
+    );
     if (retry == null) return;
     await _persistAndPublish(retry.conversation, clearError: true);
     await _coordinator.run(retry.request);
   }
+
+  Future<void> confirmPendingMemoryProposal() async {
+    final conversation = state.requireValue.activeConversation;
+    final proposal = conversation?.pendingMemoryProposal;
+    if (conversation == null || proposal == null) return;
+    final updates = ref.read(updateMemoryFileProvider);
+    if (updates == null) throw StateError('Memory storage is not configured');
+    try {
+      await ref
+          .read(memoryChatToolRuntimeProvider)
+          .revalidateMemoryProposal(proposal);
+      final result = await updates.applyPersisted(
+        fileName: proposal.fileName,
+        proposedContent: proposal.proposedContent,
+        confirmationToken: proposal.confirmationToken,
+        version: proposal.version,
+      );
+      await _continueAfterMemoryDecision(
+        conversation,
+        proposal,
+        jsonEncode({
+          'ok': true,
+          'file_name': result.fileName,
+          'previous_version': result.previousVersion,
+          'version': result.version,
+        }),
+      );
+    } on MemoryToolPermissionException catch (error) {
+      await _continueAfterMemoryDecision(
+        conversation,
+        proposal,
+        jsonEncode({'ok': false, 'rejected': true, 'reason': error.message}),
+      );
+      state = AsyncData(
+        state.requireValue.copyWith(errorMessage: error.toString()),
+      );
+    } on Object catch (error) {
+      state = AsyncData(
+        state.requireValue.copyWith(errorMessage: error.toString()),
+      );
+    }
+  }
+
+  Future<void> rejectPendingMemoryProposal() async {
+    final conversation = state.requireValue.activeConversation;
+    final proposal = conversation?.pendingMemoryProposal;
+    if (conversation == null || proposal == null) return;
+    await _continueAfterMemoryDecision(
+      conversation,
+      proposal,
+      jsonEncode({'ok': false, 'rejected': true, 'reason': 'User rejected'}),
+    );
+  }
+
+  Future<void> _continueAfterMemoryDecision(
+    Conversation conversation,
+    PendingMemoryProposal proposal,
+    String result,
+  ) => _coordinator.continueAfterMemoryDecision(
+    conversation: conversation,
+    proposal: proposal,
+    toolResult: result,
+  );
 
   void cancel() {
     final id = state.requireValue.activeConversationId;
@@ -139,6 +215,7 @@ class ChatController extends _$ChatController {
     Conversation conversation,
     String text,
   ) async {
+    final policy = await _selectedToolPolicy();
     final now = DateTime.now();
     final requestId = '${now.microsecondsSinceEpoch}-user';
     final assistantId = '${now.microsecondsSinceEpoch}-assistant';
@@ -164,7 +241,24 @@ class ChatController extends _$ChatController {
       ],
     );
     await _persistAndPublish(updated, clearError: true);
-    return buildChatStreamRequest(updated, requestId, assistantId);
+    return buildChatStreamRequest(
+      updated,
+      requestId,
+      assistantId,
+      selectedAgentId: policy.agentId,
+      allowedTools: policy.allowedTools,
+    );
+  }
+
+  Future<({String? agentId, Set<String> allowedTools})>
+  _selectedToolPolicy() async {
+    final selected = (await ref.read(agentsControllerProvider.future)).selected;
+    return (
+      agentId: selected?.definition.id,
+      allowedTools: Set.unmodifiable(
+        selected?.definition.tools ?? const <String>[],
+      ),
+    );
   }
 
   Future<void> _updateConversation(

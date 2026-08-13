@@ -1,5 +1,6 @@
 import 'chat_message.dart';
 import 'chat_stream_event.dart';
+import 'pending_memory_proposal.dart';
 
 class Conversation {
   const Conversation({
@@ -13,6 +14,7 @@ class Conversation {
     this.pendingRequestMessageId,
     this.contextLimitTokens = 32768,
     this.usage,
+    this.pendingMemoryProposal,
   });
 
   final String id;
@@ -25,6 +27,7 @@ class Conversation {
   final String? pendingRequestMessageId;
   final int contextLimitTokens;
   final ConversationUsage? usage;
+  final PendingMemoryProposal? pendingMemoryProposal;
 
   Conversation copyWith({
     String? title,
@@ -36,6 +39,8 @@ class Conversation {
     bool clearPendingRequest = false,
     int? contextLimitTokens,
     ConversationUsage? usage,
+    PendingMemoryProposal? pendingMemoryProposal,
+    bool clearPendingMemoryProposal = false,
   }) => Conversation(
     id: id,
     title: title ?? this.title,
@@ -49,6 +54,9 @@ class Conversation {
         : (pendingRequestMessageId ?? this.pendingRequestMessageId),
     contextLimitTokens: contextLimitTokens ?? this.contextLimitTokens,
     usage: usage ?? this.usage,
+    pendingMemoryProposal: clearPendingMemoryProposal
+        ? null
+        : (pendingMemoryProposal ?? this.pendingMemoryProposal),
   );
 
   Map<String, dynamic> toJson() => {
@@ -61,6 +69,7 @@ class Conversation {
     'pendingRequestMessageId': pendingRequestMessageId,
     'contextLimitTokens': contextLimitTokens,
     'usage': usage?.toJson(),
+    'pendingMemoryProposal': pendingMemoryProposal?.toJson(),
     'messages': messages.map((message) => message.toStorageJson()).toList(),
   };
 
@@ -75,6 +84,9 @@ class Conversation {
     contextLimitTokens: json['contextLimitTokens'] as int? ?? 32768,
     usage: json['usage'] is Map
         ? ConversationUsage.fromJson(json['usage'] as Map)
+        : null,
+    pendingMemoryProposal: json['pendingMemoryProposal'] is Map
+        ? PendingMemoryProposal.fromJson(json['pendingMemoryProposal'] as Map)
         : null,
     messages: (json['messages'] as List? ?? const [])
         .whereType<Map>()
