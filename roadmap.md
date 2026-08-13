@@ -32,6 +32,7 @@
 - [x] 27. Add token/context budget indicators and clear endpoint errors.
 
 ## Milestone 3 — Markdown memory and agents
+- [x] Architecture decision: adopt RLM Markdown memory as the sole context-memory architecture: deterministically selected human-readable `.md` files injected as one atomic snapshot, manually managed or agent managed with explicit user confirmation; no alternate context-memory pipeline is planned.
 - [x] 28. Implement serialized/mutex-protected Markdown reads and writes.
 - [x] 29. Implement Context Injector for selected memory files.
 - [x] 30. Implement safe `update_memory_file` tool calls with diff preview, durable hash-verified recovery, context-read gating, and an idempotent audit log.
@@ -41,10 +42,10 @@
 - [x] 34. Add user controls for memory inclusion, editing, backup, and restore.
 
 ## Milestone 4 — Tool calling and artifacts
-- [x] Implement the Hermes Workbench visual system and three-state adaptive application shell.
+- [x] Implement the mobilka Workbench visual system and three-state adaptive application shell.
 - [x] Keep five-destination mobile navigation overflow-free on narrow screens.
 - [x] Fix memory folder cancellation state loss and location-provider rebuilds.
-- [ ] 35. Implement native OpenAI-compatible `tool_calls` orchestration.
+- [x] 35. Implement native OpenAI-compatible `tool_calls` orchestration with persisted user-confirmed memory proposals.
 - [ ] 36. Implement fallback parsing for tool calls embedded in Markdown/JSON blocks.
 - [ ] 37. Add collapsible tool cards with running, completed, and failed states.
 - [ ] 38. Add the tabbed Artifacts Bottom Sheet for code, documents, previews, and logs.
@@ -70,5 +71,7 @@
 - [ ] 52. Add Android signing and release configuration without storing secrets in Git.
 - [ ] 53. Add Windows and Linux packaging.
 - [ ] 54. Complete accessibility, keyboard navigation, screen-reader, and large-text audits.
+- [x] Support Enter-to-send, Shift+Enter newlines, and mobile send actions without keyboard-triggered stream cancellation.
+- [x] Add an always-visible New Chat header action and searchable favorite-first quick model picker.
 - [ ] 55. Add privacy disclosures, export/delete controls, and store metadata.
 - [ ] 56. Run full security, dependency, architecture, performance, and release validation.

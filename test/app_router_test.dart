@@ -64,7 +64,7 @@ void main() {
     for (final label in ['Chat', 'Models', 'Agents', 'Memory', 'Settings']) {
       expect(find.text(label), findsOneWidget);
     }
-    expect(find.text('HERMES'), findsNothing);
+    expect(find.text('MOBILKA'), findsNothing);
     expect(find.text('Workbench'), findsNothing);
   });
 
@@ -74,7 +74,7 @@ void main() {
     await pumpAppAtSize(tester, const Size(1280, 800));
 
     expect(find.byType(NavigationBar), findsNothing);
-    expect(find.text('HERMES'), findsOneWidget);
+    expect(find.text('MOBILKA'), findsOneWidget);
     expect(find.text('Workbench'), findsOneWidget);
     for (final label in ['Chat', 'Models', 'Agents', 'Memory', 'Settings']) {
       expect(find.text(label), findsOneWidget);

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 enum ThemePreset {
-  hermesWorkbench,
+  mobilkaWorkbench,
   claude,
   darkCyber,
   midnightOled,
@@ -12,7 +12,7 @@ enum ThemePreset {
 
 extension ThemePresetLabel on ThemePreset {
   String get label => switch (this) {
-    ThemePreset.hermesWorkbench => 'Hermes Workbench',
+    ThemePreset.mobilkaWorkbench => 'mobilka Workbench',
     ThemePreset.claude => 'Claude',
     ThemePreset.darkCyber => 'Dark Cyber',
     ThemePreset.midnightOled => 'Midnight OLED',
@@ -63,12 +63,12 @@ class WorkbenchColors extends ThemeExtension<WorkbenchColors> {
 
 abstract final class AppTheme {
   static ThemeData build(ThemePreset preset, Brightness brightness) {
-    if (preset == ThemePreset.hermesWorkbench) {
-      return _hermes(brightness);
+    if (preset == ThemePreset.mobilkaWorkbench) {
+      return _mobilka(brightness);
     }
 
     final seed = switch (preset) {
-      ThemePreset.hermesWorkbench => throw StateError('Handled above'),
+      ThemePreset.mobilkaWorkbench => throw StateError('Handled above'),
       ThemePreset.claude => const Color(0xFFD97757),
       ThemePreset.darkCyber => const Color(0xFF00D9FF),
       ThemePreset.midnightOled => const Color(0xFF8B5CF6),
@@ -93,7 +93,7 @@ abstract final class AppTheme {
     return _baseTheme(scheme, background);
   }
 
-  static ThemeData _hermes(Brightness brightness) {
+  static ThemeData _mobilka(Brightness brightness) {
     final dark = brightness == Brightness.dark;
     final scheme = ColorScheme(
       brightness: brightness,

@@ -46,7 +46,7 @@ class AppShell extends StatelessWidget {
               groupAlignment: -0.72,
               leading: const Padding(
                 padding: EdgeInsets.only(top: 12, bottom: 22),
-                child: _HermesMark(),
+                child: _MobilkaMark(),
               ),
               destinations: destinations
                   .map(
@@ -203,14 +203,14 @@ class _WorkbenchBrand extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Row(
       children: [
-        _HermesMark(),
+        _MobilkaMark(),
         SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'HERMES',
+                'MOBILKA',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.4,
@@ -228,8 +228,8 @@ class _WorkbenchBrand extends StatelessWidget {
   }
 }
 
-class _HermesMark extends StatelessWidget {
-  const _HermesMark();
+class _MobilkaMark extends StatelessWidget {
+  const _MobilkaMark();
 
   @override
   Widget build(BuildContext context) {

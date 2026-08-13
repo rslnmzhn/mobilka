@@ -3,9 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/core/theme/app_theme.dart';
 
 void main() {
-  test('Hermes Workbench has distinct paper and charcoal palettes', () {
-    final light = AppTheme.build(ThemePreset.hermesWorkbench, Brightness.light);
-    final dark = AppTheme.build(ThemePreset.hermesWorkbench, Brightness.dark);
+  test('mobilka Workbench has distinct paper and charcoal palettes', () {
+    final light = AppTheme.build(
+      ThemePreset.mobilkaWorkbench,
+      Brightness.light,
+    );
+    final dark = AppTheme.build(ThemePreset.mobilkaWorkbench, Brightness.dark);
 
     expect(light.extension<WorkbenchColors>(), isNotNull);
     expect(dark.extension<WorkbenchColors>(), isNotNull);
