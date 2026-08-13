@@ -6,23 +6,20 @@ part of 'memory_controller.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$memoryControllerHash() => r'f8a27465b899fe2a681fcc130ae9d0ce6f48bec8';
+String _$memoryControllerHash() => r'eae1ef445c523d6db8d611b8a1de1827800ee95c';
 
 /// See also [MemoryController].
 @ProviderFor(MemoryController)
-final memoryControllerProvider =
-    AutoDisposeAsyncNotifierProvider<
-      MemoryController,
-      MemoryLocation?
-    >.internal(
-      MemoryController.new,
-      name: r'memoryControllerProvider',
-      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-          ? null
-          : _$memoryControllerHash,
-      dependencies: null,
-      allTransitiveDependencies: null,
-    );
+final memoryControllerProvider = AutoDisposeAsyncNotifierProvider<
+    MemoryController, MemoryLocation?>.internal(
+  MemoryController.new,
+  name: r'memoryControllerProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$memoryControllerHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
 
 typedef _$MemoryController = AutoDisposeAsyncNotifier<MemoryLocation?>;
 // ignore_for_file: type=lint
