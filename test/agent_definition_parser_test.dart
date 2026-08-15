@@ -62,7 +62,10 @@ Keep this trailing whitespace.
     expect(definition.name, 'General Assistant');
     expect(definition.mode, AgentMode.primary);
     expect(definition.tools, contains('update_memory_file'));
-    expect(definition.prompt, startsWith('\n## Role & System Instructions'));
+    expect(
+      definition.prompt.replaceAll('\r\n', '\n'),
+      startsWith('\n## Role & System Instructions'),
+    );
   });
 
   group('rejects malformed frontmatter', () {

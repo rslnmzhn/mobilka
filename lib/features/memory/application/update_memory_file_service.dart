@@ -32,6 +32,8 @@ class UpdateMemoryFileService {
   final MemoryFileBoundary _boundary;
   final MemoryMutationCoordinator _mutations;
   final ConfirmationTokenFactory _tokenFactory;
+  final Set<String> _consumedTokens = {};
+  final Set<String> _applyingTokens = {};
 
   Future<String> readCurrent(String fileName) {
     _validate(fileName);
@@ -61,14 +63,24 @@ class UpdateMemoryFileService {
   Future<MemoryUpdateResult> apply({
     required String confirmationToken,
     required String version,
-  }) {
+  }) async {
+    if (_consumedTokens.contains(confirmationToken) ||
+        !_applyingTokens.add(confirmationToken)) {
+      throw UnknownMemoryConfirmationException();
+    }
     final payload = _decodeConfirmationToken(confirmationToken);
-    return applyPersisted(
-      fileName: payload.fileName,
-      proposedContent: payload.proposedContent,
-      confirmationToken: confirmationToken,
-      version: version,
-    );
+    try {
+      final result = await applyPersisted(
+        fileName: payload.fileName,
+        proposedContent: payload.proposedContent,
+        confirmationToken: confirmationToken,
+        version: version,
+      );
+      _consumedTokens.add(confirmationToken);
+      return result;
+    } finally {
+      _applyingTokens.remove(confirmationToken);
+    }
   }
 
   Future<void> recover() => _mutations.recover();

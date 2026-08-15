@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../agents/application/agents_controller.dart';
@@ -10,13 +11,16 @@ import '../data/chat_repository.dart';
 import '../data/conversation_store.dart';
 import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
-import '../domain/pending_memory_proposal.dart';
 import 'chat_state.dart';
 import 'chat_streaming_coordinator.dart';
 
 export 'chat_state.dart';
 
 part 'chat_controller.g.dart';
+
+final chatCompletionStreamerProvider = Provider<ChatCompletionStreamer>(
+  (ref) => ref.watch(chatRepositoryProvider),
+);
 
 @Riverpod(keepAlive: true)
 class ChatController extends _$ChatController {
@@ -35,7 +39,7 @@ class ChatController extends _$ChatController {
 
   ChatStreamingCoordinator get _coordinator =>
       _streamingCoordinator ??= ChatStreamingCoordinator(
-        streamer: ref.read(chatRepositoryProvider),
+        streamer: ref.read(chatCompletionStreamerProvider),
         conversationById: (id) => state.requireValue.conversationById(id),
         persistAndPublish: _persistAndPublish,
         publishError: (message) {
@@ -135,9 +139,11 @@ class ChatController extends _$ChatController {
     final conversation = state.requireValue.activeConversation;
     final proposal = conversation?.pendingMemoryProposal;
     if (conversation == null || proposal == null) return;
-    final updates = ref.read(updateMemoryFileProvider);
-    if (updates == null) throw StateError('Memory storage is not configured');
+    final conversationId = conversation.id;
+    final toolCallId = proposal.toolCallId;
     try {
+      final updates = ref.read(updateMemoryFileProvider);
+      if (updates == null) throw StateError('Memory storage is not configured');
       await ref
           .read(memoryChatToolRuntimeProvider)
           .revalidateMemoryProposal(proposal);
@@ -148,8 +154,8 @@ class ChatController extends _$ChatController {
         version: proposal.version,
       );
       await _continueAfterMemoryDecision(
-        conversation,
-        proposal,
+        conversationId,
+        toolCallId,
         jsonEncode({
           'ok': true,
           'file_name': result.fileName,
@@ -157,18 +163,11 @@ class ChatController extends _$ChatController {
           'version': result.version,
         }),
       );
-    } on MemoryToolPermissionException catch (error) {
-      await _continueAfterMemoryDecision(
-        conversation,
-        proposal,
-        jsonEncode({'ok': false, 'rejected': true, 'reason': error.message}),
-      );
+    } on Object {
       state = AsyncData(
-        state.requireValue.copyWith(errorMessage: error.toString()),
-      );
-    } on Object catch (error) {
-      state = AsyncData(
-        state.requireValue.copyWith(errorMessage: error.toString()),
+        state.requireValue.copyWith(
+          errorMessage: 'chat.memoryConfirmError'.tr(),
+        ),
       );
     }
   }
@@ -178,21 +177,26 @@ class ChatController extends _$ChatController {
     final proposal = conversation?.pendingMemoryProposal;
     if (conversation == null || proposal == null) return;
     await _continueAfterMemoryDecision(
-      conversation,
-      proposal,
+      conversation.id,
+      proposal.toolCallId,
       jsonEncode({'ok': false, 'rejected': true, 'reason': 'User rejected'}),
     );
   }
 
   Future<void> _continueAfterMemoryDecision(
-    Conversation conversation,
-    PendingMemoryProposal proposal,
+    String conversationId,
+    String toolCallId,
     String result,
-  ) => _coordinator.continueAfterMemoryDecision(
-    conversation: conversation,
-    proposal: proposal,
-    toolResult: result,
-  );
+  ) async {
+    final conversation = state.requireValue.conversationById(conversationId);
+    final proposal = conversation?.pendingMemoryProposal;
+    if (conversation == null || proposal?.toolCallId != toolCallId) return;
+    await _coordinator.continueAfterMemoryDecision(
+      conversation: conversation,
+      proposal: proposal!,
+      toolResult: result,
+    );
+  }
 
   void cancel() {
     final id = state.requireValue.activeConversationId;

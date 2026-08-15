@@ -158,7 +158,7 @@ void main() {
   test('permission revoked before confirmation blocks mutation', () async {
     var selected = _entry(const ['update_memory_file']);
     final runtime = MemoryChatToolRuntime(
-      selectedAgent: () async => selected,
+      agentById: (_) async => selected,
       memoryUpdates: updates,
     );
     final proposal = await _proposal(runtime);
@@ -183,6 +183,16 @@ void main() {
     );
     expect(boundary.files['user_profile.md'], '# User\nnew\n');
   });
+
+  test('revalidation resolves the proposal agent by id', () async {
+    final runtime = MemoryChatToolRuntime(
+      agentById: (id) async =>
+          id == 'agent' ? _entry(const ['update_memory_file']) : null,
+      memoryUpdates: updates,
+    );
+
+    await runtime.revalidateMemoryProposal(await _proposal(runtime));
+  });
 }
 
 Future<PendingMemoryProposal> _proposal(MemoryChatToolRuntime runtime) async =>
@@ -202,7 +212,7 @@ MemoryChatToolRuntime _runtime(
   UpdateMemoryFileService updates, {
   List<String> tools = const [],
 }) => MemoryChatToolRuntime(
-  selectedAgent: () async => _entry(tools),
+  agentById: (_) async => _entry(tools),
   memoryUpdates: updates,
   now: () => DateTime.utc(2026, 8, 14),
 );

@@ -163,7 +163,7 @@ void main() {
     expect(events.single.isTerminal, isFalse);
   });
 
-  test('DONE alone does not produce a terminal event', () async {
+  test('DONE produces the explicit terminal event', () async {
     final adapter = _StreamingAdapter([
       'data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n',
       'data: [DONE]\n\n',
@@ -179,7 +179,8 @@ void main() {
         .toList();
 
     expect(events.map((event) => event.delta).join(), 'partial');
-    expect(events.any((event) => event.isTerminal), isFalse);
+    expect(events.where((event) => event.isTerminal), hasLength(1));
+    expect(events.last.isTerminal, isTrue);
   });
 }
 

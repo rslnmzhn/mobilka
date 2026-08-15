@@ -83,11 +83,17 @@ class PendingMemoryProposalCard extends StatefulWidget {
 
 class _PendingMemoryProposalCardState extends State<PendingMemoryProposalCard> {
   var _busy = false;
+  String? _error;
 
   Future<void> _run(Future<void> Function() action) async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       await action();
+    } on Object {
+      if (mounted) setState(() => _error = 'chat.memoryConfirmError'.tr());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -121,6 +127,14 @@ class _PendingMemoryProposalCardState extends State<PendingMemoryProposalCard> {
               ),
             ),
             const SizedBox(height: 10),
+            if (_error case final error?) ...[
+              Text(
+                error,
+                key: const Key('memory-proposal-error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              const SizedBox(height: 10),
+            ],
             Wrap(
               alignment: WrapAlignment.end,
               spacing: 8,
@@ -133,7 +147,13 @@ class _PendingMemoryProposalCardState extends State<PendingMemoryProposalCard> {
                 FilledButton(
                   key: const Key('confirm-memory-proposal'),
                   onPressed: _busy ? null : () => _run(widget.onConfirm),
-                  child: Text('chat.confirmMemory'.tr()),
+                  child: _busy
+                      ? const SizedBox.square(
+                          key: Key('confirm-memory-proposal-progress'),
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text('chat.confirmMemory'.tr()),
                 ),
               ],
             ),

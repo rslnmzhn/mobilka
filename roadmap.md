@@ -45,6 +45,7 @@
 - [x] Implement the mobilka Workbench visual system and three-state adaptive application shell.
 - [x] Keep five-destination mobile navigation overflow-free on narrow screens.
 - [x] Fix memory folder cancellation state loss and location-provider rebuilds.
+- [x] Fix mobilka shell branding and pending memory proposal confirmation runtime failures.
 - [x] 35. Implement native OpenAI-compatible `tool_calls` orchestration with persisted user-confirmed memory proposals.
 - [ ] 36. Implement fallback parsing for tool calls embedded in Markdown/JSON blocks.
 - [ ] 37. Add collapsible tool cards with running, completed, and failed states.

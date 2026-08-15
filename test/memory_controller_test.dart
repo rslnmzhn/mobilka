@@ -79,6 +79,7 @@ void main() {
       addTearDown(subscription.close);
       await container.read(memoryControllerProvider.future);
       final originalEditor = container.read(memoryFileEditorProvider);
+      expect(coordinatorBuilds, 1);
 
       await container.read(memoryControllerProvider.notifier).chooseFolder();
       await container.pump();
@@ -87,11 +88,8 @@ void main() {
         container.read(memoryControllerProvider).requireValue?.value,
         'replacement',
       );
-      expect(coordinatorBuilds, 1);
-      expect(
-        container.read(memoryFileEditorProvider),
-        isNot(same(originalEditor)),
-      );
+      final replacementEditor = container.read(memoryFileEditorProvider);
+      expect(replacementEditor, isNot(same(originalEditor)));
       expect(coordinatorBuilds, 2);
     },
   );

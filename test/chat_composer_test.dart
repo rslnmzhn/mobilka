@@ -108,5 +108,6 @@ void main() {
 
     final textField = tester.widget<TextField>(find.byType(TextField));
     expect(textField.textInputAction, TextInputAction.send);
+    debugDefaultTargetPlatformOverride = null;
   });
 }

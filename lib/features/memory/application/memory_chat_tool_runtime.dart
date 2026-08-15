@@ -16,18 +16,22 @@ class MemoryToolPermissionException extends StateError {
 
 final memoryChatToolRuntimeProvider = Provider<MemoryChatToolRuntime>((ref) {
   return MemoryChatToolRuntime(
-    selectedAgent: () async =>
-        (await ref.read(agentsControllerProvider.future)).selected,
+    agentById: (id) async {
+      final catalog = await ref.read(agentsControllerProvider.future);
+      return catalog.agents
+          .where((agent) => agent.definition.id == id)
+          .firstOrNull;
+    },
     memoryUpdates: ref.watch(updateMemoryFileProvider),
   );
 });
 
 class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
   MemoryChatToolRuntime({
-    required Future<AgentCatalogEntry?> Function() selectedAgent,
+    required Future<AgentCatalogEntry?> Function(String id) agentById,
     required UpdateMemoryFileService? memoryUpdates,
     DateTime Function()? now,
-  }) : _selectedAgent = selectedAgent,
+  }) : _agentById = agentById,
        _memoryUpdates = memoryUpdates,
        _now = now ?? DateTime.now;
 
@@ -57,7 +61,7 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     },
   );
 
-  final Future<AgentCatalogEntry?> Function() _selectedAgent;
+  final Future<AgentCatalogEntry?> Function(String id) _agentById;
   final UpdateMemoryFileService? _memoryUpdates;
   final DateTime Function() _now;
 
@@ -116,9 +120,9 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
   @override
   Future<void> revalidateMemoryProposal(PendingMemoryProposal proposal) async {
     _requireAllowed(updateMemoryFile.name, proposal.allowedTools);
-    final selected = await _selectedAgent();
-    if (selected?.definition.id != proposal.selectedAgentId ||
-        !selected!.definition.tools.contains(updateMemoryFile.name)) {
+    final agent = await _agentById(proposal.selectedAgentId);
+    if (agent == null ||
+        !agent.definition.tools.contains(updateMemoryFile.name)) {
       throw MemoryToolPermissionException(
         'Agent memory permission changed; request a new update',
       );

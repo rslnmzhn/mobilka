@@ -231,10 +231,13 @@ class _WorkbenchBrand extends StatelessWidget {
 class _MobilkaMark extends StatelessWidget {
   const _MobilkaMark();
 
+  static const markKey = Key('mobilka-brand-mark');
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
+      key: markKey,
       width: 34,
       height: 34,
       alignment: Alignment.center,
@@ -243,7 +246,7 @@ class _MobilkaMark extends StatelessWidget {
         borderRadius: BorderRadius.circular(5),
       ),
       child: Text(
-        'H',
+        'M',
         style: TextStyle(
           color: scheme.onPrimary,
           fontFamily: 'serif',
