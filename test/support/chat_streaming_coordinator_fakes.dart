@@ -124,6 +124,17 @@ class ToolRuntime implements runtime.ChatToolRuntime {
   }
 }
 
+class RejectingToolRuntime extends ToolRuntime {
+  @override
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools,
+  ) async {
+    calls.add(call);
+    throw StateError('Unknown tool: ${call.name}');
+  }
+}
+
 class MemoryProposalRuntime
     implements runtime.ChatToolRuntime, runtime.MemoryProposalRuntime {
   var executed = false;

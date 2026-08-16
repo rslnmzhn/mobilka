@@ -2,99 +2,17 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+export 'chat_stream_request.dart';
+
+import 'chat_stream_request.dart';
 import 'chat_tool_runtime.dart';
+import 'fallback_tool_call_parser.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_stream_event.dart';
 import '../domain/conversation.dart';
 import '../domain/chat_tool.dart';
 import '../domain/pending_memory_proposal.dart';
-
-class ChatStreamRequest {
-  ChatStreamRequest({
-    required this.conversationId,
-    required this.requestMessageId,
-    required this.assistantMessageId,
-    required this.modelId,
-    required this.history,
-    required this.selectedAgentId,
-    required Set<String> allowedTools,
-  }) : allowedTools = Set.unmodifiable(allowedTools);
-
-  final String conversationId;
-  final String requestMessageId;
-  final String assistantMessageId;
-  final String modelId;
-  final List<ChatMessage> history;
-  final String? selectedAgentId;
-  final Set<String> allowedTools;
-}
-
-({Conversation conversation, ChatStreamRequest request})?
-prepareInterruptedRetry(
-  Conversation conversation,
-  DateTime now, {
-  required String? selectedAgentId,
-  required Set<String> allowedTools,
-}) {
-  final requestId = conversation.pendingRequestMessageId;
-  if (requestId == null) return null;
-  final requestMessage = conversation.messages
-      .where((message) => message.id == requestId)
-      .firstOrNull;
-  if (requestMessage == null || requestMessage.role != ChatRole.user) {
-    return null;
-  }
-
-  final assistantId = '${now.microsecondsSinceEpoch}-assistant';
-  final updated = conversation.copyWith(
-    updatedAt: now,
-    messages: [
-      ...conversation.messages,
-      ChatMessage(
-        id: assistantId,
-        role: ChatRole.assistant,
-        content: '',
-        createdAt: now,
-        status: ChatMessageStatus.pending,
-      ),
-    ],
-  );
-  return (
-    conversation: updated,
-    request: buildChatStreamRequest(
-      updated,
-      requestId,
-      assistantId,
-      selectedAgentId: selectedAgentId,
-      allowedTools: allowedTools,
-    ),
-  );
-}
-
-ChatStreamRequest buildChatStreamRequest(
-  Conversation conversation,
-  String requestId,
-  String assistantId, {
-  required String? selectedAgentId,
-  required Set<String> allowedTools,
-}) => ChatStreamRequest(
-  conversationId: conversation.id,
-  requestMessageId: requestId,
-  assistantMessageId: assistantId,
-  modelId: conversation.modelId,
-  selectedAgentId: selectedAgentId,
-  allowedTools: allowedTools,
-  history: conversation.messages
-      .where((message) => message.id != assistantId)
-      .where(
-        (message) =>
-            message.role != ChatRole.assistant ||
-            (message.status != ChatMessageStatus.interrupted &&
-                message.status != ChatMessageStatus.failed),
-      )
-      .toList(growable: false),
-);
 
 class ChatStreamingCoordinator {
   ChatStreamingCoordinator({
@@ -257,10 +175,12 @@ class ChatStreamingCoordinator {
           if (toolRounds > 8) {
             throw const FormatException('Tool call round limit exceeded');
           }
+          final ordered = buffers.entries.toList()
+            ..sort((a, b) => a.key.compareTo(b.key));
           final shouldContinue = await _executeTools(
             request,
             assistantId,
-            buffers,
+            ordered.map((entry) => entry.value.build()).toList(),
           );
           if (!shouldContinue) return;
           final conversation = _conversationById(request.conversationId)!;
@@ -270,6 +190,55 @@ class ChatStreamingCoordinator {
           assistantId = '${request.assistantMessageId}-followup-$toolRounds';
           await _appendPendingAssistant(request, assistantId);
           continue;
+        }
+        if (terminalSeen && buffers.isEmpty) {
+          final conversation = _conversationById(request.conversationId)!;
+          final assistant = conversation.messages.firstWhere(
+            (message) => message.id == assistantId,
+          );
+          final parsed = parseFallbackToolCalls(
+            assistantText: assistant.content,
+            requestMessageId: request.requestMessageId,
+            previouslyPersistedCallIds: conversation.messages
+                .expand((message) => message.toolCalls)
+                .map((call) => call.id)
+                .toSet(),
+          );
+          if (parsed.visibleText != assistant.content) {
+            await _persistAndPublish(
+              conversation.copyWith(
+                updatedAt: DateTime.now(),
+                messages: conversation.messages
+                    .map(
+                      (message) => message.id == assistantId
+                          ? message.copyWith(content: parsed.visibleText)
+                          : message,
+                    )
+                    .toList(),
+              ),
+            );
+          }
+          if (parsed.calls.isNotEmpty) {
+            toolRounds++;
+            if (toolRounds > 8) {
+              throw const FormatException('Tool call round limit exceeded');
+            }
+            final shouldContinue = await _executeTools(
+              request,
+              assistantId,
+              parsed.calls,
+            );
+            if (!shouldContinue) return;
+            final updated = _conversationById(request.conversationId)!;
+            history = updated.messages
+                .where(
+                  (message) => message.status == ChatMessageStatus.complete,
+                )
+                .toList(growable: false);
+            assistantId = '${request.assistantMessageId}-followup-$toolRounds';
+            await _appendPendingAssistant(request, assistantId);
+            continue;
+          }
         }
         if (cancelToken.isCancelled) {
           await _finish(request, ChatMessageStatus.interrupted);
@@ -305,15 +274,12 @@ class ChatStreamingCoordinator {
   Future<bool> _executeTools(
     ChatStreamRequest request,
     String assistantId,
-    Map<int, _ToolCallBuffer> buffers,
+    List<ChatToolCall> calls,
   ) async {
     final runtime = _toolRuntime;
-    if (runtime == null || buffers.isEmpty) {
+    if (runtime == null || calls.isEmpty) {
       throw const FormatException('Tool call response has no executable calls');
     }
-    final ordered = buffers.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
-    final calls = ordered.map((entry) => entry.value.build()).toList();
     var conversation = _conversationById(request.conversationId)!;
     conversation = conversation.copyWith(
       updatedAt: DateTime.now(),

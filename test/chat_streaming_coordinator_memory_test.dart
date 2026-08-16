@@ -6,6 +6,36 @@ import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
 import 'support/chat_streaming_coordinator_fakes.dart';
 
 void main() {
+  test(
+    'fallback update_memory_file persists proposal without mutation',
+    () async {
+      final runtime = MemoryProposalRuntime();
+      final fixture = CoordinatorFixture(
+        events: const [
+          ChatStreamEvent(
+            delta:
+                '```tool_call\n{"name":"update_memory_file","arguments":{"file_name":"user_profile.md","content":"# New"}}\n```',
+            isTerminal: true,
+            finishReason: 'stop',
+          ),
+        ],
+        toolRuntime: runtime,
+      );
+
+      await fixture.run();
+
+      expect(runtime.executed, isFalse);
+      expect(fixture.conversation.pendingMemoryProposal, isNotNull);
+      expect(
+        fixture.conversation.pendingMemoryProposal!.toolCallId,
+        startsWith('fallback-'),
+      );
+      expect(fixture.conversation.messages[1].content, isEmpty);
+      expect(fixture.conversation.messages[1].toolCalls, hasLength(1));
+      expect(fixture.conversation.messages, hasLength(2));
+    },
+  );
+
   test('does not route update_memory_file through executeTool', () async {
     final runtime = ToolRuntime();
     final fixture = CoordinatorFixture(
