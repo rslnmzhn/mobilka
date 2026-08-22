@@ -26,11 +26,15 @@ for apk in "$@"; do
     | awk '/certificate SHA-256 digest:/ { count++ } END { print count + 0 }')"
   [[ "${signer_count}" -eq 1 ]] || { echo "Expected one APK signer: ${apk}" >&2; exit 1; }
   actual="$(printf '%s\n' "${output}" \
-    | awk -F': ' '/certificate SHA-256 digest:/ { print $2; exit }' \
+    | awk -F': ' '/certificate SHA-256 digest:/ { print $2 }' \
+    | tr -d ':[:space:]' \
     | sed 's/../&:/g;s/:$//' \
     | tr '[:lower:]' '[:upper:]')"
   [[ -n "${actual}" ]] || { echo "APK signer digest missing: ${apk}" >&2; exit 1; }
-  [[ "${actual}" == "${expected_signer}" ]] || { echo "APK signer mismatch: ${apk}" >&2; exit 1; }
+  [[ "${actual}" == "${expected_signer}" ]] || {
+    echo "APK signer mismatch: ${apk} (expected ${expected_signer}, got ${actual})" >&2
+    exit 1
+  }
   [[ "$(${apkanalyzer} manifest application-id "${apk}")" == "${application_id}" ]] || {
     echo "APK application ID mismatch: ${apk}" >&2; exit 1;
   }
