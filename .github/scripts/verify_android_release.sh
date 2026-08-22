@@ -41,18 +41,25 @@ for apk in "$@"; do
     echo "APK signer mismatch: ${apk} (expected ${expected_signer}, got ${actual})" >&2
     exit 1
   }
-  [[ "$(${apkanalyzer} manifest application-id "${apk}")" == "${application_id}" ]] || {
-    echo "APK application ID mismatch: ${apk}" >&2; exit 1;
-  }
-  [[ "$(${apkanalyzer} manifest version-code "${apk}")" == "${version_code}" ]] || {
-    echo "APK version code mismatch: ${apk}" >&2; exit 1;
+  actual_application_id="$(${apkanalyzer} manifest application-id "${apk}" 2>/dev/null | tail -n1 | tr -d '[:space:]')"
+  [[ "${actual_application_id}" == "${application_id}" ]] || {
+    echo "APK application ID mismatch: ${apk} (expected ${application_id}, got '${actual_application_id}')" >&2
+    exit 1
   }
   case "$(basename "${apk}")" in
-    *armeabi-v7a*) expected_abi="armeabi-v7a" ;;
-    *arm64-v8a*) expected_abi="arm64-v8a" ;;
-    *x86_64*) expected_abi="x86_64" ;;
+    *armeabi-v7a*) expected_abi="armeabi-v7a"; abi_version_code=1 ;;
+    *arm64-v8a*) expected_abi="arm64-v8a"; abi_version_code=2 ;;
+    *x86_64*) expected_abi="x86_64"; abi_version_code=4 ;;
     *) echo "APK filename does not declare a supported ABI: ${apk}" >&2; exit 1 ;;
   esac
+  # Flutter's Gradle plugin overrides the versionCode of split-per-ABI APKs
+  # as <abi code> * 1000 + <pubspec build number>.
+  expected_version_code="$((abi_version_code * 1000 + version_code))"
+  actual_version_code="$(${apkanalyzer} manifest version-code "${apk}" 2>/dev/null | tail -n1 | tr -d '[:space:]')"
+  [[ "${actual_version_code}" == "${expected_version_code}" ]] || {
+    echo "APK version code mismatch: ${apk} (expected ${expected_version_code}, got '${actual_version_code}')" >&2
+    exit 1
+  }
   mapfile -t packaged_abis < <(
     unzip -Z1 "${apk}" \
       | sed -n -E 's#^lib/([^/]+)/[^/]+$#\1#p' \
