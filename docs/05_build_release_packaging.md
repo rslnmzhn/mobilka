@@ -82,7 +82,9 @@ Windows artifact and the ZIP as non-installer portable distribution.
 
 Publishing requires `WINDOWS_CERTIFICATE_BASE64` and
 `WINDOWS_CERTIFICATE_PASSWORD`. CI signs the MSI with Authenticode, verifies the
-signature, and removes the temporary PFX before uploading artifacts.
+embedded signer fingerprint, and removes the temporary PFX before uploading
+artifacts. The accepted self-signed certificate is intentionally not sent to a
+public timestamp service and still produces an unknown-publisher warning.
 After `signtool` verification, CI reads the certificate embedded in the MSI and
 requires SHA-256 fingerprint
 `84EFAEE8B51EF463E312FC90D8B86613739961F11B0C6582B472BB3845D21BA4`.
