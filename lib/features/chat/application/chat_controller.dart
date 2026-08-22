@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../../agents/application/agents_controller.dart';
 import '../../memory/application/memory_chat_tool_runtime.dart';
 import '../../memory/application/update_memory_file_service.dart';
@@ -138,21 +139,87 @@ class ChatController extends _$ChatController {
   Future<void> confirmPendingMemoryProposal() async {
     final conversation = state.requireValue.activeConversation;
     final proposal = conversation?.pendingMemoryProposal;
-    if (conversation == null || proposal == null) return;
+    final logger = ref.read(appLoggerProvider);
+    if (conversation == null || proposal == null) {
+      logger.log(
+        event: 'memory.confirm_click',
+        level: AppLogLevel.warning,
+        status: 'unavailable',
+      );
+      state = AsyncData(
+        state.requireValue.copyWith(
+          errorMessage: 'chat.memoryConfirmGone'.tr(),
+        ),
+      );
+      return;
+    }
     final conversationId = conversation.id;
     final toolCallId = proposal.toolCallId;
+    final stopwatch = Stopwatch()..start();
+    logger.log(
+      event: 'memory.confirm_click',
+      conversationId: conversationId,
+      toolCallId: toolCallId,
+      fileName: proposal.fileName,
+      status: 'started',
+    );
+    state = AsyncData(
+      state.requireValue.copyWith(
+        confirmingMemoryToolCallId: toolCallId,
+        clearError: true,
+      ),
+    );
     try {
       final updates = ref.read(updateMemoryFileProvider);
-      if (updates == null) throw StateError('Memory storage is not configured');
+      logger.log(
+        event: 'memory.provider_availability',
+        conversationId: conversationId,
+        toolCallId: toolCallId,
+        status: updates == null ? 'unavailable' : 'available',
+        level: updates == null ? AppLogLevel.warning : AppLogLevel.debug,
+      );
+      if (updates == null) {
+        logger.log(
+          event: 'memory.confirm',
+          level: AppLogLevel.warning,
+          conversationId: conversationId,
+          toolCallId: toolCallId,
+          fileName: proposal.fileName,
+          status: 'unavailable',
+          duration: stopwatch.elapsed,
+        );
+        state = AsyncData(
+          state.requireValue.copyWith(
+            errorMessage: 'chat.memoryUnavailable'.tr(),
+            clearConfirmingMemory: true,
+          ),
+        );
+        return;
+      }
       await ref
           .read(memoryChatToolRuntimeProvider)
           .revalidateMemoryProposal(proposal);
+
+      var currentProposal = state.requireValue
+          .conversationById(conversationId)
+          ?.pendingMemoryProposal;
+      if (currentProposal == null || currentProposal.toolCallId != toolCallId) {
+        throw StateError('Memory proposal changed during confirmation');
+      }
       final result = await updates.applyPersisted(
-        fileName: proposal.fileName,
-        proposedContent: proposal.proposedContent,
-        confirmationToken: proposal.confirmationToken,
-        version: proposal.version,
+        fileName: currentProposal.fileName,
+        proposedContent: currentProposal.proposedContent,
+        diff: currentProposal.diff,
+        confirmationToken: currentProposal.confirmationToken,
+        version: currentProposal.version,
+        createdAt: currentProposal.createdAt,
       );
+      currentProposal = state.requireValue
+          .conversationById(conversationId)
+          ?.pendingMemoryProposal;
+      if (currentProposal == null || currentProposal.toolCallId != toolCallId) {
+        throw StateError('Memory proposal changed after apply');
+      }
       await _continueAfterMemoryDecision(
         conversationId,
         toolCallId,
@@ -163,12 +230,38 @@ class ChatController extends _$ChatController {
           'version': result.version,
         }),
       );
-    } on Object {
+      logger.log(
+        event: 'memory.confirm',
+        conversationId: conversationId,
+        toolCallId: toolCallId,
+        fileName: proposal.fileName,
+        status: 'succeeded',
+        duration: stopwatch.elapsed,
+      );
+    } on Object catch (error) {
+      logger.log(
+        event: 'memory.confirm',
+        level: AppLogLevel.error,
+        conversationId: conversationId,
+        toolCallId: toolCallId,
+        fileName: proposal.fileName,
+        status: 'failed',
+        error: error,
+        duration: stopwatch.elapsed,
+      );
       state = AsyncData(
         state.requireValue.copyWith(
           errorMessage: 'chat.memoryConfirmError'.tr(),
+          clearConfirmingMemory: true,
         ),
       );
+    } finally {
+      if (state.hasValue &&
+          state.requireValue.confirmingMemoryToolCallId == toolCallId) {
+        state = AsyncData(
+          state.requireValue.copyWith(clearConfirmingMemory: true),
+        );
+      }
     }
   }
 
@@ -181,6 +274,9 @@ class ChatController extends _$ChatController {
       proposal.toolCallId,
       jsonEncode({'ok': false, 'rejected': true, 'reason': 'User rejected'}),
     );
+    await ref
+        .read(updateMemoryFileProvider)
+        ?.revokeProposal(proposal.confirmationToken);
   }
 
   Future<void> _continueAfterMemoryDecision(
@@ -188,14 +284,41 @@ class ChatController extends _$ChatController {
     String toolCallId,
     String result,
   ) async {
+    final logger = ref.read(appLoggerProvider);
     final conversation = state.requireValue.conversationById(conversationId);
     final proposal = conversation?.pendingMemoryProposal;
-    if (conversation == null || proposal?.toolCallId != toolCallId) return;
-    await _coordinator.continueAfterMemoryDecision(
-      conversation: conversation,
-      proposal: proposal!,
-      toolResult: result,
+    if (conversation == null || proposal?.toolCallId != toolCallId) {
+      throw StateError('Pending memory proposal is no longer available');
+    }
+    logger.log(
+      event: 'memory.follow_up',
+      conversationId: conversationId,
+      toolCallId: toolCallId,
+      status: 'started',
     );
+    try {
+      await _coordinator.continueAfterMemoryDecision(
+        conversation: conversation,
+        proposal: proposal!,
+        toolResult: result,
+      );
+      logger.log(
+        event: 'memory.tool_result_persistence',
+        conversationId: conversationId,
+        toolCallId: toolCallId,
+        status: 'succeeded',
+      );
+    } on Object catch (error) {
+      logger.log(
+        event: 'memory.follow_up',
+        level: AppLogLevel.error,
+        conversationId: conversationId,
+        toolCallId: toolCallId,
+        status: 'failed',
+        error: error,
+      );
+      rethrow;
+    }
   }
 
   void cancel() {

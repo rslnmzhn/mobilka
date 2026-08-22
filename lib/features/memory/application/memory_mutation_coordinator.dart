@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../../../core/storage/app_boxes.dart';
 import '../data/memory_file_store.dart';
 import '../data/memory_repository.dart';
@@ -21,6 +22,7 @@ final memoryMutationCoordinatorProvider = Provider<MemoryMutationCoordinator?>((
       memoryRecoveryBox,
       checksum(location.value),
     ),
+    logger: ref.read(appLoggerProvider),
   );
 }, name: 'memory_mutation_coordinator');
 
@@ -30,15 +32,18 @@ class MemoryMutationCoordinator {
     MemoryRecoveryJournal? journal,
     DateTime Function()? now,
     String Function()? operationId,
+    AppLogger? logger,
   }) : _now = now ?? DateTime.now,
        _operationId = operationId ?? _token,
-       _journal = journal ?? _journalFor(_boundary);
+       _journal = journal ?? _journalFor(_boundary),
+       _logger = logger ?? AppLogger();
 
   static const auditFile = 'memory_log.md';
   final MemoryFileBoundary _boundary;
   final DateTime Function() _now;
   final String Function() _operationId;
   final MemoryRecoveryJournal _journal;
+  final AppLogger _logger;
 
   Future<void> mutate({
     required String event,
@@ -95,6 +100,7 @@ class MemoryMutationCoordinator {
         'version': checksum(replacements.values.single),
       },
     };
+    _logger.log(event: 'memory.journal', operationId: id, status: 'pending');
     await _journal.write(id, record);
     try {
       for (final entry in after.entries) {
@@ -104,6 +110,11 @@ class MemoryMutationCoordinator {
       await _journal.write(id, applied);
       await _finalize(files, applied, 'committed');
       await _removeFinalized(id);
+      _logger.log(
+        event: 'memory.journal',
+        operationId: id,
+        status: 'committed',
+      );
     } on Object catch (error) {
       _RecoveryOutcome? outcome;
       try {
@@ -146,7 +157,18 @@ class MemoryMutationCoordinator {
 
   Future<void> _recover(MemoryFileTransaction files) async {
     for (final record in await _journal.readAll()) {
+      final operationId = record['operationId'];
+      _logger.log(
+        event: 'memory.recovery',
+        operationId: operationId is String ? operationId : null,
+        status: 'started',
+      );
       await _recoverRecord(files, record, recovered: true);
+      _logger.log(
+        event: 'memory.recovery',
+        operationId: operationId is String ? operationId : null,
+        status: 'succeeded',
+      );
     }
   }
 
@@ -213,12 +235,20 @@ class MemoryMutationCoordinator {
         !_containsAuditOperation(current, auditOperationId)) {
       await files.write(
         auditFile,
-        _append(current, {
-          ...record,
+        _append(current, <String, dynamic>{
           'timestamp': _now().toUtc().toIso8601String(),
+          'event': record['event'],
+          'operationId': operationId,
           'status': status,
           'auditOperationId': auditOperationId,
-          'terminalAuditWritten': true,
+          'files': record['files'],
+          'createdFiles': record['createdFiles'],
+          'beforeHashes': record['beforeHashes'],
+          'afterHashes': record['afterHashes'],
+          if (record.containsKey('fileName')) 'fileName': record['fileName'],
+          if (record.containsKey('previousVersion'))
+            'previousVersion': record['previousVersion'],
+          if (record.containsKey('version')) 'version': record['version'],
           if (recovered) 'recovered': true,
         }),
       );

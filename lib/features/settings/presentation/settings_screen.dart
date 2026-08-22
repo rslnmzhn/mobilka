@@ -1,10 +1,13 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/theme/workbench_widgets.dart';
+import '../../updater/presentation/update_settings_section.dart';
 import '../application/settings_controller.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -14,6 +17,7 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsControllerProvider);
     final theme = ref.watch(themeControllerProvider);
+    final diagnostics = ref.watch(diagnosticLogProvider);
     return Scaffold(
       appBar: AppBar(
         title: WorkbenchPageTitle(
@@ -77,6 +81,84 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 24),
+            WorkbenchSectionLabel(
+              label: 'settings.diagnostics'.tr(),
+              icon: Icons.monitor_heart_outlined,
+            ),
+            Card(
+              child: ExpansionTile(
+                key: const Key('settings-diagnostics'),
+                title: Text('settings.operationalLogs'.tr()),
+                subtitle: Text(
+                  'settings.operationalLogsDescription'.tr(
+                    args: [diagnostics.length.toString()],
+                  ),
+                ),
+                children: [
+                  if (diagnostics.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text('settings.noDiagnosticLogs'.tr()),
+                    )
+                  else
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 260),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: diagnostics.length,
+                        itemBuilder: (_, index) => Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 4,
+                          ),
+                          child: SelectableText(
+                            diagnostics[index].toString(),
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  OverflowBar(
+                    alignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: diagnostics.isEmpty
+                            ? null
+                            : () => ref
+                                  .read(diagnosticLogProvider.notifier)
+                                  .clear(),
+                        child: Text('settings.clearLogs'.tr()),
+                      ),
+                      FilledButton.tonalIcon(
+                        key: const Key('copy-diagnostic-logs'),
+                        onPressed: diagnostics.isEmpty
+                            ? null
+                            : () async {
+                                await Clipboard.setData(
+                                  ClipboardData(text: diagnostics.join('\n')),
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('settings.logsCopied'.tr()),
+                                    ),
+                                  );
+                                }
+                              },
+                        icon: const Icon(Icons.copy_outlined),
+                        label: Text('settings.copyLogs'.tr()),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            const UpdateSettingsSection(),
             const SizedBox(height: 20),
             WorkbenchSectionLabel(
               label: 'settings.connection'.tr(),

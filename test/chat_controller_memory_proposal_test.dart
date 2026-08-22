@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
+import 'package:mobilka/core/logging/app_logger.dart';
 import 'package:mobilka/features/agents/domain/agent_catalog.dart';
 import 'package:mobilka/features/agents/domain/agent_definition.dart';
 import 'package:mobilka/features/chat/application/chat_controller.dart';
@@ -85,7 +86,12 @@ void main() {
       );
       final proposal = await _proposal(updates);
       await ConversationStore().save(_conversation(proposal));
-      final container = _container(updates, permitsTool: false);
+      final logs = <AppLogEntry>[];
+      final container = _container(
+        updates,
+        permitsTool: false,
+        logger: AppLogger(sink: logs.add),
+      );
       addTearDown(container.dispose);
       await container.read(chatControllerProvider.future);
 
@@ -97,21 +103,67 @@ void main() {
       expect(state.activeConversation!.pendingMemoryProposal, isNotNull);
       expect(state.errorMessage, isNotNull);
       expect(state.errorMessage, contains('memory'));
+      expect(
+        logs.any(
+          (entry) =>
+              entry.event == 'memory.confirm' && entry.status == 'failed',
+        ),
+        isTrue,
+      );
     },
   );
+
+  test('unavailable service is visible, logged, and retryable', () async {
+    final boundary = _Boundary();
+    final updates = UpdateMemoryFileService(
+      boundary,
+      MemoryMutationCoordinator(boundary),
+      tokenFactory: () => 'token',
+    );
+    final proposal = await _proposal(updates);
+    await ConversationStore().save(_conversation(proposal));
+    final logs = <AppLogEntry>[];
+    final container = _container(
+      null,
+      permitsTool: true,
+      logger: AppLogger(sink: logs.add),
+    );
+    addTearDown(container.dispose);
+    await container.read(chatControllerProvider.future);
+
+    await container
+        .read(chatControllerProvider.notifier)
+        .confirmPendingMemoryProposal();
+
+    final state = container.read(chatControllerProvider).requireValue;
+    expect(state.errorMessage, isNotNull);
+    expect(state.activeConversation!.pendingMemoryProposal, isNotNull);
+    expect(state.confirmingMemoryToolCallId, isNull);
+    expect(
+      logs.any(
+        (entry) =>
+            entry.event == 'memory.provider_availability' &&
+            entry.status == 'unavailable',
+      ),
+      isTrue,
+    );
+  });
 }
 
 ProviderContainer _container(
-  UpdateMemoryFileService updates, {
+  UpdateMemoryFileService? updates, {
   required bool permitsTool,
+  AppLogger? logger,
 }) => ProviderContainer(
   overrides: [
     updateMemoryFileProvider.overrideWithValue(updates),
+    if (logger != null) appLoggerProvider.overrideWithValue(logger),
     chatCompletionStreamerProvider.overrideWithValue(_Streamer()),
     memoryChatToolRuntimeProvider.overrideWithValue(
       MemoryChatToolRuntime(
         agentById: (_) async => permitsTool ? _agent() : null,
-        memoryUpdates: updates,
+        memoryUpdates: () => updates,
+        logger: logger,
       ),
     ),
   ],
@@ -132,7 +184,7 @@ Future<PendingMemoryProposal> _proposal(UpdateMemoryFileService updates) async {
     diff: preview.diff,
     confirmationToken: preview.confirmationToken,
     version: preview.version,
-    createdAt: DateTime.utc(2026),
+    createdAt: preview.createdAt,
   );
 }
 

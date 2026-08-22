@@ -212,8 +212,12 @@ class _MemoryUpdateSheetState extends State<MemoryUpdateSheet> {
     });
     try {
       await widget.service.apply(
+        fileName: preview.fileName,
+        proposedContent: preview.proposedContent,
+        diff: preview.diff,
         confirmationToken: preview.confirmationToken,
         version: preview.version,
+        createdAt: preview.createdAt,
       );
       if (mounted) Navigator.pop(context);
     } on Object catch (error) {
@@ -278,10 +282,6 @@ class _MemoryUpdateSheetState extends State<MemoryUpdateSheet> {
                 SelectableText(
                   '${'memory.version'.tr()}: ${preview.version}',
                   key: const Key('memory-update-version'),
-                ),
-                SelectableText(
-                  '${'memory.confirmationToken'.tr()}: ${preview.confirmationToken}',
-                  key: const Key('memory-update-token'),
                 ),
                 const SizedBox(height: 12),
                 FilledButton(

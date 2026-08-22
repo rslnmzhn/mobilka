@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../../agents/application/agents_controller.dart';
 import '../../agents/domain/agent_catalog.dart';
 import '../../chat/application/chat_tool_runtime.dart';
@@ -22,18 +23,19 @@ final memoryChatToolRuntimeProvider = Provider<MemoryChatToolRuntime>((ref) {
           .where((agent) => agent.definition.id == id)
           .firstOrNull;
     },
-    memoryUpdates: ref.watch(updateMemoryFileProvider),
+    memoryUpdates: () => ref.read(updateMemoryFileProvider),
+    logger: ref.read(appLoggerProvider),
   );
 });
 
 class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
   MemoryChatToolRuntime({
     required Future<AgentCatalogEntry?> Function(String id) agentById,
-    required UpdateMemoryFileService? memoryUpdates,
-    DateTime Function()? now,
+    required UpdateMemoryFileService? Function() memoryUpdates,
+    AppLogger? logger,
   }) : _agentById = agentById,
        _memoryUpdates = memoryUpdates,
-       _now = now ?? DateTime.now;
+       _logger = logger ?? AppLogger();
 
   static const updateMemoryFile = ChatToolDefinition(
     name: 'update_memory_file',
@@ -62,14 +64,14 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
   );
 
   final Future<AgentCatalogEntry?> Function(String id) _agentById;
-  final UpdateMemoryFileService? _memoryUpdates;
-  final DateTime Function() _now;
+  final UpdateMemoryFileService? Function() _memoryUpdates;
+  final AppLogger _logger;
 
   @override
   Future<List<ChatToolDefinition>> availableTools(
     Set<String> allowedTools,
   ) async {
-    if (_memoryUpdates != null &&
+    if (_memoryUpdates() != null &&
         allowedTools.contains(updateMemoryFile.name)) {
       return const [updateMemoryFile];
     }
@@ -97,12 +99,46 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     if (selectedAgentId == null) {
       throw MemoryToolPermissionException('No agent is bound to request');
     }
-    final updates = _memoryUpdates;
+    final updates = _memoryUpdates();
+    _logger.log(
+      event: 'memory.provider_availability',
+      toolCallId: call.id,
+      status: updates == null ? 'unavailable' : 'available',
+      level: updates == null ? AppLogLevel.warning : AppLogLevel.debug,
+    );
     if (updates == null) throw StateError('Memory storage is not configured');
     final arguments = _decodeArguments(call.arguments);
     final fileName = arguments['file_name'] as String;
     final proposedContent = arguments['content'] as String;
-    final preview = await updates.preparePreview(fileName, proposedContent);
+    final stopwatch = Stopwatch()..start();
+    _logger.log(
+      event: 'memory.proposal_prepare',
+      toolCallId: call.id,
+      fileName: fileName,
+      status: 'started',
+    );
+    late final MemoryUpdatePreview preview;
+    try {
+      preview = await updates.preparePreview(fileName, proposedContent);
+      _logger.log(
+        event: 'memory.proposal_prepare',
+        toolCallId: call.id,
+        fileName: fileName,
+        status: 'succeeded',
+        duration: stopwatch.elapsed,
+      );
+    } on Object catch (error) {
+      _logger.log(
+        event: 'memory.proposal_prepare',
+        level: AppLogLevel.error,
+        toolCallId: call.id,
+        fileName: fileName,
+        status: 'failed',
+        error: error,
+        duration: stopwatch.elapsed,
+      );
+      rethrow;
+    }
     return PendingMemoryProposal(
       toolCallId: call.id,
       assistantMessageId: assistantMessageId,
@@ -113,19 +149,43 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
       diff: preview.diff,
       confirmationToken: preview.confirmationToken,
       version: preview.version,
-      createdAt: _now().toUtc(),
+      createdAt: preview.createdAt,
     );
   }
 
   @override
   Future<void> revalidateMemoryProposal(PendingMemoryProposal proposal) async {
-    _requireAllowed(updateMemoryFile.name, proposal.allowedTools);
-    final agent = await _agentById(proposal.selectedAgentId);
-    if (agent == null ||
-        !agent.definition.tools.contains(updateMemoryFile.name)) {
-      throw MemoryToolPermissionException(
-        'Agent memory permission changed; request a new update',
+    _logger.log(
+      event: 'memory.agent_revalidation',
+      toolCallId: proposal.toolCallId,
+      fileName: proposal.fileName,
+      status: 'started',
+    );
+    try {
+      _requireAllowed(updateMemoryFile.name, proposal.allowedTools);
+      final agent = await _agentById(proposal.selectedAgentId);
+      if (agent == null ||
+          !agent.definition.tools.contains(updateMemoryFile.name)) {
+        throw MemoryToolPermissionException(
+          'Agent memory permission changed; request a new update',
+        );
+      }
+      _logger.log(
+        event: 'memory.agent_revalidation',
+        toolCallId: proposal.toolCallId,
+        fileName: proposal.fileName,
+        status: 'succeeded',
       );
+    } on Object catch (error) {
+      _logger.log(
+        event: 'memory.agent_revalidation',
+        level: AppLogLevel.error,
+        toolCallId: proposal.toolCallId,
+        fileName: proposal.fileName,
+        status: 'failed',
+        error: error,
+      );
+      rethrow;
     }
   }
 

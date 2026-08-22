@@ -49,7 +49,7 @@ void main() {
       '# User\nnew\n',
     );
 
-    expect(preview.confirmationToken, startsWith('token-0.'));
+    expect(preview.confirmationToken, 'token-0');
     expect(preview.version, hasLength(64));
     expect(preview.diff, contains('-old'));
     expect(preview.diff, contains('+new'));
@@ -70,6 +70,10 @@ void main() {
     expect(boundary.writes, isEmpty);
 
     await service.apply(
+      fileName: preview.fileName,
+      proposedContent: preview.proposedContent,
+      diff: preview.diff,
+      createdAt: preview.createdAt,
       confirmationToken: preview.confirmationToken,
       version: preview.version,
     );
@@ -85,12 +89,20 @@ void main() {
 
     await expectLater(
       service.apply(
+        fileName: preview.fileName,
+        proposedContent: preview.proposedContent,
+        diff: preview.diff,
+        createdAt: preview.createdAt,
         confirmationToken: preview.confirmationToken,
         version: 'wrong-version',
       ),
       throwsA(isA<UnknownMemoryConfirmationException>()),
     );
     final result = await service.apply(
+      fileName: preview.fileName,
+      proposedContent: preview.proposedContent,
+      diff: preview.diff,
+      createdAt: preview.createdAt,
       confirmationToken: preview.confirmationToken,
       version: preview.version,
     );
@@ -98,13 +110,15 @@ void main() {
     expect(boundary.files['user_profile.md'], '# User\nnew\n');
     expect(result.previousVersion, preview.version);
     expect(result.version, isNot(preview.version));
-    await expectLater(
-      service.apply(
-        confirmationToken: preview.confirmationToken,
-        version: preview.version,
-      ),
-      throwsA(isA<UnknownMemoryConfirmationException>()),
+    final replay = await service.applyPersisted(
+      fileName: preview.fileName,
+      proposedContent: preview.proposedContent,
+      diff: preview.diff,
+      confirmationToken: preview.confirmationToken,
+      version: preview.version,
+      createdAt: preview.createdAt,
     );
+    expect(replay.version, result.version);
   });
 
   test('rejects confirmation when authoritative content is stale', () async {
@@ -116,6 +130,10 @@ void main() {
 
     await expectLater(
       service.apply(
+        fileName: preview.fileName,
+        proposedContent: preview.proposedContent,
+        diff: preview.diff,
+        createdAt: preview.createdAt,
         confirmationToken: preview.confirmationToken,
         version: preview.version,
       ),
@@ -134,6 +152,10 @@ void main() {
 
     await expectLater(
       service.apply(
+        fileName: preview.fileName,
+        proposedContent: preview.proposedContent,
+        diff: preview.diff,
+        createdAt: preview.createdAt,
         confirmationToken: preview.confirmationToken,
         version: preview.version,
       ),
@@ -155,6 +177,10 @@ void main() {
     boundary.failWriteNumber = 2;
 
     await service.apply(
+      fileName: preview.fileName,
+      proposedContent: preview.proposedContent,
+      diff: preview.diff,
+      createdAt: preview.createdAt,
       confirmationToken: preview.confirmationToken,
       version: preview.version,
     );
@@ -170,6 +196,10 @@ void main() {
         '# Project\nupdated\n',
       );
       await service.apply(
+        fileName: preview.fileName,
+        proposedContent: preview.proposedContent,
+        diff: preview.diff,
+        createdAt: preview.createdAt,
         confirmationToken: preview.confirmationToken,
         version: preview.version,
       );
@@ -183,6 +213,12 @@ void main() {
       expect(entry['timestamp'], '2026-08-12T10:30:00.000Z');
       expect(entry['previousVersion'], preview.version);
       expect(entry['version'], isNot(preview.version));
+      expect(entry, isNot(contains('previous')));
+      expect(boundary.files['memory_log.md'], isNot(contains('I29sZAo=')));
+      expect(
+        boundary.files['memory_log.md'],
+        isNot(contains(preview.confirmationToken)),
+      );
     },
   );
 
@@ -199,10 +235,18 @@ void main() {
 
     await Future.wait([
       service.apply(
+        fileName: first.fileName,
+        proposedContent: first.proposedContent,
+        diff: first.diff,
+        createdAt: first.createdAt,
         confirmationToken: first.confirmationToken,
         version: first.version,
       ),
       service.apply(
+        fileName: second.fileName,
+        proposedContent: second.proposedContent,
+        diff: second.diff,
+        createdAt: second.createdAt,
         confirmationToken: second.confirmationToken,
         version: second.version,
       ),
@@ -229,10 +273,18 @@ void main() {
 
     await Future.wait([
       service.apply(
+        fileName: first.fileName,
+        proposedContent: first.proposedContent,
+        diff: first.diff,
+        createdAt: first.createdAt,
         confirmationToken: first.confirmationToken,
         version: first.version,
       ),
       otherService.apply(
+        fileName: second.fileName,
+        proposedContent: second.proposedContent,
+        diff: second.diff,
+        createdAt: second.createdAt,
         confirmationToken: second.confirmationToken,
         version: second.version,
       ),
@@ -252,6 +304,10 @@ void main() {
 
       await expectLater(
         service.apply(
+          fileName: preview.fileName,
+          proposedContent: preview.proposedContent,
+          diff: preview.diff,
+          createdAt: preview.createdAt,
           confirmationToken: preview.confirmationToken,
           version: preview.version,
         ),
@@ -273,6 +329,10 @@ void main() {
 
     await expectLater(
       service.apply(
+        fileName: preview.fileName,
+        proposedContent: preview.proposedContent,
+        diff: preview.diff,
+        createdAt: preview.createdAt,
         confirmationToken: preview.confirmationToken,
         version: preview.version,
       ),
@@ -299,6 +359,10 @@ void main() {
     boundary.failAfterWriteNumber = 2;
 
     await service.apply(
+      fileName: preview.fileName,
+      proposedContent: preview.proposedContent,
+      diff: preview.diff,
+      createdAt: preview.createdAt,
       confirmationToken: preview.confirmationToken,
       version: preview.version,
     );
@@ -325,6 +389,10 @@ void main() {
       );
 
       await execution.apply(
+        fileName: preview.fileName,
+        proposedContent: preview.proposedContent,
+        diff: preview.diff,
+        createdAt: preview.createdAt,
         confirmationToken: preview.confirmationToken,
         version: preview.version,
       );
@@ -343,14 +411,18 @@ void main() {
     final first = await service.applyPersisted(
       fileName: preview.fileName,
       proposedContent: '# User\nnew\n',
+      diff: preview.diff,
       confirmationToken: preview.confirmationToken,
       version: preview.version,
+      createdAt: preview.createdAt,
     );
     final second = await service.applyPersisted(
       fileName: preview.fileName,
       proposedContent: '# User\nnew\n',
+      diff: preview.diff,
       confirmationToken: preview.confirmationToken,
       version: preview.version,
+      createdAt: preview.createdAt,
     );
 
     expect(second.version, first.version);
@@ -370,20 +442,23 @@ void main() {
       final replacement = UpdateMemoryFileService(
         boundary,
         MemoryMutationCoordinator(boundary),
+        proposals: service.proposalAuthority,
       );
 
       await replacement.applyPersisted(
         fileName: preview.fileName,
         proposedContent: preview.proposedContent,
+        diff: preview.diff,
         confirmationToken: preview.confirmationToken,
         version: preview.version,
+        createdAt: preview.createdAt,
       );
 
       expect(boundary.files['user_profile.md'], '# User\nnew\n');
     },
   );
 
-  testWidgets('preview displays and confirms the exact token and version', (
+  testWidgets('preview hides token and confirms the exact version', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -404,13 +479,10 @@ void main() {
     await tester.tap(find.byType(FilledButton));
     await tester.pumpAndSettle();
 
-    final tokenText = tester.widget<SelectableText>(
-      find.byKey(const Key('memory-update-token')),
-    );
     final versionText = tester.widget<SelectableText>(
       find.byKey(const Key('memory-update-version')),
     );
-    expect(tokenText.data, contains(RegExp(r'token-\d+')));
+    expect(find.byKey(const Key('memory-update-token')), findsNothing);
     expect(versionText.data, contains(RegExp(r'[a-f0-9]{64}')));
     expect(find.byKey(const Key('memory-update-diff')), findsOneWidget);
 

@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/memory/application/memory_controller.dart';
 import 'package:mobilka/features/memory/application/memory_file_editor.dart';
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
+import 'package:mobilka/features/memory/application/update_memory_file_service.dart';
+import 'package:mobilka/features/memory/application/memory_update_proposal_authority.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
 import 'package:saf/saf.dart';
@@ -20,6 +22,9 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           memoryRepositoryProvider.overrideWithValue(repository),
+          memoryUpdateProposalAuthorityProvider.overrideWithValue(
+            InMemoryMemoryUpdateProposalAuthority(),
+          ),
           memoryMutationCoordinatorProvider.overrideWith((ref) {
             coordinatorBuilds++;
             return MemoryMutationCoordinator(boundary);
@@ -53,6 +58,34 @@ void main() {
   );
 
   test(
+    'cached null update service becomes available after folder choice',
+    () async {
+      final boundary = _MemoryBoundary(Map.of(MemoryRepository.templates));
+      final repository = _MemoryRepository(null, boundary, choice: replacement);
+      final container = ProviderContainer(
+        overrides: [
+          memoryRepositoryProvider.overrideWithValue(repository),
+          memoryUpdateProposalAuthorityProvider.overrideWithValue(
+            InMemoryMemoryUpdateProposalAuthority(),
+          ),
+          memoryMutationCoordinatorProvider.overrideWith(
+            (ref) => repository.savedLocation() == null
+                ? null
+                : MemoryMutationCoordinator(boundary),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      expect(container.read(updateMemoryFileProvider), isNull);
+      await container.read(memoryControllerProvider.future);
+      await container.read(memoryControllerProvider.notifier).chooseFolder();
+
+      expect(container.read(updateMemoryFileProvider), isNotNull);
+    },
+  );
+
+  test(
     'successful folder choice refreshes services without rebuilding controller',
     () async {
       final boundary = _MemoryBoundary(Map.of(MemoryRepository.templates));
@@ -65,6 +98,9 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           memoryRepositoryProvider.overrideWithValue(repository),
+          memoryUpdateProposalAuthorityProvider.overrideWithValue(
+            InMemoryMemoryUpdateProposalAuthority(),
+          ),
           memoryMutationCoordinatorProvider.overrideWith((ref) {
             coordinatorBuilds++;
             return MemoryMutationCoordinator(boundary);
@@ -99,7 +135,7 @@ class _MemoryRepository extends MemoryRepository {
   _MemoryRepository(this.location, this.boundary, {required this.choice})
     : super(Saf());
 
-  MemoryLocation location;
+  MemoryLocation? location;
   final MemoryFileBoundary boundary;
   final MemoryLocation? choice;
 
@@ -108,7 +144,7 @@ class _MemoryRepository extends MemoryRepository {
 
   @override
   Future<MemoryLocation?> chooseAndInitialize() async {
-    if (choice != null) location = choice!;
+    if (choice != null) location = choice;
     return choice;
   }
 

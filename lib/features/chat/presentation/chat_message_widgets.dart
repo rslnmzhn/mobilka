@@ -66,6 +66,7 @@ class PendingMemoryProposalCard extends StatefulWidget {
   const PendingMemoryProposalCard({
     required this.fileName,
     required this.diff,
+    this.isBusy = false,
     required this.onConfirm,
     required this.onReject,
     super.key,
@@ -73,6 +74,7 @@ class PendingMemoryProposalCard extends StatefulWidget {
 
   final String fileName;
   final String diff;
+  final bool isBusy;
   final Future<void> Function() onConfirm;
   final Future<void> Function() onReject;
 
@@ -84,6 +86,8 @@ class PendingMemoryProposalCard extends StatefulWidget {
 class _PendingMemoryProposalCardState extends State<PendingMemoryProposalCard> {
   var _busy = false;
   String? _error;
+
+  bool get _isBusy => _busy || widget.isBusy;
 
   Future<void> _run(Future<void> Function() action) async {
     setState(() {
@@ -141,13 +145,13 @@ class _PendingMemoryProposalCardState extends State<PendingMemoryProposalCard> {
               children: [
                 TextButton(
                   key: const Key('reject-memory-proposal'),
-                  onPressed: _busy ? null : () => _run(widget.onReject),
+                  onPressed: _isBusy ? null : () => _run(widget.onReject),
                   child: Text('chat.rejectMemory'.tr()),
                 ),
                 FilledButton(
                   key: const Key('confirm-memory-proposal'),
-                  onPressed: _busy ? null : () => _run(widget.onConfirm),
-                  child: _busy
+                  onPressed: _isBusy ? null : () => _run(widget.onConfirm),
+                  child: _isBusy
                       ? const SizedBox.square(
                           key: Key('confirm-memory-proposal-progress'),
                           dimension: 18,

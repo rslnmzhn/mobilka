@@ -8,6 +8,7 @@ class ChatState {
     this.errorMessage,
     this.query = '',
     this.showArchived = false,
+    this.confirmingMemoryToolCallId,
   });
 
   final List<Conversation> conversations;
@@ -15,6 +16,7 @@ class ChatState {
   final String? errorMessage;
   final String query;
   final bool showArchived;
+  final String? confirmingMemoryToolCallId;
 
   Conversation? get activeConversation =>
       conversationById(activeConversationId);
@@ -41,6 +43,8 @@ class ChatState {
     bool clearError = false,
     String? query,
     bool? showArchived,
+    String? confirmingMemoryToolCallId,
+    bool clearConfirmingMemory = false,
   }) => ChatState(
     conversations: conversations ?? this.conversations,
     activeConversationId: clearActiveConversation
@@ -49,6 +53,9 @@ class ChatState {
     errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     query: query ?? this.query,
     showArchived: showArchived ?? this.showArchived,
+    confirmingMemoryToolCallId: clearConfirmingMemory
+        ? null
+        : (confirmingMemoryToolCallId ?? this.confirmingMemoryToolCallId),
   );
 }
 

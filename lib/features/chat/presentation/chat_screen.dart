@@ -155,6 +155,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 PendingMemoryProposalCard(
                   fileName: proposal.fileName,
                   diff: proposal.diff,
+                  isBusy:
+                      state.confirmingMemoryToolCallId == proposal.toolCallId,
                   onConfirm: ref
                       .read(chatControllerProvider.notifier)
                       .confirmPendingMemoryProposal,

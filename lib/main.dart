@@ -14,6 +14,7 @@ Future<void> main() async {
     Hive.openBox<dynamic>('models'),
     Hive.openBox<dynamic>('conversations'),
     Hive.openBox<dynamic>('memory_recovery'),
+    Hive.openBox<dynamic>('memory_proposals'),
   ]);
 
   runApp(

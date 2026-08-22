@@ -159,7 +159,7 @@ void main() {
     var selected = _entry(const ['update_memory_file']);
     final runtime = MemoryChatToolRuntime(
       agentById: (_) async => selected,
-      memoryUpdates: updates,
+      memoryUpdates: () => updates,
     );
     final proposal = await _proposal(runtime);
     selected = _entry(const []);
@@ -178,8 +178,10 @@ void main() {
     await updates.applyPersisted(
       fileName: proposal.fileName,
       proposedContent: proposal.proposedContent,
+      diff: proposal.diff,
       confirmationToken: proposal.confirmationToken,
       version: proposal.version,
+      createdAt: proposal.createdAt,
     );
     expect(boundary.files['user_profile.md'], '# User\nnew\n');
   });
@@ -188,7 +190,7 @@ void main() {
     final runtime = MemoryChatToolRuntime(
       agentById: (id) async =>
           id == 'agent' ? _entry(const ['update_memory_file']) : null,
-      memoryUpdates: updates,
+      memoryUpdates: () => updates,
     );
 
     await runtime.revalidateMemoryProposal(await _proposal(runtime));
@@ -213,8 +215,7 @@ MemoryChatToolRuntime _runtime(
   List<String> tools = const [],
 }) => MemoryChatToolRuntime(
   agentById: (_) async => _entry(tools),
-  memoryUpdates: updates,
-  now: () => DateTime.utc(2026, 8, 14),
+  memoryUpdates: () => updates,
 );
 
 AgentCatalogEntry _entry(List<String> tools) => AgentCatalogEntry(
