@@ -185,6 +185,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
+  cryptography:
+    dependency: "direct main"
+    description:
+      path: cryptography
+      ref: "87f42fad6f7f120feb8e47854164016ceac3dfd0"
+      resolved-ref: "87f42fad6f7f120feb8e47854164016ceac3dfd0"
+      url: "https://github.com/dint-dev/cryptography.git"
+    source: git
+    version: "2.9.0"
   cupertino_icons:
     dependency: "direct main"
     description:

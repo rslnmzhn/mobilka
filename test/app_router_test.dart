@@ -6,15 +6,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:mobilka/core/router/app_router.dart';
+import 'package:mobilka/features/shell/presentation/app_shell.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory root;
 
-  setUp(() async {
+  setUpAll(() async {
     SharedPreferences.setMockInitialValues({});
     await EasyLocalization.ensureInitialized();
+  });
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     root = await Directory.systemTemp.createTemp('app-router-');
     Hive.init(root.path);
     await Future.wait([
@@ -26,14 +31,22 @@ void main() {
 
   tearDown(() async {
     await Hive.close();
-    await root.delete(recursive: true);
+    if (root.existsSync()) {
+      await root.delete(recursive: true);
+    }
   });
 
-  testWidgets('shell destinations navigate in exact branch order', (
-    tester,
-  ) async {
+  Future<void> disposeApp(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> pumpAppAtSize(WidgetTester tester, Size size) async {
+    await tester.binding.setSurfaceSize(size);
+
     await tester.pumpWidget(
       EasyLocalization(
+        key: UniqueKey(),
         supportedLocales: const [Locale('en')],
         path: 'assets/translations',
         fallbackLocale: const Locale('en'),
@@ -50,15 +63,68 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('shell is responsive, branded, and navigates in branch order', (
+    tester,
+  ) async {
+    await pumpAppAtSize(tester, const Size(320, 720));
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    for (final label in ['Chat', 'Models', 'Agents', 'Memory', 'Settings']) {
+      expect(find.text(label), findsWidgets);
+    }
+    expect(find.text('MOBILKA'), findsNothing);
+    expect(find.text('Workbench'), findsNothing);
+
+    await tester.binding.setSurfaceSize(
+      const Size(expandedShellBreakpoint + 180, 800),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('MOBILKA'), findsOneWidget);
+    expect(find.text('Workbench'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('mobilka-brand-mark')),
+        matching: find.text('M'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('H'), findsNothing);
+    for (final label in ['Chat', 'Models', 'Agents', 'Memory', 'Settings']) {
+      expect(find.text(label), findsWidgets);
+    }
+    expect(tester.takeException(), isNull);
+
+    await tester.binding.setSurfaceSize(
+      const Size(compactShellBreakpoint + 100, 800),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('mobilka-brand-mark')),
+        matching: find.text('M'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('H'), findsNothing);
+
     final context = tester.element(find.byType(MaterialApp));
     final router = ProviderScope.containerOf(context).read(appRouterProvider);
 
     final expected = ['/chat', '/models', '/agents', '/memory', '/settings'];
+    final labels = ['Chat', 'Models', 'Agents', 'Memory', 'Settings'];
     for (var index = 0; index < expected.length; index++) {
-      await tester.tap(find.byType(NavigationDestination).at(index));
+      await tester.tap(find.text(labels[index]).last);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
       expect(router.routeInformationProvider.value.uri.path, expected[index]);
     }
+    await disposeApp(tester);
   });
 }

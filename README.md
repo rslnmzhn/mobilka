@@ -1,6 +1,8 @@
 # mobilka
 
-Mobile-first Flutter workspace for remote OpenAI-compatible models, streaming chat, Markdown memory, agents, and artifacts.
+Mobile-first Flutter workspace for remote OpenAI-compatible models, streaming chat, RLM Markdown memory, agents, and artifacts.
+
+RLM Markdown memory is the selected human-readable context architecture: a deterministic set of selected `.md` files is injected as one atomic snapshot and managed manually or by agents with explicit user confirmation.
 
 ## Current targets
 

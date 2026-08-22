@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=mobilka
+Comment=Remote AI agent workspace
+Exec=mobilka %U
+Icon=mobilka
+Terminal=false
+Categories=Development;Utility;
+StartupWMClass=mobilka

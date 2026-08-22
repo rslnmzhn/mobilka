@@ -4,12 +4,28 @@ class ChatStreamEvent {
     this.finishReason,
     this.usage,
     this.isTerminal = false,
+    this.toolCallDeltas = const [],
   });
 
   final String delta;
   final String? finishReason;
   final ChatUsage? usage;
   final bool isTerminal;
+  final List<ChatToolCallDelta> toolCallDeltas;
+}
+
+class ChatToolCallDelta {
+  const ChatToolCallDelta({
+    required this.index,
+    this.id = '',
+    this.name = '',
+    this.arguments = '',
+  });
+
+  final int index;
+  final String id;
+  final String name;
+  final String arguments;
 }
 
 class ChatUsage {

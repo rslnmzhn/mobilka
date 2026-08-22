@@ -67,7 +67,6 @@ class MemoryBackupService {
       for (final entry in preview.files.entries)
         entry.key: entry.value.currentVersion,
     },
-    operationId: preview.confirmationToken,
   );
 }
 

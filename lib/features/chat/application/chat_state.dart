@@ -8,6 +8,7 @@ class ChatState {
     this.errorMessage,
     this.query = '',
     this.showArchived = false,
+    this.confirmingMemoryToolCallId,
   });
 
   final List<Conversation> conversations;
@@ -15,13 +16,16 @@ class ChatState {
   final String? errorMessage;
   final String query;
   final bool showArchived;
+  final String? confirmingMemoryToolCallId;
 
   Conversation? get activeConversation =>
       conversationById(activeConversationId);
 
   bool get isStreaming => activeConversation?.isStreaming ?? false;
 
-  bool get hasInFlightRequest => conversations.any((item) => item.isStreaming);
+  bool get hasInFlightRequest => conversations.any(
+    (item) => item.isStreaming || item.pendingMemoryProposal != null,
+  );
 
   List<Conversation> get visibleConversations => conversations
       .where((item) => item.isArchived == showArchived)
@@ -39,6 +43,8 @@ class ChatState {
     bool clearError = false,
     String? query,
     bool? showArchived,
+    String? confirmingMemoryToolCallId,
+    bool clearConfirmingMemory = false,
   }) => ChatState(
     conversations: conversations ?? this.conversations,
     activeConversationId: clearActiveConversation
@@ -47,6 +53,9 @@ class ChatState {
     errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     query: query ?? this.query,
     showArchived: showArchived ?? this.showArchived,
+    confirmingMemoryToolCallId: clearConfirmingMemory
+        ? null
+        : (confirmingMemoryToolCallId ?? this.confirmingMemoryToolCallId),
   );
 }
 

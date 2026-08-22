@@ -2,8 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../settings/data/settings_repository.dart';
 import '../../agents/application/agents_controller.dart';
+import '../../settings/data/settings_repository.dart';
 import '../../memory/application/context_injector.dart';
 import '../../memory/application/memory_selection_controller.dart';
 import '../../memory/application/memory_mutation_coordinator.dart';
@@ -11,6 +11,7 @@ import '../../memory/data/context_sources.dart';
 import '../../memory/data/memory_repository.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_stream_event.dart';
+import '../domain/chat_tool.dart';
 import 'chat_api_client.dart';
 
 part 'chat_repository.g.dart';
@@ -41,6 +42,7 @@ abstract interface class ChatCompletionStreamer {
     required String model,
     required List<ChatMessage> messages,
     required CancelToken cancelToken,
+    List<ChatToolDefinition> tools = const [],
   });
 }
 
@@ -84,6 +86,7 @@ class ChatRepository
     required String model,
     required List<ChatMessage> messages,
     required CancelToken cancelToken,
+    List<ChatToolDefinition> tools = const [],
   }) async* {
     final settings = await _settingsRepository.load();
     final apiKey = await _settingsRepository.readApiKey();
@@ -94,6 +97,7 @@ class ChatRepository
       model: model,
       messages: injectedMessages,
       cancelToken: cancelToken,
+      tools: tools.map((tool) => tool.toJson()).toList(growable: false),
     );
   }
 

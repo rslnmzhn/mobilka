@@ -86,7 +86,7 @@ final selectedAgentPromptAdapterProvider =
     );
 
 typedef SelectedAgentPromptAdapterRef = ProviderRef<SelectedAgentPromptAdapter>;
-String _$agentsControllerHash() => r'b72df854c6efabd6a14bb3bc30be0a83a56936cd';
+String _$agentsControllerHash() => r'8c646c50f3e06fec95de3651e7c6304dee4d9b34';
 
 /// See also [AgentsController].
 @ProviderFor(AgentsController)

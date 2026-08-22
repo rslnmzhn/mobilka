@@ -10,6 +10,7 @@ import 'package:mobilka/features/agents/domain/delegation.dart';
 import 'package:mobilka/features/chat/data/chat_repository.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/chat_stream_event.dart';
+import 'package:mobilka/features/chat/domain/chat_tool.dart';
 
 void main() {
   test('contracts enforce bounds and copy mutable definition lists', () {
@@ -181,6 +182,7 @@ class _RecordingStreamer implements SubagentCompletionStreamer {
     required String model,
     required List<ChatMessage> messages,
     required CancelToken cancelToken,
+    List<ChatToolDefinition> tools = const [],
   }) {
     this.model = model;
     this.messages = messages;

@@ -88,7 +88,52 @@ void main() {
       5,
     );
     expect(events.where((event) => event.isTerminal), isNotEmpty);
+    expect(events.where((event) => event.isTerminal), hasLength(1));
+    expect(
+      events.singleWhere((event) => event.finishReason == 'stop').isTerminal,
+      isFalse,
+    );
+    expect(events.last.isTerminal, isTrue);
     expect(adapter.followRedirects, isFalse);
+  });
+
+  test('sends tools and parses fragmented native tool call deltas', () async {
+    final adapter = _StreamingAdapter([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"update_memory_file","arguments":"{\\"file_name\\":\\"user_"}}]},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"profile.md\\",\\"content\\":\\"# User\\\\n\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+    ]);
+    final dio = Dio()..httpClientAdapter = adapter;
+
+    final events = await ChatApiClient(dio)
+        .streamCompletion(
+          baseUrl: 'https://example.com/v1',
+          apiKey: null,
+          model: 'model',
+          messages: [
+            ChatMessage(
+              id: 'user',
+              role: ChatRole.user,
+              content: 'remember me',
+              createdAt: DateTime(2026),
+            ),
+          ],
+          cancelToken: CancelToken(),
+          tools: const [
+            {
+              'type': 'function',
+              'function': {'name': 'update_memory_file'},
+            },
+          ],
+        )
+        .toList();
+
+    expect(adapter.body?['tools'], isNotEmpty);
+    expect(events.last.finishReason, 'tool_calls');
+    expect(events.first.toolCallDeltas.single.id, 'call-1');
+    expect(
+      events.map((event) => event.toolCallDeltas.single.arguments).join(),
+      '{"file_name":"user_profile.md","content":"# User\\n"}',
+    );
   });
 
   test('a stream without finish reason or DONE closes as non-terminal', () async {
@@ -116,6 +161,26 @@ void main() {
 
     expect(events.single.delta, 'Partial');
     expect(events.single.isTerminal, isFalse);
+  });
+
+  test('DONE produces the explicit terminal event', () async {
+    final adapter = _StreamingAdapter([
+      'data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+    final events = await ChatApiClient(Dio()..httpClientAdapter = adapter)
+        .streamCompletion(
+          baseUrl: 'https://api.example.com/v1',
+          apiKey: null,
+          model: 'model',
+          messages: const [],
+          cancelToken: CancelToken(),
+        )
+        .toList();
+
+    expect(events.map((event) => event.delta).join(), 'partial');
+    expect(events.where((event) => event.isTerminal), hasLength(1));
+    expect(events.last.isTerminal, isTrue);
   });
 }
 
@@ -155,6 +220,7 @@ class _StreamingAdapter implements HttpClientAdapter {
   _StreamingAdapter(this.chunks);
   final List<String> chunks;
   bool? followRedirects;
+  Map<String, dynamic>? body;
 
   @override
   Future<ResponseBody> fetch(
@@ -163,6 +229,7 @@ class _StreamingAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     followRedirects = options.followRedirects;
+    body = options.data as Map<String, dynamic>?;
     return ResponseBody(
       Stream.fromIterable(chunks.map(utf8.encode)),
       200,

@@ -1,0 +1,59 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="mobilka"
+    Manufacturer="mobilka"
+    Version="$(Version)"
+    UpgradeCode="FDE6F32F-2EFE-5295-A1FA-534DFD36A8A9"
+    Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of mobilka is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="mobilka">
+        <Component
+          Id="MsiInstallMarker"
+          Guid="E0240671-66AA-5D30-90DE-76F396115408"
+          Bitness="always64">
+          <RegistryValue
+            Root="HKLM"
+            Key="Software\mobilka"
+            Name="InstallType"
+            Type="string"
+            Value="MSI"
+            KeyPath="yes" />
+          <RegistryValue
+            Root="HKLM"
+            Key="Software\mobilka"
+            Name="InstallLocation"
+            Type="string"
+            Value="[INSTALLFOLDER]" />
+          <RegistryValue
+            Root="HKLM"
+            Key="Software\mobilka"
+            Name="UpgradeCode"
+            Type="string"
+            Value="FDE6F32F-2EFE-5295-A1FA-534DFD36A8A9" />
+          <RemoveRegistryKey
+            Id="RemoveMsiInstallMarker"
+            Root="HKLM"
+            Key="Software\mobilka"
+            Action="removeOnUninstall" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="ProductFeature" Title="mobilka" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentRef Id="MsiInstallMarker" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup
+      Id="ProductComponents"
+      Directory="INSTALLFOLDER"
+      Source="$(BundleDir)">
+      <Files Include="**" />
+    </ComponentGroup>
+  </Fragment>
+</Wix>
