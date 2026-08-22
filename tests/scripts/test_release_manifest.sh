@@ -66,7 +66,7 @@ mkdir -p "${android_home}/build-tools/35.0.0" "${android_home}/cmdline-tools/lat
 cat > "${android_home}/build-tools/35.0.0/apksigner" <<'SH'
 #!/usr/bin/env bash
 echo "Signer #1 certificate DN: O=mobilka, CN=mobilka"
-echo "Signer #1 certificate SHA-256 digest: 4a769b928d47827730e3c5e15ae3865cd8b8999313a3e579baa9b734564655cd"
+echo "Signer #1 certificate SHA-256 digest: 4a:76:9b:92:8d:47:82:77:30:e3:c5:e1:5a:e3:86:5c:d8:b8:99:93:13:a3:e5:79:ba:a9:b7:34:56:46:55:cd"
 SH
 cat > "${android_home}/cmdline-tools/latest/bin/apkanalyzer" <<'SH'
 #!/usr/bin/env bash

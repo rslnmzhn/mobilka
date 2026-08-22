@@ -317,11 +317,19 @@ jobs:
             $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
           $pfxData = Get-PfxData -FilePath $certificatePath `
             -Password $certificatePassword
+          $sha256 = [Security.Cryptography.HashAlgorithmName]::SHA256
+          $certificate = $pfxData.EndEntityCertificates[0]
+          $certificateFingerprint = $certificate.GetCertHashString($sha256).ToUpperInvariant()
+          if ($certificateFingerprint -ne $env:WINDOWS_SIGNER_SHA256) {
+            throw "Windows signing certificate fingerprint mismatch: $certificateFingerprint"
+          }
           $publicCertificatePath = Join-Path $env:RUNNER_TEMP 'mobilka-signing.cer'
-          Export-Certificate -Cert $pfxData.EndEntityCertificates[0] `
+          Export-Certificate -Cert $certificate `
             -FilePath $publicCertificatePath | Out-Null
-          Import-Certificate -FilePath $publicCertificatePath `
-            -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          Write-Host 'Importing release certificate into the runner trust store.'
+          & certutil.exe -user -f -addstore Root $publicCertificatePath | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Release certificate trust import failed.' }
+          Write-Host 'Locating SignTool.'
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
             -Filter signtool.exe -Recurse |
             Where-Object FullName -Match '\\x64\\signtool\.exe$' |
@@ -329,16 +337,17 @@ jobs:
             Select-Object -First 1 -ExpandProperty FullName
           if (-not $signtool) { throw 'signtool.exe was not found.' }
           $msi = "build/windows/x64/installer/mobilka-v${env:RELEASE_VERSION}-windows-x64.msi"
+          Write-Host 'Signing Windows MSI.'
           & $signtool sign /fd SHA256 `
             /f $certificatePath /p $env:WINDOWS_CERTIFICATE_PASSWORD $msi
           if ($LASTEXITCODE -ne 0) { throw 'MSI signing failed.' }
+          Write-Host 'Verifying Windows MSI signature.'
           & $signtool verify /pa /v $msi
           if ($LASTEXITCODE -ne 0) { throw 'MSI signature verification failed.' }
           $signature = Get-AuthenticodeSignature -FilePath $msi
           if (-not $signature.SignerCertificate -or $signature.Status -ne 'Valid') {
             throw "MSI Authenticode signature status is $($signature.Status)."
           }
-          $sha256 = [Security.Cryptography.HashAlgorithmName]::SHA256
           $actualFingerprint = $signature.SignerCertificate.GetCertHashString($sha256).ToUpperInvariant()
           if ($actualFingerprint -ne $env:WINDOWS_SIGNER_SHA256) {
             throw "MSI signer certificate fingerprint mismatch: $actualFingerprint"
@@ -347,10 +356,19 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          Get-ChildItem Cert:\CurrentUser\Root | Where-Object {
+          $ErrorActionPreference = 'Stop'
+          $trustedCertificates = @(Get-ChildItem Cert:\CurrentUser\Root | Where-Object {
             $_.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256) `
               -eq $env:WINDOWS_SIGNER_SHA256
-          } | Remove-Item -Force -ErrorAction SilentlyContinue
+          })
+          $trustedCertificates | Remove-Item -Force
+          $remainingCertificates = @(Get-ChildItem Cert:\CurrentUser\Root | Where-Object {
+            $_.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256) `
+              -eq $env:WINDOWS_SIGNER_SHA256
+          })
+          if ($remainingCertificates.Count -ne 0) {
+            throw 'Release certificate trust cleanup failed.'
+          }
           Remove-Item -LiteralPath `
             (Join-Path $env:RUNNER_TEMP 'mobilka-signing.pfx'), `
             (Join-Path $env:RUNNER_TEMP 'mobilka-signing.cer') `
