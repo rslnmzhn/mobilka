@@ -18,10 +18,13 @@ apkanalyzer="$(find "${ANDROID_HOME}/cmdline-tools" -name apkanalyzer -type f | 
 
 for apk in "$@"; do
   [[ -f "${apk}" ]] || { echo "APK not found: ${apk}" >&2; exit 1; }
-  output="$(${apksigner} verify --print-certs "${apk}")"
+  output="$(${apksigner} verify --print-certs "${apk}" 2>&1)" || {
+    echo "APK signature verification failed: ${apk}" >&2
+    exit 1
+  }
   signer_count="$(printf '%s\n' "${output}" | grep -c '^Signer #[0-9][0-9]* certificate DN:')"
   [[ "${signer_count}" -eq 1 ]] || { echo "Expected one APK signer: ${apk}" >&2; exit 1; }
-  actual="$(${apksigner} verify --print-certs --min-sdk-version 29 "${apk}" \
+  actual="$(printf '%s\n' "${output}" \
     | awk -F': ' '/certificate SHA-256 digest:/ { print $2; exit }' \
     | sed 's/../&:/g;s/:$//' \
     | tr '[:lower:]' '[:upper:]')"
