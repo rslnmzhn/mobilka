@@ -5,12 +5,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
+import 'features/updater/application/update_controller.dart';
 
-class MobilkaApp extends ConsumerWidget {
+class MobilkaApp extends ConsumerStatefulWidget {
   const MobilkaApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MobilkaApp> createState() => _MobilkaAppState();
+}
+
+class _MobilkaAppState extends ConsumerState<MobilkaApp> {
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(
+      () => ref.read(updateControllerProvider.notifier).check(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = ref.watch(themeControllerProvider);
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
