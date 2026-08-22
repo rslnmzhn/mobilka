@@ -18,8 +18,11 @@ apkanalyzer="$(find "${ANDROID_HOME}/cmdline-tools" -name apkanalyzer -type f | 
 
 for apk in "$@"; do
   [[ -f "${apk}" ]] || { echo "APK not found: ${apk}" >&2; exit 1; }
-  output="$(${apksigner} verify --verbose --print-certs "${apk}")"
-  mapfile -t signers < <(printf '%s\n' "${output}" | sed -n 's/^Signer #[0-9][0-9]* certificate SHA-256 digest: //p')
+  output="$(${apksigner} verify --print-certs "${apk}")"
+  mapfile -t signers < <(
+    printf '%s\n' "${output}" \
+      | sed -n -E 's/^Signer #[0-9]+ certificate SHA-256 digest:[[:space:]]*//p'
+  )
   [[ "${#signers[@]}" -eq 1 ]] || { echo "Expected one APK signer: ${apk}" >&2; exit 1; }
   actual="$(printf '%s' "${signers[0]}" | sed 's/../&:/g;s/:$//' | tr '[:lower:]' '[:upper:]')"
   [[ "${actual}" == "${expected_signer}" ]] || { echo "APK signer mismatch: ${apk}" >&2; exit 1; }

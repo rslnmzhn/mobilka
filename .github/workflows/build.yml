@@ -313,6 +313,15 @@ jobs:
             $certificatePath,
             [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
           )
+          $certificatePassword = ConvertTo-SecureString `
+            $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $pfxData = Get-PfxData -FilePath $certificatePath `
+            -Password $certificatePassword
+          $publicCertificatePath = Join-Path $env:RUNNER_TEMP 'mobilka-signing.cer'
+          Export-Certificate -Cert $pfxData.EndEntityCertificates[0] `
+            -FilePath $publicCertificatePath | Out-Null
+          Import-Certificate -FilePath $publicCertificatePath `
+            -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
             -Filter signtool.exe -Recurse |
             Where-Object FullName -Match '\\x64\\signtool\.exe$' |
@@ -320,14 +329,14 @@ jobs:
             Select-Object -First 1 -ExpandProperty FullName
           if (-not $signtool) { throw 'signtool.exe was not found.' }
           $msi = "build/windows/x64/installer/mobilka-v${env:RELEASE_VERSION}-windows-x64.msi"
-          & $signtool sign /fd SHA256 /td SHA256 /tr https://timestamp.digicert.com `
+          & $signtool sign /fd SHA256 `
             /f $certificatePath /p $env:WINDOWS_CERTIFICATE_PASSWORD $msi
           if ($LASTEXITCODE -ne 0) { throw 'MSI signing failed.' }
           & $signtool verify /pa /v $msi
           if ($LASTEXITCODE -ne 0) { throw 'MSI signature verification failed.' }
           $signature = Get-AuthenticodeSignature -FilePath $msi
-          if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate) {
-            throw 'MSI Authenticode signer certificate is unavailable or invalid.'
+          if (-not $signature.SignerCertificate -or $signature.Status -ne 'Valid') {
+            throw "MSI Authenticode signature status is $($signature.Status)."
           }
           $sha256 = [Security.Cryptography.HashAlgorithmName]::SHA256
           $actualFingerprint = $signature.SignerCertificate.GetCertHashString($sha256).ToUpperInvariant()
@@ -337,7 +346,15 @@ jobs:
       - name: Remove temporary Windows signing certificate
         if: always()
         shell: pwsh
-        run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'mobilka-signing.pfx') -Force -ErrorAction SilentlyContinue
+        run: |
+          Get-ChildItem Cert:\CurrentUser\Root | Where-Object {
+            $_.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256) `
+              -eq $env:WINDOWS_SIGNER_SHA256
+          } | Remove-Item -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath `
+            (Join-Path $env:RUNNER_TEMP 'mobilka-signing.pfx'), `
+            (Join-Path $env:RUNNER_TEMP 'mobilka-signing.cer') `
+            -Force -ErrorAction SilentlyContinue
       - name: Upload Windows artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
