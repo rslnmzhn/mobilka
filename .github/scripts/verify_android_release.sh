@@ -22,7 +22,10 @@ for apk in "$@"; do
     echo "APK signature verification failed: ${apk}" >&2
     exit 1
   }
-  signer_count="$(printf '%s\n' "${output}" | grep -c '^Signer #[0-9][0-9]* certificate DN:')"
+  signer_count="$(
+    printf '%s\n' "${output}" \
+      | awk '/^Signer #[0-9]+ certificate DN:/ { count++ } END { print count + 0 }'
+  )"
   [[ "${signer_count}" -eq 1 ]] || { echo "Expected one APK signer: ${apk}" >&2; exit 1; }
   actual="$(printf '%s\n' "${output}" \
     | awk -F': ' '/certificate SHA-256 digest:/ { print $2; exit }' \
