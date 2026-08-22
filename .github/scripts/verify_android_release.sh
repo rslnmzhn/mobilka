@@ -19,12 +19,13 @@ apkanalyzer="$(find "${ANDROID_HOME}/cmdline-tools" -name apkanalyzer -type f | 
 for apk in "$@"; do
   [[ -f "${apk}" ]] || { echo "APK not found: ${apk}" >&2; exit 1; }
   output="$(${apksigner} verify --print-certs "${apk}")"
-  mapfile -t signers < <(
-    printf '%s\n' "${output}" \
-      | sed -n 's/^Signer #[0-9][0-9]* certificate SHA-256 digest:[[:space:]]*//p'
-  )
-  [[ "${#signers[@]}" -eq 1 ]] || { echo "Expected one APK signer: ${apk}" >&2; exit 1; }
-  actual="$(printf '%s' "${signers[0]}" | sed 's/../&:/g;s/:$//' | tr '[:lower:]' '[:upper:]')"
+  signer_count="$(printf '%s\n' "${output}" | grep -c '^Signer #[0-9][0-9]* certificate DN:')"
+  [[ "${signer_count}" -eq 1 ]] || { echo "Expected one APK signer: ${apk}" >&2; exit 1; }
+  actual="$(${apksigner} verify --print-certs --min-sdk-version 29 "${apk}" \
+    | awk -F': ' '/certificate SHA-256 digest:/ { print $2; exit }' \
+    | sed 's/../&:/g;s/:$//' \
+    | tr '[:lower:]' '[:upper:]')"
+  [[ -n "${actual}" ]] || { echo "APK signer digest missing: ${apk}" >&2; exit 1; }
   [[ "${actual}" == "${expected_signer}" ]] || { echo "APK signer mismatch: ${apk}" >&2; exit 1; }
   [[ "$(${apkanalyzer} manifest application-id "${apk}")" == "${application_id}" ]] || {
     echo "APK application ID mismatch: ${apk}" >&2; exit 1;

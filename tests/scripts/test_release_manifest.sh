@@ -65,6 +65,7 @@ android_home="${work}/android-sdk"
 mkdir -p "${android_home}/build-tools/35.0.0" "${android_home}/cmdline-tools/latest/bin"
 cat > "${android_home}/build-tools/35.0.0/apksigner" <<'SH'
 #!/usr/bin/env bash
+echo "Signer #1 certificate DN: O=mobilka, CN=mobilka"
 echo "Signer #1 certificate SHA-256 digest: 4a769b928d47827730e3c5e15ae3865cd8b8999313a3e579baa9b734564655cd"
 SH
 cat > "${android_home}/cmdline-tools/latest/bin/apkanalyzer" <<'SH'
