@@ -23,12 +23,16 @@ format: dart format .
 - UI paradigm: Streaming chat with collapsible tool-calling cards, theme presets, and slide-up bottom sheets for artifacts, memory files, and tool execution logs.
 - Current targets are Android, Windows, and Linux; iOS and macOS are future targets.
 - Android application ID is `com.rslnmzhn.mobilka` and minimum SDK is 29.
+- Updater discovery uses the latest stable GitHub Release and accepts only the canonical release manifest after Ed25519 verification with pinned public key `nH/Hnmn7UJtCy4Qb91c9dIAwQ3LSUkv6yRhDhMlZ3JY=`; selected assets are then size- and SHA-256-verified before staging.
+- Automatic update application is limited to Android APKs and provenance-verified, per-machine MSI-installed Windows; Windows ZIP, Linux ZIP, and AppImage distributions are manual-update-only.
 
 ## Project structure
 - `lib/`: Main Flutter codebase directory.
 - `lib/core/`: Core utilities, HTTP clients, storage (Isar/Hive, secure storage).
 - `lib/features/`: Feature modules (chat, memory, settings, artifacts, models, agents).
+- `lib/features/updater/`: Signed-manifest discovery, verified download staging, platform eligibility, and Android/MSI installation bridges.
 - `assets/agents/`: Default `.md` agent and subagent prompt templates.
+- `.github/workflows/build.yml`: Quality, platform packaging, signing, manifest generation, and stable GitHub Release publication workflow.
 - `roadmap.md`: Authoritative implementation checklist.
 - `guide.md`: Architectural specification and future architecture guidance.
 
@@ -46,6 +50,8 @@ format: dart format .
 - SSE completion requires an explicit terminal event; a stream that closes prematurely remains interrupted and retryable.
 - Token usage is owned by the `Conversation` domain model.
 - Android backups remain disabled because chat history is unencrypted local data.
+- Android release APKs must have the sole signer SHA-256 fingerprint `4A:76:9B:92:8D:47:82:77:30:E3:C5:E1:5A:E3:86:5C:D8:B8:99:93:13:A3:E5:79:BA:A9:B7:34:56:46:55:CD`.
+- Windows auto-update requires the MSI signer SHA-256 fingerprint `84EFAEE8B51EF463E312FC90D8B86613739961F11B0C6582B472BB3845D21BA4`, the expected per-machine `HKLM\Software\mobilka` marker/UpgradeCode, and an executable inside the recorded install location; portable or unknown installs are ineligible.
 
 ## Brand and design
 - Product identity is mobilka; UI marks use lowercase `m` or uppercase `MOBILKA`, with no Hermes or Odysseus branding.
@@ -78,6 +84,8 @@ format: dart format .
 - After every item in a milestone is complete and verified, push the milestone branch, merge it into `main` without rewriting history, and push `main` before starting the next milestone.
 - Never commit secrets, generated output, or local artifacts; inspect and stage only intended files.
 - Remote Git operations require a configured remote and explicit user authorization under the current agent policy.
+- Release signing secrets are named `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `WINDOWS_CERTIFICATE_BASE64`, `WINDOWS_CERTIFICATE_PASSWORD`, and `UPDATE_MANIFEST_PRIVATE_KEY`; never store or print their values.
+- Release workflow tooling uses `.github/scripts/resolve_release_version.sh`, `apply_release_version.sh`, `verify_android_release.sh`, `package_linux_appimage.sh`, `package_windows_msi.ps1`, `generate_release_manifest.sh`, and `sign_release_manifest.sh`; local MSI validation runs `flutter build windows --release`, `dotnet tool install --global wix --version 5.0.2`, then `.github/scripts/package_windows_msi.ps1 -Version <version>`.
 
 ## Agent registry
 | agent | mode | role |
