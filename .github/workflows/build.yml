@@ -327,8 +327,17 @@ jobs:
           Export-Certificate -Cert $certificate `
             -FilePath $publicCertificatePath | Out-Null
           Write-Host 'Importing release certificate into the runner trust store.'
-          & certutil.exe -user -f -addstore Root $publicCertificatePath | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'Release certificate trust import failed.' }
+          # Importing into the user Root store blocks on an interactive
+          # confirmation dialog in CI; the LocalMachine stores are writable
+          # non-interactively because the runner is elevated.
+          $importedRoot = Import-Certificate -FilePath $publicCertificatePath `
+            -CertStoreLocation Cert:\LocalMachine\Root
+          if (-not $importedRoot) { throw 'Release certificate Root import failed.' }
+          $importedTrustedPeople = Import-Certificate -FilePath $publicCertificatePath `
+            -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+          if (-not $importedTrustedPeople) {
+            throw 'Release certificate TrustedPeople import failed.'
+          }
           Write-Host 'Locating SignTool.'
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
             -Filter signtool.exe -Recurse |
@@ -357,17 +366,22 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $trustedCertificates = @(Get-ChildItem Cert:\CurrentUser\Root | Where-Object {
-            $_.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256) `
-              -eq $env:WINDOWS_SIGNER_SHA256
-          })
-          $trustedCertificates | Remove-Item -Force
-          $remainingCertificates = @(Get-ChildItem Cert:\CurrentUser\Root | Where-Object {
-            $_.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256) `
-              -eq $env:WINDOWS_SIGNER_SHA256
-          })
-          if ($remainingCertificates.Count -ne 0) {
-            throw 'Release certificate trust cleanup failed.'
+          $sha256 = [Security.Cryptography.HashAlgorithmName]::SHA256
+          foreach ($store in 'Root', 'TrustedPeople') {
+            $trustedCertificates = @(
+              Get-ChildItem "Cert:\LocalMachine\$store" | Where-Object {
+                $_.GetCertHashString($sha256) -eq $env:WINDOWS_SIGNER_SHA256
+              }
+            )
+            $trustedCertificates | Remove-Item -Force
+            $remainingCertificates = @(
+              Get-ChildItem "Cert:\LocalMachine\$store" | Where-Object {
+                $_.GetCertHashString($sha256) -eq $env:WINDOWS_SIGNER_SHA256
+              }
+            )
+            if ($remainingCertificates.Count -ne 0) {
+              throw "Release certificate ${store} trust cleanup failed."
+            }
           }
           Remove-Item -LiteralPath `
             (Join-Path $env:RUNNER_TEMP 'mobilka-signing.pfx'), `
