@@ -1,0 +1,36 @@
+version: 1
+
+script:
+  - rm -rf AppDir
+  - mkdir -p AppDir
+  - cp -r build/linux/x64/release/bundle/* AppDir/
+  - mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+  - cp android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png AppDir/usr/share/icons/hicolor/256x256/apps/mobilka.png
+  - install -Dm644 .github/appimage/mobilka.desktop AppDir/usr/share/applications/mobilka.desktop
+
+AppDir:
+  path: ./AppDir
+  app_info:
+    id: com.rslnmzhn.mobilka
+    name: mobilka
+    icon: mobilka
+    version: !ENV '${APP_VERSION}'
+    exec: mobilka
+    exec_args: $@
+  apt:
+    arch: amd64
+    allow_unauthenticated: false
+    sources:
+      - sourceline: deb https://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
+        key_url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C
+      - sourceline: deb https://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
+        key_url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C
+      - sourceline: deb https://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
+        key_url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C
+    include:
+      - libgtk-3-0
+      - libsecret-1-0
+
+AppImage:
+  arch: x86_64
+  file_name: !ENV 'mobilka-v${APP_VERSION}-linux-x86_64.AppImage'

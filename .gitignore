@@ -32,6 +32,15 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/AppDir/
+/appimage-build/
+/.appimage-builder-cache/
+/.appimage-builder-libs/
+/mobilka-v*-linux-x86_64.AppImage
+/mobilka-v*-linux-x86_64.AppImage.zsync
+/event-main.json
+/mobilka-v*-windows-x64.msi
+/release_assets/
 
 # Local agent tooling and generated audit snapshots
 /skills/
@@ -45,6 +54,7 @@ migrate_working_dir/
 *.keystore
 key.properties
 android/key.properties
+/android/release-keystore.jks
 
 # Symbolication related
 app.*.symbols
