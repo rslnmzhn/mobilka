@@ -38,7 +38,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _selectModel(ModelsState models) async {
     final modelId = await _pickModel(models);
     if (modelId == null) return;
-    await ref.read(modelsControllerProvider.notifier).select(modelId);
+    // Applies globally and to the active conversation so this chat actually
+    // switches models.
+    await ref.read(chatControllerProvider.notifier).applyModel(modelId);
   }
 
   Future<void> _showArtifacts() => showModalBottomSheet<void>(
@@ -96,15 +98,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
         actions: [
           models.when(
-            data: (state) => ModelPickerButton(
-              modelId:
-                  state.visibleModels.any(
-                    (model) => model.id == state.selectedModelId,
-                  )
-                  ? state.selectedModelId
-                  : null,
-              onPressed: () => _selectModel(state),
-            ),
+            data: (state) {
+              // The active conversation's model is what requests actually
+              // use; show it instead of the global default when they differ.
+              final conversationModelId =
+                  chat.value?.activeConversation?.modelId;
+              final shownModelId =
+                  (conversationModelId != null &&
+                      state.visibleModels.any(
+                        (model) => model.id == conversationModelId,
+                      ))
+                  ? conversationModelId
+                  : state.selectedModelId;
+              return ModelPickerButton(
+                modelId:
+                    state.visibleModels.any((model) => model.id == shownModelId)
+                    ? shownModelId
+                    : null,
+                onPressed: () => _selectModel(state),
+              );
+            },
             loading: () => const SizedBox.square(
               dimension: 40,
               child: Padding(
