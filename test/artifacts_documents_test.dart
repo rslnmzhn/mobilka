@@ -174,7 +174,11 @@ void main() {
       throwsA(isA<ArtifactPolicyException>()),
     );
     await expectLater(
-      notifier.create(title: 'Too big', content: 'a' * 3_000_000),
+      notifier.create(
+        title: 'Too big',
+        // Pinned build_runner cannot parse digit-separated literals here.
+        content: 'a' * (ArtifactPolicy.maxContentBytes + 1),
+      ),
       throwsA(const ArtifactPolicyException('artifacts.errorContentTooLarge')),
     );
 
