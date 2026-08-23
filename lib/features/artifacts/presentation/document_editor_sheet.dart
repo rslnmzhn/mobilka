@@ -7,12 +7,22 @@ import '../domain/artifact.dart';
 /// Modal editor for creating or editing a Markdown document artifact.
 ///
 /// [onSave] receives the trimmed title and raw content; policy violations are
-/// surfaced inline from the thrown [ArtifactPolicyException].
+/// surfaced inline from the thrown [ArtifactPolicyException]. For existing
+/// documents the optional [onOpen]/[onExportDocx] actions expose native open
+/// (roadmap item 42) and `.docx` generation in the sheet footer.
 class DocumentEditorSheet extends StatefulWidget {
-  const DocumentEditorSheet({required this.onSave, this.artifact, super.key});
+  const DocumentEditorSheet({
+    required this.onSave,
+    this.artifact,
+    this.onOpen,
+    this.onExportDocx,
+    super.key,
+  });
 
   final Artifact? artifact;
   final Future<void> Function(String title, String content) onSave;
+  final Future<void> Function()? onOpen;
+  final Future<void> Function()? onExportDocx;
 
   @override
   State<DocumentEditorSheet> createState() => _DocumentEditorSheetState();
@@ -32,21 +42,13 @@ class _DocumentEditorSheetState extends State<DocumentEditorSheet> {
   bool get _canSave =>
       !_busy && _title.text.trim().isNotEmpty && _content.text.isNotEmpty;
 
-  @override
-  void dispose() {
-    _title.dispose();
-    _content.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
+  Future<void> _run(Future<void> Function() action) async {
     setState(() {
       _busy = true;
       _errorKey = null;
     });
     try {
-      await widget.onSave(_title.text.trim(), _content.text);
-      if (mounted) Navigator.of(context).pop();
+      await action();
     } on ArtifactPolicyException catch (error) {
       if (mounted) setState(() => _errorKey = error.messageKey);
     } on Object {
@@ -54,6 +56,13 @@ class _DocumentEditorSheetState extends State<DocumentEditorSheet> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _save() {
+    return _run(() async {
+      await widget.onSave(_title.text.trim(), _content.text);
+      if (mounted) Navigator.of(context).pop();
+    });
   }
 
   @override
@@ -110,6 +119,30 @@ class _DocumentEditorSheetState extends State<DocumentEditorSheet> {
             ),
           ],
           const SizedBox(height: 12),
+          Row(
+            children: [
+              if (widget.artifact != null) ...[
+                TextButton.icon(
+                  key: const Key('artifact-open'),
+                  onPressed: _busy || widget.onOpen == null
+                      ? null
+                      : () => _run(widget.onOpen!),
+                  icon: const Icon(Icons.open_in_new, size: 18),
+                  label: Text('artifacts.open'.tr()),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  key: const Key('artifact-export-docx'),
+                  onPressed: _busy || widget.onExportDocx == null
+                      ? null
+                      : () => _run(widget.onExportDocx!),
+                  icon: const Icon(Icons.description_outlined, size: 18),
+                  label: Text('artifacts.exportDocx'.tr()),
+                ),
+              ] else
+                const Spacer(),
+            ],
+          ),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [

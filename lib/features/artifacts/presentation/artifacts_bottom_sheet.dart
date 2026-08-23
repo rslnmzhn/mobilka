@@ -7,7 +7,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../chat/domain/conversation.dart';
 import '../../chat/domain/tool_execution.dart';
 import '../application/artifacts_controller.dart';
+import '../data/artifact_open_bridge.dart';
 import '../data/artifact_share_bridge.dart';
+import '../data/artifact_store.dart';
 import '../domain/artifact.dart';
 import 'document_editor_sheet.dart';
 
@@ -164,12 +166,6 @@ class _DocumentsTab extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  key: Key('artifact-export-docx-${artifact.id}'),
-                  tooltip: 'artifacts.exportDocx'.tr(),
-                  onPressed: () => _exportDocx(context, ref, artifact),
-                  icon: const Icon(Icons.description_outlined),
-                ),
-                IconButton(
                   key: Key('artifact-share-${artifact.id}'),
                   tooltip: 'artifacts.share'.tr(),
                   onPressed: () => _share(context, ref, artifact),
@@ -199,6 +195,17 @@ class _DocumentsTab extends ConsumerWidget {
         onSave: (title, content) => artifact == null
             ? controller.create(title: title, content: content)
             : controller.update(artifact, title: title, content: content),
+        onOpen: artifact == null
+            ? null
+            : () async {
+                final file = await ref
+                    .read(localArtifactFilesProvider)
+                    .fileFor(artifact.id);
+                await ref.read(artifactOpenBridgeProvider)(file.path);
+              },
+        onExportDocx: artifact == null
+            ? null
+            : () => _exportDocx(context, ref, artifact),
       ),
     );
   }

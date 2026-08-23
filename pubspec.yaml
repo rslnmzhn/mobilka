@@ -59,6 +59,7 @@ dependencies:
   share_plus: ^13.3.0
   path: ^1.9.1
   archive: ^4.2.0
+  open_filex: ^4.7.0
 
 dev_dependencies:
   flutter_test:
