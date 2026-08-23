@@ -61,6 +61,19 @@ class ChatAttachment {
             '.yaml',
             '.yml',
           ].any(name.toLowerCase().endsWith));
+
+  bool get isRepresentable => isImage || isInlineText;
+}
+
+/// Drops attachments the target model cannot consume (roadmap item 45):
+/// images are stripped when [visionSupported] is false; text-like documents
+/// always survive because they are inlined as plain text.
+List<ChatAttachment> filterAttachmentsForModel(
+  List<ChatAttachment> attachments, {
+  required bool visionSupported,
+}) {
+  if (visionSupported) return attachments;
+  return attachments.where((a) => !a.isImage).toList(growable: false);
 }
 
 class ChatMessage {

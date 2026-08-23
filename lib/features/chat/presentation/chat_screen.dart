@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/workbench_widgets.dart';
 import '../../artifacts/presentation/artifacts_bottom_sheet.dart';
 import '../../models/application/models_controller.dart';
+import '../../models/domain/model_capabilities.dart';
 import '../application/chat_controller.dart';
 import '../domain/chat_message.dart';
 import '../domain/tool_execution.dart';
@@ -214,6 +215,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 canSend:
                     models.value?.selectedModelId != null ||
                     conversation != null,
+                visionSupported: ModelCapabilityResolver.resolve(
+                  conversation?.modelId ?? models.value?.selectedModelId ?? '',
+                ).vision,
+                visionNote: 'chat.visionUnsupported'.tr(),
                 onCancel: ref.read(chatControllerProvider.notifier).cancel,
                 onSend: (text, attachments) {
                   composer.clear();
