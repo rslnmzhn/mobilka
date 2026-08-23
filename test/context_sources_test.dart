@@ -1,14 +1,31 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive/hive.dart';
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
 import 'package:mobilka/features/memory/application/memory_recovery_journal.dart';
 import 'package:mobilka/features/memory/data/context_sources.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
+import 'package:path/path.dart' as p;
 import 'package:saf/saf.dart';
 
 void main() {
+  late Directory tempDir;
+
+  setUp(() async {
+    tempDir = await Directory.systemTemp.createTemp('mobilka-context');
+    Hive.init(p.join(tempDir.path, 'hive'));
+    await Hive.openBox<dynamic>('memory_recovery');
+  });
+
+  tearDown(() async {
+    await Hive.deleteBoxFromDisk('memory_recovery');
+    await Hive.close();
+    await tempDir.delete(recursive: true);
+  });
+
   test('reads every selected file in one boundary snapshot', () async {
     final boundary = _Boundary({
       'user_profile.md': 'profile',
@@ -16,7 +33,7 @@ void main() {
     });
     final source = StoredMemoryContextSource(
       _Repository(boundary),
-      MemoryMutationCoordinator(boundary),
+      () => MemoryMutationCoordinator(boundary),
     );
 
     expect(
@@ -54,7 +71,7 @@ void main() {
     });
     final source = StoredMemoryContextSource(
       _Repository(boundary),
-      MemoryMutationCoordinator(boundary, journal: journal),
+      () => MemoryMutationCoordinator(boundary, journal: journal),
     );
 
     expect(await source.readSnapshot(['user_profile.md']), {
@@ -63,15 +80,38 @@ void main() {
     expect(boundary.transactions, 1);
     expect(await journal.readAll(), isEmpty);
   });
+
+  test('stale null coordinator falls back to a fresh coordinator', () async {
+    // Regression: ChatRepository captured the coordinator provider value
+    // before the memory folder existed; every request then failed with
+    // "Memory recovery is unavailable for configured storage".
+    final boundary = _Boundary({'user_profile.md': 'profile'});
+    final source = StoredMemoryContextSource(_Repository(boundary), () => null);
+
+    expect(await source.readSnapshot(['user_profile.md']), {
+      'user_profile.md': 'profile',
+    });
+  });
+
+  test('unconfigured location yields an empty snapshot', () async {
+    final boundary = _Boundary({'user_profile.md': 'profile'});
+    final repository = _Repository(boundary, configured: false);
+    final source = StoredMemoryContextSource(repository, () => null);
+
+    expect(await source.readSnapshot(['user_profile.md']), isEmpty);
+    expect(boundary.transactions, 0);
+  });
 }
 
 class _Repository extends MemoryRepository {
-  _Repository(this.boundary) : super(Saf());
+  _Repository(this.boundary, {this.configured = true}) : super(Saf());
   final MemoryFileBoundary boundary;
+  final bool configured;
 
   @override
-  MemoryLocation? savedLocation() =>
-      const MemoryLocation(value: 'test', isContentUri: false);
+  MemoryLocation? savedLocation() => configured
+      ? const MemoryLocation(value: 'test', isContentUri: false)
+      : null;
 
   @override
   MemoryFileBoundary boundaryFor(MemoryLocation location) => boundary;

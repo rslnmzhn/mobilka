@@ -16,15 +16,31 @@ final memoryMutationCoordinatorProvider = Provider<MemoryMutationCoordinator?>((
   final repository = ref.watch(memoryRepositoryProvider);
   final location = repository.savedLocation();
   if (location == null) return null;
-  return MemoryMutationCoordinator(
-    repository.boundaryFor(location),
-    journal: HiveMemoryRecoveryJournal(
-      memoryRecoveryBox,
-      checksum(location.value),
-    ),
+  return createMemoryMutationCoordinator(
+    repository: repository,
+    location: location,
     logger: ref.read(appLoggerProvider),
   );
 }, name: 'memory_mutation_coordinator');
+
+/// Builds a coordinator for an already-configured [location].
+///
+/// Used both by [memoryMutationCoordinatorProvider] and as a defensive
+/// fallback when a long-lived consumer captured the provider value before the
+/// memory folder was configured (previously surfaced as "Memory recovery is
+/// unavailable for configured storage").
+MemoryMutationCoordinator createMemoryMutationCoordinator({
+  required MemoryRepository repository,
+  required MemoryLocation location,
+  AppLogger? logger,
+}) => MemoryMutationCoordinator(
+  repository.boundaryFor(location),
+  journal: HiveMemoryRecoveryJournal(
+    memoryRecoveryBox,
+    checksum(location.value),
+  ),
+  logger: logger,
+);
 
 class MemoryMutationCoordinator {
   MemoryMutationCoordinator(

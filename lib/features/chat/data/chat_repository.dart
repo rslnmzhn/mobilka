@@ -30,7 +30,10 @@ ChatRepository chatRepository(Ref ref) => ChatRepository(
   ContextInjector(
     StoredMemoryContextSource(
       ref.watch(memoryRepositoryProvider),
-      ref.watch(memoryMutationCoordinatorProvider),
+      // Read per request: the coordinator is invalidated when the memory
+      // folder changes, and this keepAlive repository must not pin a stale
+      // null captured before configuration.
+      () => ref.read(memoryMutationCoordinatorProvider),
     ),
     ref.watch(selectedAgentPromptAdapterProvider),
     () => ref.read(memorySelectionControllerProvider),
