@@ -9,6 +9,7 @@ import '../../chat/domain/tool_execution.dart';
 import '../application/artifacts_controller.dart';
 import '../data/artifact_share_bridge.dart';
 import '../domain/artifact.dart';
+import 'document_editor_sheet.dart';
 
 class ArtifactsBottomSheet extends StatelessWidget {
   const ArtifactsBottomSheet({this.conversation, super.key});
@@ -182,11 +183,17 @@ class _DocumentsTab extends ConsumerWidget {
   }
 
   void _openEditor(BuildContext context, WidgetRef ref, Artifact? artifact) {
+    final controller = ref.read(artifactsControllerProvider.notifier);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => _DocumentEditorSheet(artifact: artifact, ref: ref),
+      builder: (sheetContext) => DocumentEditorSheet(
+        artifact: artifact,
+        onSave: (title, content) => artifact == null
+            ? controller.create(title: title, content: content)
+            : controller.update(artifact, title: title, content: content),
+      ),
     );
   }
 
@@ -235,111 +242,6 @@ class _DocumentsTab extends ConsumerWidget {
       await ref.read(artifactsControllerProvider.notifier).delete(artifact);
     }
   }
-}
-
-class _DocumentEditorSheet extends StatefulWidget {
-  const _DocumentEditorSheet({required this.ref, required this.artifact});
-
-  final WidgetRef ref;
-  final Artifact? artifact;
-
-  @override
-  State<_DocumentEditorSheet> createState() => _DocumentEditorSheetState();
-}
-
-class _DocumentEditorSheetState extends State<_DocumentEditorSheet> {
-  late final TextEditingController _title = TextEditingController(
-    text: widget.artifact?.title ?? '',
-  );
-  late final TextEditingController _content = TextEditingController(
-    text: widget.artifact?.content ?? '',
-  );
-
-  bool get _canSave =>
-      _title.text.trim().isNotEmpty && _content.text.isNotEmpty;
-
-  @override
-  void dispose() {
-    _title.dispose();
-    _content.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final controller = widget.ref.read(artifactsControllerProvider.notifier);
-    final title = _title.text.trim();
-    final content = _content.text;
-    if (widget.artifact case final artifact?) {
-      await controller.update(artifact, title: title, content: content);
-    } else {
-      await controller.create(title: title, content: content);
-    }
-    if (mounted) Navigator.of(context).pop();
-  }
-
-  @override
-  Widget build(BuildContext context) => FractionallySizedBox(
-    heightFactor: 0.85,
-    child: Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            (widget.artifact == null ? 'artifacts.create' : 'artifacts.edit')
-                .tr(),
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            key: const Key('artifact-title-field'),
-            controller: _title,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              labelText: 'artifacts.documentTitle'.tr(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: TextField(
-              key: const Key('artifact-content-field'),
-              controller: _content,
-              onChanged: (_) => setState(() {}),
-              maxLines: null,
-              expands: true,
-              textAlignVertical: TextAlignVertical.top,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-              decoration: InputDecoration(
-                labelText: 'artifacts.documentContent'.tr(),
-                alignLabelWithHint: true,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text('common.cancel'.tr()),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                key: const Key('artifact-save'),
-                onPressed: _canSave ? _save : null,
-                child: Text('common.save'.tr()),
-              ),
-            ],
-          ),
-        ],
-      ),
-    ),
-  );
 }
 
 class _ExecutionLogTab extends StatelessWidget {

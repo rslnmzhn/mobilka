@@ -4,11 +4,14 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../domain/artifact_file_name.dart';
+
 /// Persists artifact payloads as human-readable `.md` files.
 ///
-/// File names are always derived from internally generated artifact IDs, so
-/// user-supplied titles never reach the file system (validation policy is
-/// roadmap item 40).
+/// File names are always derived from internally generated artifact IDs and
+/// revalidated through [ArtifactFileName] on every operation, so user-supplied
+/// titles never reach the file system and traversal is impossible even for a
+/// corrupted ID (filename validation/traversal policy: roadmap item 40).
 class LocalArtifactFiles {
   LocalArtifactFiles({Directory? Function()? baseDirectory})
     : _baseDirectory = baseDirectory;
@@ -23,9 +26,10 @@ class LocalArtifactFiles {
   }
 
   Future<File> fileFor(String artifactId) async {
+    final fileName = ArtifactFileName.fromId(artifactId);
     final base = await _resolveBase();
     await base.create(recursive: true);
-    return File(p.join(base.path, '$artifactId.md'));
+    return File(p.join(base.path, fileName.value));
   }
 
   /// Writes content atomically via a temp file plus rename.

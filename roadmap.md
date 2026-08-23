@@ -51,7 +51,7 @@
 - [x] 37. Add collapsible tool cards with running, completed, and failed states.
 - [x] 38. Add the tabbed Artifacts Bottom Sheet for code, documents, previews, and logs.
 - [x] 39. Implement safe local `.md` artifact creation and sharing.
-- [ ] 40. Add file-name validation, path traversal protection, quotas, and user confirmation policies.
+- [x] 40. Add file-name validation, path traversal protection, quotas, and user confirmation policies.
 
 ## Milestone 5 — Documents and multimodality
 - [ ] 41. Implement template-based `.docx` generation with Markdown fallback.
