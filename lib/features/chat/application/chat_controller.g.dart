@@ -6,20 +6,20 @@ part of 'chat_controller.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$chatControllerHash() => r'97861821db12f98adf433f7124cdebd2c4e25df8';
+String _$chatControllerHash() => r'9c3a512903092a12092662905f97061e3070e348';
 
 /// See also [ChatController].
 @ProviderFor(ChatController)
 final chatControllerProvider =
     AsyncNotifierProvider<ChatController, ChatState>.internal(
-  ChatController.new,
-  name: r'chatControllerProvider',
-  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-      ? null
-      : _$chatControllerHash,
-  dependencies: null,
-  allTransitiveDependencies: null,
-);
+      ChatController.new,
+      name: r'chatControllerProvider',
+      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+          ? null
+          : _$chatControllerHash,
+      dependencies: null,
+      allTransitiveDependencies: null,
+    );
 
 typedef _$ChatController = AsyncNotifier<ChatState>;
 // ignore_for_file: type=lint
