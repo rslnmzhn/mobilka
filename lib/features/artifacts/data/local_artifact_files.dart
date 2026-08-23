@@ -6,7 +6,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../domain/artifact_file_name.dart';
 
-/// Persists artifact payloads as human-readable `.md` files.
+/// Persists artifact payloads as human-readable files (`.md` documents and
+/// generated `.docx` exports).
 ///
 /// File names are always derived from internally generated artifact IDs and
 /// revalidated through [ArtifactFileName] on every operation, so user-supplied
@@ -25,16 +26,20 @@ class LocalArtifactFiles {
     return Directory(p.join(support.path, 'artifacts'));
   }
 
-  Future<File> fileFor(String artifactId) async {
-    final fileName = ArtifactFileName.fromId(artifactId);
+  Future<File> fileFor(String artifactId, {String extension = 'md'}) async {
+    final fileName = ArtifactFileName.fromId(artifactId, extension: extension);
     final base = await _resolveBase();
     await base.create(recursive: true);
     return File(p.join(base.path, fileName.value));
   }
 
-  /// Writes content atomically via a temp file plus rename.
-  Future<File> write(String artifactId, String content) async {
-    final target = await fileFor(artifactId);
+  /// Writes text content atomically via a temp file plus rename.
+  Future<File> write(
+    String artifactId,
+    String content, {
+    String extension = 'md',
+  }) async {
+    final target = await fileFor(artifactId, extension: extension);
     final temp = File(
       '${target.path}.${DateTime.now().microsecondsSinceEpoch}.tmp',
     );
@@ -47,10 +52,32 @@ class LocalArtifactFiles {
     }
   }
 
+  /// Writes binary payloads (e.g. generated `.docx`) atomically.
+  Future<File> writeBytes(
+    String artifactId,
+    List<int> bytes, {
+    String extension = 'md',
+  }) async {
+    final target = await fileFor(artifactId, extension: extension);
+    final temp = File(
+      '${target.path}.${DateTime.now().microsecondsSinceEpoch}.tmp',
+    );
+    await temp.writeAsBytes(bytes, flush: true);
+    try {
+      return await temp.rename(target.path);
+    } on FileSystemException {
+      await temp.delete();
+      rethrow;
+    }
+  }
+
   Future<void> delete(String artifactId) async {
-    final target = await fileFor(artifactId);
-    if (await target.exists()) {
-      await target.delete();
+    // Remove every known representation of the artifact.
+    for (final extension in const ['md', 'docx']) {
+      final target = await fileFor(artifactId, extension: extension);
+      if (await target.exists()) {
+        await target.delete();
+      }
     }
   }
 }

@@ -5,9 +5,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/logging/app_logger.dart';
 import '../../agents/application/agents_controller.dart';
-import '../../memory/application/memory_chat_tool_runtime.dart';
 import '../../memory/application/update_memory_file_service.dart';
 import '../../models/application/models_controller.dart';
+import 'chat_tool_runtime_registry.dart';
 import '../data/chat_repository.dart';
 import '../data/conversation_store.dart';
 import '../domain/chat_message.dart';
@@ -46,7 +46,7 @@ class ChatController extends _$ChatController {
         publishError: (message) {
           state = AsyncData(state.requireValue.copyWith(errorMessage: message));
         },
-        toolRuntime: ref.read(memoryChatToolRuntimeProvider),
+        toolRuntime: ref.read(chatToolRuntimeRegistryProvider),
       );
 
   Future<void> createConversation(String modelId) async {
@@ -213,7 +213,7 @@ class ChatController extends _$ChatController {
         return;
       }
       await ref
-          .read(memoryChatToolRuntimeProvider)
+          .read(chatToolRuntimeRegistryProvider)
           .revalidateMemoryProposal(proposal);
 
       var currentProposal = state.requireValue

@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../data/artifact_store.dart';
 import '../data/local_artifact_files.dart';
 import '../domain/artifact.dart';
 import 'artifact_policy.dart';
+import 'markdown_docx_converter.dart';
 
 part 'artifacts_controller.g.dart';
 
@@ -11,6 +14,7 @@ part 'artifacts_controller.g.dart';
 class ArtifactsController extends _$ArtifactsController {
   ArtifactStore get _store => ref.read(artifactStoreProvider);
   LocalArtifactFiles get _files => ref.read(localArtifactFilesProvider);
+  MarkdownDocxConverter get _docxConverter => const MarkdownDocxConverter();
 
   @override
   List<Artifact> build() => _store.loadAll();
@@ -65,6 +69,29 @@ class ArtifactsController extends _$ArtifactsController {
   Future<String> shareablePath(Artifact artifact) async {
     final file = await _files.write(artifact.id, artifact.content);
     return file.path;
+  }
+
+  /// Creates a Markdown artifact together with a generated `.docx` sibling.
+  ///
+  /// Used by the `generate_docx` chat tool; quotas and document validation
+  /// apply exactly as for manual creation.
+  Future<Artifact> createDocxArtifact({
+    required String title,
+    required String markdown,
+  }) async {
+    ArtifactPolicy.validateDocument(title, markdown);
+    final artifact = await create(title: title.trim(), content: markdown);
+    await exportDocx(artifact);
+    return artifact;
+  }
+
+  /// Regenerates the `.docx` representation for [artifact] and returns it.
+  Future<File> exportDocx(Artifact artifact) async {
+    final bytes = _docxConverter.generate(
+      title: artifact.title,
+      markdown: artifact.content,
+    );
+    return _files.writeBytes(artifact.id, bytes, extension: 'docx');
   }
 
   int _totalBytes(Iterable<Artifact> artifacts) => artifacts.fold<int>(

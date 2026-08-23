@@ -54,7 +54,7 @@
 - [x] 40. Add file-name validation, path traversal protection, quotas, and user confirmation policies.
 
 ## Milestone 5 — Documents and multimodality
-- [ ] 41. Implement template-based `.docx` generation with Markdown fallback.
+- [x] 41. Implement template-based `.docx` generation with Markdown fallback.
 - [ ] 42. Implement opening and sharing files via Android FileProvider and platform-native APIs.
 - [ ] 43. Add image and document attachments.
 - [ ] 44. Downscale/compress images before Base64 encoding to prevent OOM.

@@ -164,6 +164,12 @@ class _DocumentsTab extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
+                  key: Key('artifact-export-docx-${artifact.id}'),
+                  tooltip: 'artifacts.exportDocx'.tr(),
+                  onPressed: () => _exportDocx(context, ref, artifact),
+                  icon: const Icon(Icons.description_outlined),
+                ),
+                IconButton(
                   key: Key('artifact-share-${artifact.id}'),
                   tooltip: 'artifacts.share'.tr(),
                   onPressed: () => _share(context, ref, artifact),
@@ -195,6 +201,26 @@ class _DocumentsTab extends ConsumerWidget {
             : controller.update(artifact, title: title, content: content),
       ),
     );
+  }
+
+  Future<void> _exportDocx(
+    BuildContext context,
+    WidgetRef ref,
+    Artifact artifact,
+  ) async {
+    try {
+      final file = await ref
+          .read(artifactsControllerProvider.notifier)
+          .exportDocx(artifact);
+      if (!context.mounted) return;
+      await ref.read(artifactShareBridgeProvider)(file.path);
+    } on Object catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
   }
 
   Future<void> _share(

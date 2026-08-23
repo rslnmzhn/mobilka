@@ -9,16 +9,21 @@ class ArtifactFileName {
 
   static final RegExp _pattern = RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,63}$');
 
-  /// Validates [id] and returns the corresponding `<id>.md` file name.
+  static final RegExp _extensionPattern = RegExp(r'^[a-z0-9]{1,8}$');
+
+  /// Validates [id] and returns `<id>.<extension>` (defaults to Markdown).
   ///
   /// Throws [FormatException] for empty IDs, path separators, traversal
   /// segments (`..`), absolute/drive prefixes, whitespace, control characters,
-  /// reserved dots-only names, or excessive length.
-  factory ArtifactFileName.fromId(String id) {
+  /// reserved dots-only names, excessive length, or an invalid [extension].
+  factory ArtifactFileName.fromId(String id, {String extension = 'md'}) {
     if (!_pattern.hasMatch(id)) {
       throw FormatException('Invalid artifact file identifier');
     }
-    return ArtifactFileName._('$id.md');
+    if (!_extensionPattern.hasMatch(extension)) {
+      throw FormatException('Invalid artifact file extension');
+    }
+    return ArtifactFileName._('$id.$extension');
   }
 
   final String value;
