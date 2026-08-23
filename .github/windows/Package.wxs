@@ -1,4 +1,6 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix
+  xmlns="http://wixtoolset.org/schemas/v4/wxs"
+  xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package
     Name="mobilka"
     Manufacturer="mobilka"
@@ -7,6 +9,10 @@
     Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of mobilka is already installed." />
     <MediaTemplate EmbedCab="yes" />
+
+    <!-- Visible install wizard; without this the MSI runs with no windows
+         beyond the initial "collecting information" dialog. -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="mobilka">
@@ -42,9 +48,36 @@
       </Directory>
     </StandardDirectory>
 
+    <!-- Start Menu entry so Windows search can discover the application. -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="MobilkaProgramMenuFolder" Name="mobilka">
+        <Component
+          Id="StartMenuShortcut"
+          Guid="8E7C6D45-93A2-5F41-B0C8-2AD31E9F7B60">
+          <Shortcut
+            Id="MobilkaStartMenuShortcut"
+            Name="mobilka"
+            Description="mobilka remote AI workspace"
+            Target="[INSTALLFOLDER]mobilka.exe"
+            WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder
+            Id="RemoveMobilkaProgramMenuFolder"
+            On="uninstall" />
+          <RegistryValue
+            Root="HKLM"
+            Key="Software\mobilka\Shortcuts"
+            Name="StartMenu"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
     <Feature Id="ProductFeature" Title="mobilka" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
       <ComponentRef Id="MsiInstallMarker" />
+      <ComponentRef Id="StartMenuShortcut" />
     </Feature>
   </Package>
 
