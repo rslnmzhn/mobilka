@@ -30,8 +30,19 @@ if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
   throw 'WiX CLI is unavailable. Install the pinned wix tool before packaging.'
 }
 
+# The installer UI lives in the WiX UI extension; register the pinned version
+# on demand so CI and local machines behave identically.
+$listedExtensions = & wix extension list -g 2>$null
+if (-not ($listedExtensions -match 'WixToolset\.UI\.wixext')) {
+  & wix extension add -g WixToolset.UI.wixext/5.0.2
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Failed to add the pinned WixToolset.UI.wixext extension.'
+  }
+}
+
 New-Item -ItemType Directory -Force -Path $output | Out-Null
-& wix build $wixSource -arch x64 -d "Version=$Version" -d "BundleDir=$bundle" -o $msi
+& wix build $wixSource -ext WixToolset.UI.wixext -arch x64 `
+  -d "Version=$Version" -d "BundleDir=$bundle" -o $msi
 if ($LASTEXITCODE -ne 0) {
   throw "WiX failed with exit code $LASTEXITCODE"
 }
