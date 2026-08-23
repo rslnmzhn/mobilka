@@ -2,9 +2,13 @@ import 'dart:convert';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../chat/domain/conversation.dart';
 import '../../chat/domain/tool_execution.dart';
+import '../application/artifacts_controller.dart';
+import '../data/artifact_share_bridge.dart';
+import '../domain/artifact.dart';
 
 class ArtifactsBottomSheet extends StatelessWidget {
   const ArtifactsBottomSheet({this.conversation, super.key});
@@ -59,10 +63,7 @@ class ArtifactsBottomSheet extends StatelessWidget {
                       icon: Icons.code,
                       message: 'artifacts.noCode'.tr(),
                     ),
-                    _EmptyArtifactTab(
-                      icon: Icons.description_outlined,
-                      message: 'artifacts.noDocuments'.tr(),
-                    ),
+                    const _DocumentsTab(),
                     _EmptyArtifactTab(
                       icon: Icons.preview_outlined,
                       message: 'artifacts.noPreview'.tr(),
@@ -95,6 +96,246 @@ class _EmptyArtifactTab extends StatelessWidget {
           Icon(icon, size: 36, color: Theme.of(context).colorScheme.outline),
           const SizedBox(height: 12),
           Text(message, textAlign: TextAlign.center),
+        ],
+      ),
+    ),
+  );
+}
+
+class _DocumentsTab extends ConsumerWidget {
+  const _DocumentsTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final artifacts = ref.watch(artifactsControllerProvider);
+    if (artifacts.isEmpty) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _EmptyArtifactTab(
+            icon: Icons.description_outlined,
+            message: 'artifacts.noDocuments'.tr(),
+          ),
+          FilledButton.tonalIcon(
+            key: const Key('artifact-create'),
+            onPressed: () => _openEditor(context, ref, null),
+            icon: const Icon(Icons.add),
+            label: Text('artifacts.create'.tr()),
+          ),
+        ],
+      );
+    }
+    return ListView(
+      key: const Key('artifact-documents'),
+      padding: const EdgeInsets.all(16),
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton.tonalIcon(
+            key: const Key('artifact-create'),
+            onPressed: () => _openEditor(context, ref, null),
+            icon: const Icon(Icons.add),
+            label: Text('artifacts.create'.tr()),
+          ),
+        ),
+        const SizedBox(height: 8),
+        for (final artifact in artifacts)
+          ListTile(
+            key: Key('artifact-item-${artifact.id}'),
+            shape: RoundedRectangleBorder(
+              side: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            title: Text(
+              artifact.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              MaterialLocalizations.of(
+                context,
+              ).formatCompactDate(artifact.updatedAt),
+            ),
+            onTap: () => _openEditor(context, ref, artifact),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  key: Key('artifact-share-${artifact.id}'),
+                  tooltip: 'artifacts.share'.tr(),
+                  onPressed: () => _share(context, ref, artifact),
+                  icon: const Icon(Icons.share_outlined),
+                ),
+                IconButton(
+                  key: Key('artifact-delete-${artifact.id}'),
+                  tooltip: 'chat.delete'.tr(),
+                  onPressed: () => _confirmDelete(context, ref, artifact),
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _openEditor(BuildContext context, WidgetRef ref, Artifact? artifact) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => _DocumentEditorSheet(artifact: artifact, ref: ref),
+    );
+  }
+
+  Future<void> _share(
+    BuildContext context,
+    WidgetRef ref,
+    Artifact artifact,
+  ) async {
+    try {
+      final path = await ref
+          .read(artifactsControllerProvider.notifier)
+          .shareablePath(artifact);
+      await ref.read(artifactShareBridgeProvider)(path);
+    } on Object catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> _confirmDelete(
+    BuildContext context,
+    WidgetRef ref,
+    Artifact artifact,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('chat.delete'.tr()),
+        content: Text('artifacts.confirmDelete'.tr()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text('common.cancel'.tr()),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('chat.delete'.tr()),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(artifactsControllerProvider.notifier).delete(artifact);
+    }
+  }
+}
+
+class _DocumentEditorSheet extends StatefulWidget {
+  const _DocumentEditorSheet({required this.ref, required this.artifact});
+
+  final WidgetRef ref;
+  final Artifact? artifact;
+
+  @override
+  State<_DocumentEditorSheet> createState() => _DocumentEditorSheetState();
+}
+
+class _DocumentEditorSheetState extends State<_DocumentEditorSheet> {
+  late final TextEditingController _title = TextEditingController(
+    text: widget.artifact?.title ?? '',
+  );
+  late final TextEditingController _content = TextEditingController(
+    text: widget.artifact?.content ?? '',
+  );
+
+  bool get _canSave =>
+      _title.text.trim().isNotEmpty && _content.text.isNotEmpty;
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _content.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final controller = widget.ref.read(artifactsControllerProvider.notifier);
+    final title = _title.text.trim();
+    final content = _content.text;
+    if (widget.artifact case final artifact?) {
+      await controller.update(artifact, title: title, content: content);
+    } else {
+      await controller.create(title: title, content: content);
+    }
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) => FractionallySizedBox(
+    heightFactor: 0.85,
+    child: Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            (widget.artifact == null ? 'artifacts.create' : 'artifacts.edit')
+                .tr(),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('artifact-title-field'),
+            controller: _title,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: 'artifacts.documentTitle'.tr(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: TextField(
+              key: const Key('artifact-content-field'),
+              controller: _content,
+              onChanged: (_) => setState(() {}),
+              maxLines: null,
+              expands: true,
+              textAlignVertical: TextAlignVertical.top,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              decoration: InputDecoration(
+                labelText: 'artifacts.documentContent'.tr(),
+                alignLabelWithHint: true,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text('common.cancel'.tr()),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                key: const Key('artifact-save'),
+                onPressed: _canSave ? _save : null,
+                child: Text('common.save'.tr()),
+              ),
+            ],
+          ),
         ],
       ),
     ),

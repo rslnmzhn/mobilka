@@ -1,11 +1,32 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive/hive.dart';
 import 'package:mobilka/features/artifacts/presentation/artifacts_bottom_sheet.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
-  Widget app(Widget child) => MaterialApp(home: Scaffold(body: child));
+  late Directory tempDir;
+
+  setUp(() async {
+    tempDir = await Directory.systemTemp.createTemp('mobilka-artifact-sheet');
+    Hive.init(p.join(tempDir.path, 'hive'));
+    await Hive.openBox<dynamic>('artifacts');
+  });
+
+  tearDown(() async {
+    await Hive.deleteBoxFromDisk('artifacts');
+    await Hive.close();
+    await tempDir.delete(recursive: true);
+  });
+
+  Widget app(Widget child) => ProviderScope(
+    child: MaterialApp(home: Scaffold(body: child)),
+  );
 
   testWidgets('shows four tabs and empty artifact states', (tester) async {
     await tester.pumpWidget(app(const ArtifactsBottomSheet()));

@@ -35,13 +35,21 @@ class AppLogEntry {
     'timestamp': timestamp.toUtc().toIso8601String(),
     'event': event,
     'level': level.name,
-    'operationId': ?operationId,
-    'conversationId': ?conversationId,
-    'toolCallId': ?toolCallId,
-    'fileName': ?fileName,
-    'status': ?status,
-    'errorType': ?errorType,
-    'durationMs': ?duration?.inMilliseconds,
+    // Pinned build_runner cannot parse null-aware elements yet.
+    // ignore: use_null_aware_elements
+    if (operationId != null) 'operationId': operationId!,
+    // ignore: use_null_aware_elements
+    if (conversationId != null) 'conversationId': conversationId!,
+    // ignore: use_null_aware_elements
+    if (toolCallId != null) 'toolCallId': toolCallId!,
+    // ignore: use_null_aware_elements
+    if (fileName != null) 'fileName': fileName!,
+    // ignore: use_null_aware_elements
+    if (status != null) 'status': status!,
+    // ignore: use_null_aware_elements
+    if (errorType != null) 'errorType': errorType!,
+    // ignore: use_null_aware_elements
+    if (duration != null) 'durationMs': duration!.inMilliseconds,
   };
 
   @override

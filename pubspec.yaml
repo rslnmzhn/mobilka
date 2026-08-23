@@ -56,6 +56,8 @@ dependencies:
       url: https://github.com/dint-dev/cryptography.git
       ref: 87f42fad6f7f120feb8e47854164016ceac3dfd0
       path: cryptography
+  share_plus: ^13.3.0
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:
