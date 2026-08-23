@@ -264,6 +264,39 @@ void main() {
     expect(find.byKey(const Key('artifact-save')), findsOneWidget);
   });
 
+  testWidgets('editor exposes open and export actions for saved documents', (
+    tester,
+  ) async {
+    final opened = <String>[];
+    final exported = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DocumentEditorSheet(
+            artifact: Artifact(
+              id: 'doc-1',
+              title: 'Report',
+              content: '# Report',
+              createdAt: DateTime(2026),
+              updatedAt: DateTime(2026),
+            ),
+            onSave: (_, _) async {},
+            onOpen: () async => opened.add('md'),
+            onExportDocx: () async => exported.add('docx'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('artifact-open')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('artifact-export-docx')));
+    await tester.pumpAndSettle();
+
+    expect(opened, ['md']);
+    expect(exported, ['docx']);
+  });
+
   testWidgets('delete requires explicit confirmation', (tester) async {
     final deleted = <Artifact>[];
     final created = <Artifact>[];

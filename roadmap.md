@@ -55,7 +55,7 @@
 
 ## Milestone 5 — Documents and multimodality
 - [x] 41. Implement template-based `.docx` generation with Markdown fallback.
-- [ ] 42. Implement opening and sharing files via Android FileProvider and platform-native APIs.
+- [x] 42. Implement opening and sharing files via Android FileProvider and platform-native APIs.
 - [ ] 43. Add image and document attachments.
 - [ ] 44. Downscale/compress images before Base64 encoding to prevent OOM.
 - [ ] 45. Add provider-capability detection for vision and tool support.

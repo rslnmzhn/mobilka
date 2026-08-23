@@ -7,7 +7,7 @@ part of 'artifacts_controller.dart';
 // **************************************************************************
 
 String _$artifactsControllerHash() =>
-    r'9fc47ff010d6dd21d880a4b653147e8bcb4b3570';
+    r'ba00b19d548a7f8e149c2f0fc81cde036701c5ef';
 
 /// See also [ArtifactsController].
 @ProviderFor(ArtifactsController)
