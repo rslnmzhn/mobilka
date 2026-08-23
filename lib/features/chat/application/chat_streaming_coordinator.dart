@@ -52,12 +52,16 @@ class ChatStreamingCoordinator {
     required PendingMemoryProposal proposal,
     required String toolResult,
   }) async {
-    final decisionId = '${conversation.id}:${proposal.toolCallId}';
+    final decisionId =
+        '${conversation.id}:${proposal.assistantMessageId}:'
+        '${proposal.toolCallId}:${proposal.callOccurrence}';
     if (!_memoryDecisions.add(decisionId)) return;
     final currentProposal = _conversationById(
       conversation.id,
     )?.pendingMemoryProposal;
-    if (currentProposal?.toolCallId != proposal.toolCallId) {
+    if (currentProposal?.toolCallId != proposal.toolCallId ||
+        currentProposal?.assistantMessageId != proposal.assistantMessageId ||
+        currentProposal?.callOccurrence != proposal.callOccurrence) {
       _memoryDecisions.remove(decisionId);
       return;
     }
@@ -81,7 +85,17 @@ class ChatStreamingCoordinator {
     if (proposalAssistantIndex < 0) {
       messages.add(toolResultMessage);
     } else {
-      messages.insert(proposalAssistantIndex + 1, toolResultMessage);
+      var insertionIndex = proposalAssistantIndex + 1;
+      var matchingResults = 0;
+      while (insertionIndex < messages.length &&
+          messages[insertionIndex].role == ChatRole.tool) {
+        if (messages[insertionIndex].toolCallId == proposal.toolCallId) {
+          if (matchingResults >= proposal.callOccurrence) break;
+          matchingResults++;
+        }
+        insertionIndex++;
+      }
+      messages.insert(insertionIndex, toolResultMessage);
     }
     final updated = conversation.copyWith(
       updatedAt: now,
@@ -287,7 +301,7 @@ class ChatStreamingCoordinator {
           .map(
             (message) => message.id == assistantId
                 ? message.copyWith(
-                    status: ChatMessageStatus.complete,
+                    status: ChatMessageStatus.streaming,
                     toolCalls: calls,
                   )
                 : message,
@@ -297,7 +311,12 @@ class ChatStreamingCoordinator {
     await _persistAndPublish(conversation);
     PendingMemoryProposal? pendingProposal;
     final results = <ChatMessage>[];
-    for (final call in calls) {
+    for (final indexedCall in calls.indexed) {
+      final call = indexedCall.$2;
+      final occurrence = calls
+          .take(indexedCall.$1)
+          .where((candidate) => candidate.id == call.id)
+          .length;
       if (call.name == 'update_memory_file') {
         if (pendingProposal != null) {
           results.add(
@@ -319,6 +338,7 @@ class ChatStreamingCoordinator {
                 assistantId,
                 request.selectedAgentId,
                 request.allowedTools,
+                occurrence,
               );
           if (pendingProposal == null) {
             throw StateError('The memory proposal could not be prepared.');
@@ -349,7 +369,14 @@ class ChatStreamingCoordinator {
     await _persistAndPublish(
       conversation.copyWith(
         updatedAt: DateTime.now(),
-        messages: [...conversation.messages, ...results],
+        messages: [
+          ...conversation.messages.map(
+            (message) => message.id == assistantId
+                ? message.copyWith(status: ChatMessageStatus.complete)
+                : message,
+          ),
+          ...results,
+        ],
         pendingMemoryProposal: pendingProposal,
       ),
     );

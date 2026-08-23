@@ -79,7 +79,9 @@ Map<String, Object?> _asset({
   'primary': true,
   'applyMode': platform == 'android' ? 'packageInstaller' : 'msi',
   'install': true,
-  'installer': ?installer,
+  // Pinned build_runner cannot parse null-aware elements yet.
+  // ignore: use_null_aware_elements
+  if (installer != null) 'installer': installer,
   if (platform == 'android') ...{
     'applicationId': 'com.rslnmzhn.mobilka',
     'versionCode': 1002003,

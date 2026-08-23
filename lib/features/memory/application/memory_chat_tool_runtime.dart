@@ -92,8 +92,9 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     ChatToolCall call,
     String assistantMessageId,
     String? selectedAgentId,
-    Set<String> allowedTools,
-  ) async {
+    Set<String> allowedTools, [
+    int callOccurrence = 0,
+  ]) async {
     if (call.name != updateMemoryFile.name) return null;
     _requireAllowed(call.name, allowedTools);
     if (selectedAgentId == null) {
@@ -142,6 +143,7 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     return PendingMemoryProposal(
       toolCallId: call.id,
       assistantMessageId: assistantMessageId,
+      callOccurrence: callOccurrence,
       selectedAgentId: selectedAgentId,
       allowedTools: allowedTools,
       fileName: fileName,

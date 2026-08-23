@@ -48,10 +48,10 @@
 - [x] Fix mobilka shell branding and pending memory proposal confirmation runtime failures.
 - [x] 35. Implement native OpenAI-compatible `tool_calls` orchestration with persisted user-confirmed memory proposals.
 - [x] 36. Implement fallback parsing for tool calls embedded in Markdown/JSON blocks.
-- [ ] 37. Add collapsible tool cards with running, completed, and failed states.
-- [ ] 38. Add the tabbed Artifacts Bottom Sheet for code, documents, previews, and logs.
-- [ ] 39. Implement safe local `.md` artifact creation and sharing.
-- [ ] 40. Add file-name validation, path traversal protection, quotas, and user confirmation policies.
+- [x] 37. Add collapsible tool cards with running, completed, and failed states.
+- [x] 38. Add the tabbed Artifacts Bottom Sheet for code, documents, previews, and logs.
+- [x] 39. Implement safe local `.md` artifact creation and sharing.
+- [x] 40. Add file-name validation, path traversal protection, quotas, and user confirmation policies.
 
 ## Milestone 5 — Documents and multimodality
 - [ ] 41. Implement template-based `.docx` generation with Markdown fallback.

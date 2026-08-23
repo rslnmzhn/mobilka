@@ -158,10 +158,12 @@ class MemoryProposalRuntime
     ChatToolCall call,
     String assistantMessageId,
     String? selectedAgentId,
-    Set<String> allowedTools,
-  ) async => PendingMemoryProposal(
+    Set<String> allowedTools, [
+    int callOccurrence = 0,
+  ]) async => PendingMemoryProposal(
     toolCallId: call.id,
     assistantMessageId: assistantMessageId,
+    callOccurrence: callOccurrence,
     selectedAgentId: selectedAgentId ?? 'agent-1',
     allowedTools: allowedTools,
     fileName: 'user_profile.md',

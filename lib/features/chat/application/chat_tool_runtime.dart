@@ -13,8 +13,9 @@ abstract interface class MemoryProposalRuntime {
     ChatToolCall call,
     String assistantMessageId,
     String? selectedAgentId,
-    Set<String> allowedTools,
-  );
+    Set<String> allowedTools, [
+    int callOccurrence = 0,
+  ]);
 
   Future<void> revalidateMemoryProposal(PendingMemoryProposal proposal);
 }

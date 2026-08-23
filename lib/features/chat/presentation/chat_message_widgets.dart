@@ -8,11 +8,18 @@ import 'package:highlight/highlight.dart' as hl;
 import '../application/chat_controller.dart';
 import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
+import '../domain/tool_execution.dart';
+import 'tool_call_card.dart';
 
 class MessageCard extends StatelessWidget {
-  const MessageCard({super.key, required this.message});
+  const MessageCard({
+    super.key,
+    required this.message,
+    this.toolExecutions = const [],
+  });
 
   final ChatMessage message;
+  final List<ToolExecution> toolExecutions;
 
   @override
   Widget build(BuildContext context) {
@@ -33,19 +40,19 @@ class MessageCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              MarkdownBody(
-                data: message.content.isEmpty
-                    ? (message.toolCalls.isEmpty
-                          ? '…'
-                          : message.toolCalls
-                                .map((call) => '`Tool: ${call.name}`')
-                                .join('\n'))
-                    : message.content,
-                selectable: true,
-                syntaxHighlighter: _CodeHighlighter(
-                  Theme.of(context).brightness,
+              if (message.content.isNotEmpty || message.toolCalls.isEmpty)
+                MarkdownBody(
+                  data: message.content.isEmpty ? '…' : message.content,
+                  selectable: true,
+                  syntaxHighlighter: _CodeHighlighter(
+                    Theme.of(context).brightness,
+                  ),
                 ),
-              ),
+              for (final execution in toolExecutions)
+                ToolCallCard(
+                  key: ValueKey('${execution.call.id}-${execution.callIndex}'),
+                  data: ToolCardData.fromExecution(execution),
+                ),
               if (message.status != ChatMessageStatus.complete)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
