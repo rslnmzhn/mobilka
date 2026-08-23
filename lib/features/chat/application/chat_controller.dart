@@ -126,12 +126,15 @@ class ChatController extends _$ChatController {
     );
   }
 
-  Future<void> send(String content) async {
+  Future<void> send(
+    String content, {
+    List<ChatAttachment> attachments = const [],
+  }) async {
     final text = content.trim();
     if (text.isEmpty || state.requireValue.hasInFlightRequest) return;
     final conversation = await _ensureConversation();
     if (conversation == null) return;
-    final request = await _prepareNewRequest(conversation, text);
+    final request = await _prepareNewRequest(conversation, text, attachments);
     await _coordinator.run(request);
   }
 
@@ -357,6 +360,7 @@ class ChatController extends _$ChatController {
   Future<ChatStreamRequest> _prepareNewRequest(
     Conversation conversation,
     String text,
+    List<ChatAttachment> attachments,
   ) async {
     final policy = await _selectedToolPolicy();
     final now = DateTime.now();
@@ -373,6 +377,7 @@ class ChatController extends _$ChatController {
           role: ChatRole.user,
           content: text,
           createdAt: now,
+          attachments: List.unmodifiable(attachments),
         ),
         ChatMessage(
           id: assistantId,
