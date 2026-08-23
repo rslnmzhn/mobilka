@@ -7,20 +7,20 @@ part of 'artifacts_controller.dart';
 // **************************************************************************
 
 String _$artifactsControllerHash() =>
-    r'b7717c990dc5efcc36039a9421e9b010adcc7022';
+    r'0fbc81c9a41c6de3d38b7815ebd0dd3fa0cbf63c';
 
 /// See also [ArtifactsController].
 @ProviderFor(ArtifactsController)
 final artifactsControllerProvider =
     NotifierProvider<ArtifactsController, List<Artifact>>.internal(
-      ArtifactsController.new,
-      name: r'artifactsControllerProvider',
-      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-          ? null
-          : _$artifactsControllerHash,
-      dependencies: null,
-      allTransitiveDependencies: null,
-    );
+  ArtifactsController.new,
+  name: r'artifactsControllerProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$artifactsControllerHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
 
 typedef _$ArtifactsController = Notifier<List<Artifact>>;
 // ignore_for_file: type=lint
