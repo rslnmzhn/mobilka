@@ -70,6 +70,22 @@ class ChatController extends _$ChatController {
     );
   }
 
+  /// Applies a model choice globally and to the active conversation.
+  ///
+  /// Requests are built from `conversation.modelId`, so switching models from
+  /// the chat picker must persist the change on the conversation itself;
+  /// otherwise the previous model keeps serving this chat.
+  Future<void> applyModel(String modelId) async {
+    await ref.read(modelsControllerProvider.notifier).select(modelId);
+    final current = state.requireValue;
+    final conversation = current.activeConversation;
+    if (conversation == null || conversation.modelId == modelId) return;
+    await _updateConversation(
+      conversation.id,
+      (item) => item.copyWith(modelId: modelId),
+    );
+  }
+
   void dismissError() =>
       state = AsyncData(state.requireValue.copyWith(clearError: true));
 
