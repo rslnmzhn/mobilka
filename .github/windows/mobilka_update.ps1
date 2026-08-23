@@ -60,9 +60,20 @@ switch ($Mode) {
     Wait-Process -Id $AppPid -ErrorAction SilentlyContinue
     # Reverify after shutdown to close the preflight-to-install replacement gap.
     $verifiedPath = Get-VerifiedMsi $MsiPath
-    & $MsiExecPath /i $verifiedPath /passive /norestart REBOOT=ReallySuppress
-    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010) {
-      exit $LASTEXITCODE
+    try {
+      # perMachine installs (including the nested removal of a previously
+      # managed product) require an elevated engine; a non-elevated msiexec
+      # fails with error 1730/1603.
+      $installer = Start-Process -FilePath $MsiExecPath `
+        -ArgumentList @('/i', "`"$verifiedPath`"", '/passive', '/norestart', 'REBOOT=ReallySuppress') `
+        -Verb RunAs -Wait -PassThru
+      $exitCode = $installer.ExitCode
+    } catch {
+      Start-Process -FilePath $AppPath
+      exit 1602
+    }
+    if ($exitCode -ne 0 -and $exitCode -ne 3010) {
+      exit $exitCode
     }
     Start-Process -FilePath $AppPath
   }
