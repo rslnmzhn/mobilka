@@ -58,7 +58,7 @@
 - [x] 42. Implement opening and sharing files via Android FileProvider and platform-native APIs.
 - [x] 43. Add image and document attachments.
 - [ ] 44. Downscale/compress images before Base64 encoding to prevent OOM.
-- [ ] 45. Add provider-capability detection for vision and tool support.
+- [x] 45. Add provider-capability detection for vision and tool support.
 
 ## Milestone 6 — Background reliability
 - [ ] 46. Add Android Foreground Service for user-visible long-running tasks.

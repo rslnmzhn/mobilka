@@ -35,8 +35,11 @@ class DioUpdateHttpClient implements UpdateHttpClient {
   static const approvedHosts = {
     'api.github.com',
     'github.com',
+    // GitHub serves release asset bytes from these CDN hosts via redirects;
+    // release-assets replaced objects.githubusercontent.com in 2025.
     'objects.githubusercontent.com',
     'github-releases.githubusercontent.com',
+    'release-assets.githubusercontent.com',
   };
 
   final Dio _dio;
@@ -90,7 +93,10 @@ class DioUpdateHttpClient implements UpdateHttpClient {
     return value == null ? null : int.tryParse(value);
   }
 
-  static void _validateUri(Uri uri) {
+  static void _validateUri(Uri uri) => validateUriForTest(uri);
+
+  /// Exposed for regression tests of the host allow-list.
+  static void validateUriForTest(Uri uri) {
     if (uri.scheme != 'https' ||
         uri.userInfo.isNotEmpty ||
         uri.hasPort ||

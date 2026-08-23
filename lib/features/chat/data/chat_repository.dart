@@ -9,6 +9,7 @@ import '../../memory/application/memory_selection_controller.dart';
 import '../../memory/application/memory_mutation_coordinator.dart';
 import '../../memory/data/context_sources.dart';
 import '../../memory/data/memory_repository.dart';
+import '../../models/domain/model_capabilities.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_stream_event.dart';
 import '../domain/chat_tool.dart';
@@ -94,13 +95,18 @@ class ChatRepository
     final settings = await _settingsRepository.load();
     final apiKey = await _settingsRepository.readApiKey();
     final injectedMessages = await _contextInjector.inject(messages);
+    // Capability gate (roadmap item 45): endpoints/models without function
+    // calling must not receive a tools field at all.
+    final capabilities = ModelCapabilityResolver.resolve(model);
     yield* _apiClient.streamCompletion(
       baseUrl: settings.baseUrl,
       apiKey: apiKey,
       model: model,
       messages: injectedMessages,
       cancelToken: cancelToken,
-      tools: tools.map((tool) => tool.toJson()).toList(growable: false),
+      tools: capabilities.tools
+          ? tools.map((tool) => tool.toJson()).toList(growable: false)
+          : const <Map<String, dynamic>>[],
     );
   }
 

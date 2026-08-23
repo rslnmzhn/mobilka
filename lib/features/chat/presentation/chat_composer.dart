@@ -23,6 +23,8 @@ class ChatComposer extends StatefulWidget {
     required this.onSend,
     required this.onCancel,
     this.pickAttachment,
+    this.visionSupported = true,
+    this.visionNote = '',
   });
 
   final TextEditingController controller;
@@ -33,6 +35,12 @@ class ChatComposer extends StatefulWidget {
 
   /// Defaults to the system picker (file_selector / Android SAF intent).
   final AttachmentPicker? pickAttachment;
+
+  /// Whether the active conversation's model accepts image inputs; disables
+  /// the image attachment entry otherwise (roadmap item 45).
+  final bool visionSupported;
+
+  final String visionNote;
 
   @override
   State<ChatComposer> createState() => _ChatComposerState();
@@ -201,7 +209,13 @@ class _ChatComposerState extends State<ChatComposer> {
                     PopupMenuItem(
                       key: const Key('attach-image'),
                       value: 'image',
-                      child: Text('chat.attachImage'.tr()),
+                      enabled: widget.visionSupported && !widget.isStreaming,
+                      child: Text(
+                        'chat.attachImage'.tr() +
+                            (widget.visionSupported
+                                ? ''
+                                : ' (${widget.visionNote})'),
+                      ),
                     ),
                     PopupMenuItem(
                       key: const Key('attach-document'),

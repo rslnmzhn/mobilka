@@ -7,6 +7,7 @@ import '../../../core/logging/app_logger.dart';
 import '../../agents/application/agents_controller.dart';
 import '../../memory/application/update_memory_file_service.dart';
 import '../../models/application/models_controller.dart';
+import '../../models/domain/model_capabilities.dart';
 import 'chat_tool_runtime_registry.dart';
 import '../data/chat_repository.dart';
 import '../data/conversation_store.dart';
@@ -360,12 +361,25 @@ class ChatController extends _$ChatController {
   Future<ChatStreamRequest> _prepareNewRequest(
     Conversation conversation,
     String text,
-    List<ChatAttachment> attachments,
+    List<ChatAttachment> rawAttachments,
   ) async {
     final policy = await _selectedToolPolicy();
     final now = DateTime.now();
     final requestId = '${now.microsecondsSinceEpoch}-user';
     final assistantId = '${now.microsecondsSinceEpoch}-assistant';
+    final capabilities = ModelCapabilityResolver.resolve(conversation.modelId);
+    final attachments = filterAttachmentsForModel(
+      rawAttachments,
+      visionSupported: capabilities.vision,
+    );
+    if (rawAttachments.isNotEmpty &&
+        attachments.length < rawAttachments.length) {
+      state = AsyncData(
+        state.requireValue.copyWith(
+          errorMessage: 'chat.visionUnsupported'.tr(),
+        ),
+      );
+    }
     final updated = conversation.copyWith(
       title: conversation.messages.isEmpty ? _titleFrom(text) : null,
       updatedAt: now,
