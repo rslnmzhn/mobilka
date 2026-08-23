@@ -215,10 +215,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     models.value?.selectedModelId != null ||
                     conversation != null,
                 onCancel: ref.read(chatControllerProvider.notifier).cancel,
-                onSend: () {
-                  final text = composer.text;
+                onSend: (text, attachments) {
                   composer.clear();
-                  ref.read(chatControllerProvider.notifier).send(text);
+                  ref
+                      .read(chatControllerProvider.notifier)
+                      .send(text, attachments: attachments);
                 },
               ),
             ],
