@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/workbench_widgets.dart';
+import '../../artifacts/presentation/artifacts_bottom_sheet.dart';
 import '../../models/application/models_controller.dart';
 import '../application/chat_controller.dart';
 import '../domain/chat_message.dart';
+import '../domain/tool_execution.dart';
 import 'chat_composer.dart';
 import 'chat_header.dart';
 import 'chat_message_widgets.dart';
@@ -38,6 +40,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (modelId == null) return;
     await ref.read(modelsControllerProvider.notifier).select(modelId);
   }
+
+  Future<void> _showArtifacts() => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => Consumer(
+      builder: (context, ref, _) => ArtifactsBottomSheet(
+        conversation: ref
+            .watch(chatControllerProvider)
+            .value
+            ?.activeConversation,
+      ),
+    ),
+  );
 
   Future<void> _createConversation(ModelsState? models) async {
     if (models == null) return;
@@ -105,6 +121,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 : () => _createConversation(models.value),
             icon: const Icon(Icons.add_comment_outlined),
           ),
+          IconButton(
+            key: const Key('open-artifacts'),
+            tooltip: 'artifacts.open'.tr(),
+            onPressed: _showArtifacts,
+            icon: const Icon(Icons.inventory_2_outlined),
+          ),
           const SizedBox(width: 4),
         ],
       ),
@@ -114,6 +136,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         error: (error, _) => Center(child: Text(error.toString())),
         data: (state) {
           final conversation = state.activeConversation;
+          final toolExecutions = projectToolExecutions(conversation);
           final messages = conversation?.messages
               .where((message) => message.role != ChatRole.tool)
               .toList();
@@ -146,6 +169,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             itemBuilder: (context, index) => MessageCard(
                               key: ValueKey(messages[index].id),
                               message: messages[index],
+                              toolExecutions: toolExecutions
+                                  .where(
+                                    (execution) =>
+                                        execution.assistantMessageId ==
+                                        messages[index].id,
+                                  )
+                                  .toList(growable: false),
                             ),
                           ),
                         ),

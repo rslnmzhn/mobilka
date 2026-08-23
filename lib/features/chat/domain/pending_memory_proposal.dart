@@ -2,6 +2,7 @@ class PendingMemoryProposal {
   PendingMemoryProposal({
     required this.toolCallId,
     required this.assistantMessageId,
+    this.callOccurrence = 0,
     required this.selectedAgentId,
     required Set<String> allowedTools,
     required this.fileName,
@@ -14,6 +15,7 @@ class PendingMemoryProposal {
 
   final String toolCallId;
   final String assistantMessageId;
+  final int callOccurrence;
   final String selectedAgentId;
   final Set<String> allowedTools;
   final String fileName;
@@ -26,6 +28,7 @@ class PendingMemoryProposal {
   Map<String, dynamic> toJson() => {
     'toolCallId': toolCallId,
     'assistantMessageId': assistantMessageId,
+    'callOccurrence': callOccurrence,
     'selectedAgentId': selectedAgentId,
     'allowedTools': allowedTools.toList(growable: false),
     'fileName': fileName,
@@ -40,6 +43,7 @@ class PendingMemoryProposal {
       PendingMemoryProposal(
         toolCallId: json['toolCallId'].toString(),
         assistantMessageId: json['assistantMessageId'].toString(),
+        callOccurrence: json['callOccurrence'] as int? ?? 0,
         selectedAgentId: json['selectedAgentId'].toString(),
         allowedTools: (json['allowedTools'] as List<dynamic>? ?? const [])
             .map((tool) => tool.toString())
