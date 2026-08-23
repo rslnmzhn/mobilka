@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/chat_message.dart';
+import '../application/image_attachment_processor.dart';
 
 /// Callback picking one file and returning raw bytes + metadata; injectable
 /// for widget tests.
@@ -39,6 +40,7 @@ class ChatComposer extends StatefulWidget {
 
 class _ChatComposerState extends State<ChatComposer> {
   final attachments = <ChatAttachment>[];
+  final _imageProcessor = const ImageAttachmentProcessor();
 
   bool get _usesMobileKeyboardAction =>
       defaultTargetPlatform == TargetPlatform.android ||
@@ -84,14 +86,28 @@ class _ChatComposerState extends State<ChatComposer> {
       acceptedTypeGroups: [image ? imageGroup : textGroup],
     );
     if (file == null) return null;
-    final bytes = await file.readAsBytes();
+    final rawBytes = await file.readAsBytes();
+    var name = file.name;
+    var mimeType =
+        file.mimeType ??
+        _mimeTypeFromName(file.name) ??
+        'application/octet-stream';
+    var bytes = rawBytes;
+    if (mimeType.startsWith('image/')) {
+      final processed = _imageProcessor.process(
+        name: name,
+        mimeType: mimeType,
+        bytes: rawBytes,
+      );
+      bytes = processed.bytes;
+      name = processed.name;
+      mimeType = processed.mimeType;
+    }
+    // Guard applies to the payload actually sent, post-compression.
     _validateSize(bytes.length);
     return ChatAttachment(
-      name: file.name,
-      mimeType:
-          file.mimeType ??
-          _mimeTypeFromName(file.name) ??
-          'application/octet-stream',
+      name: name,
+      mimeType: mimeType,
       dataBase64: base64Encode(bytes),
     );
   }
