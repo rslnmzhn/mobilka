@@ -62,6 +62,7 @@
 
 ## Milestone 6 — Background reliability
 - [ ] 46. Add Android Foreground Service for user-visible long-running tasks.
+- [ ] Validate foreground-service streaming on a physical Android 13+ device (notification permission grant and background survival).
 - [ ] 47. Save and restore in-flight task state across lifecycle transitions.
 - [ ] 48. Add retry policies, endpoint timeouts, offline state, and diagnostic logs.
 - [ ] 49. Design iOS-compliant background behavior without promising unrestricted execution.
