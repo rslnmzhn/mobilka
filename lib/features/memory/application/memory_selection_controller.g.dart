@@ -13,14 +13,14 @@ String _$memorySelectionControllerHash() =>
 @ProviderFor(MemorySelectionController)
 final memorySelectionControllerProvider =
     NotifierProvider<MemorySelectionController, Set<String>>.internal(
-      MemorySelectionController.new,
-      name: r'memorySelectionControllerProvider',
-      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-          ? null
-          : _$memorySelectionControllerHash,
-      dependencies: null,
-      allTransitiveDependencies: null,
-    );
+  MemorySelectionController.new,
+  name: r'memorySelectionControllerProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$memorySelectionControllerHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
 
 typedef _$MemorySelectionController = Notifier<Set<String>>;
 // ignore_for_file: type=lint

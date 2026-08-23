@@ -61,6 +61,7 @@ dependencies:
   archive: ^4.2.0
   open_filex: ^4.7.0
   image: ^4.9.2
+  flutter_foreground_task: ^10.0.0
 
 dev_dependencies:
   flutter_test:

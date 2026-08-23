@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 
 export 'chat_stream_request.dart';
 
+import 'background_task_bridge.dart';
 import 'chat_stream_request.dart';
 import 'chat_tool_runtime.dart';
 import 'fallback_tool_call_parser.dart';
@@ -21,17 +22,20 @@ class ChatStreamingCoordinator {
     required Future<void> Function(Conversation conversation) persistAndPublish,
     required void Function(String message) publishError,
     ChatToolRuntime? toolRuntime,
+    BackgroundTaskBridge backgroundTasks = const NoopBackgroundTaskBridge(),
   }) : _streamer = streamer,
        _conversationById = conversationById,
        _persistAndPublish = persistAndPublish,
        _publishError = publishError,
-       _toolRuntime = toolRuntime;
+       _toolRuntime = toolRuntime,
+       _backgroundTasks = backgroundTasks;
 
   final ChatCompletionStreamer _streamer;
   final Conversation? Function(String id) _conversationById;
   final Future<void> Function(Conversation conversation) _persistAndPublish;
   final void Function(String message) _publishError;
   final ChatToolRuntime? _toolRuntime;
+  final BackgroundTaskBridge _backgroundTasks;
 
   ChatStreamRequest? _activeRequest;
   CancelToken? _cancelToken;
@@ -140,6 +144,9 @@ class ChatStreamingCoordinator {
     _activeRequest = request;
     _cancelToken = cancelToken;
     try {
+      // Foreground service (roadmap item 46): keep streaming alive when the
+      // app is backgrounded on Android; no-op elsewhere.
+      await _backgroundTasks.start(title: request.conversationTitle);
       var history = request.history;
       var assistantId = request.assistantMessageId;
       var toolRounds = 0;
@@ -281,6 +288,11 @@ class ChatStreamingCoordinator {
         _activeRequest = null;
         _cancelToken = null;
         _running = null;
+      }
+      try {
+        await _backgroundTasks.stop();
+      } on Object {
+        // Stopping the foreground service must never mask the request result.
       }
     }
   }
