@@ -13,14 +13,14 @@ String _$artifactsControllerHash() =>
 @ProviderFor(ArtifactsController)
 final artifactsControllerProvider =
     NotifierProvider<ArtifactsController, List<Artifact>>.internal(
-      ArtifactsController.new,
-      name: r'artifactsControllerProvider',
-      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-          ? null
-          : _$artifactsControllerHash,
-      dependencies: null,
-      allTransitiveDependencies: null,
-    );
+  ArtifactsController.new,
+  name: r'artifactsControllerProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$artifactsControllerHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
 
 typedef _$ArtifactsController = Notifier<List<Artifact>>;
 // ignore_for_file: type=lint

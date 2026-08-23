@@ -12,14 +12,14 @@ String _$modelsControllerHash() => r'dfc2fe8ecb2452e36734590efc566fa673cae5f2';
 @ProviderFor(ModelsController)
 final modelsControllerProvider =
     AsyncNotifierProvider<ModelsController, ModelsState>.internal(
-      ModelsController.new,
-      name: r'modelsControllerProvider',
-      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-          ? null
-          : _$modelsControllerHash,
-      dependencies: null,
-      allTransitiveDependencies: null,
-    );
+  ModelsController.new,
+  name: r'modelsControllerProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$modelsControllerHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
 
 typedef _$ModelsController = AsyncNotifier<ModelsState>;
 // ignore_for_file: type=lint

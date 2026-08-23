@@ -1,26 +1,26 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'memory_controller.dart';
+part of 'background_task_bridge.dart';
 
 // **************************************************************************
 // RiverpodGenerator
 // **************************************************************************
 
-String _$memoryControllerHash() => r'8d8c2dcf74573fab01102eaad4b01727cc7c80a8';
+String _$backgroundTaskBridgeHash() =>
+    r'5fc71d338a9746ba5b9c344ba95aa165715f124d';
 
-/// See also [MemoryController].
-@ProviderFor(MemoryController)
-final memoryControllerProvider = AutoDisposeAsyncNotifierProvider<
-    MemoryController, MemoryLocation?>.internal(
-  MemoryController.new,
-  name: r'memoryControllerProvider',
+/// See also [backgroundTaskBridge].
+@ProviderFor(backgroundTaskBridge)
+final backgroundTaskBridgeProvider = Provider<BackgroundTaskBridge>.internal(
+  backgroundTaskBridge,
+  name: r'backgroundTaskBridgeProvider',
   debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
       ? null
-      : _$memoryControllerHash,
+      : _$backgroundTaskBridgeHash,
   dependencies: null,
   allTransitiveDependencies: null,
 );
 
-typedef _$MemoryController = AutoDisposeAsyncNotifier<MemoryLocation?>;
+typedef BackgroundTaskBridgeRef = ProviderRef<BackgroundTaskBridge>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member

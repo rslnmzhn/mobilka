@@ -76,14 +76,14 @@ String _$selectedAgentPromptAdapterHash() =>
 @ProviderFor(selectedAgentPromptAdapter)
 final selectedAgentPromptAdapterProvider =
     Provider<SelectedAgentPromptAdapter>.internal(
-      selectedAgentPromptAdapter,
-      name: r'selectedAgentPromptAdapterProvider',
-      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-          ? null
-          : _$selectedAgentPromptAdapterHash,
-      dependencies: null,
-      allTransitiveDependencies: null,
-    );
+  selectedAgentPromptAdapter,
+  name: r'selectedAgentPromptAdapterProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$selectedAgentPromptAdapterHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
 
 typedef SelectedAgentPromptAdapterRef = ProviderRef<SelectedAgentPromptAdapter>;
 String _$agentsControllerHash() => r'8c646c50f3e06fec95de3651e7c6304dee4d9b34';
@@ -92,14 +92,14 @@ String _$agentsControllerHash() => r'8c646c50f3e06fec95de3651e7c6304dee4d9b34';
 @ProviderFor(AgentsController)
 final agentsControllerProvider =
     AsyncNotifierProvider<AgentsController, AgentCatalog>.internal(
-      AgentsController.new,
-      name: r'agentsControllerProvider',
-      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-          ? null
-          : _$agentsControllerHash,
-      dependencies: null,
-      allTransitiveDependencies: null,
-    );
+  AgentsController.new,
+  name: r'agentsControllerProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$agentsControllerHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
 
 typedef _$AgentsController = AsyncNotifier<AgentCatalog>;
 // ignore_for_file: type=lint

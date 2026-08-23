@@ -10,6 +10,7 @@ class ChatStreamRequest {
     required this.history,
     required this.selectedAgentId,
     required Set<String> allowedTools,
+    this.conversationTitle = 'mobilka',
   }) : allowedTools = Set.unmodifiable(allowedTools);
 
   final String conversationId;
@@ -19,6 +20,9 @@ class ChatStreamRequest {
   final List<ChatMessage> history;
   final String? selectedAgentId;
   final Set<String> allowedTools;
+
+  /// Shown on the Android foreground-service notification.
+  final String conversationTitle;
 }
 
 ({Conversation conversation, ChatStreamRequest request})?
@@ -74,6 +78,7 @@ ChatStreamRequest buildChatStreamRequest(
   requestMessageId: requestId,
   assistantMessageId: assistantId,
   modelId: conversation.modelId,
+  conversationTitle: conversation.title,
   selectedAgentId: selectedAgentId,
   allowedTools: allowedTools,
   history: conversation.messages

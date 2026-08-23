@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:mobilka/features/chat/application/background_task_bridge.dart';
 import 'package:mobilka/features/chat/application/chat_streaming_coordinator.dart';
 import 'package:mobilka/features/chat/application/chat_tool_runtime.dart'
     as runtime;
@@ -16,6 +17,7 @@ class CoordinatorFixture {
     List<ChatStreamEvent>? events,
     ChatCompletionStreamer? streamer,
     runtime.ChatToolRuntime? toolRuntime,
+    BackgroundTaskBridge? backgroundTasks,
   }) {
     conversations['conversation-1'] = conversationWithId(
       'conversation-1',
@@ -30,6 +32,7 @@ class CoordinatorFixture {
       },
       publishError: errors.add,
       toolRuntime: toolRuntime,
+      backgroundTasks: backgroundTasks ?? const NoopBackgroundTaskBridge(),
     );
   }
 

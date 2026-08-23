@@ -8,6 +8,7 @@ import '../../agents/application/agents_controller.dart';
 import '../../memory/application/update_memory_file_service.dart';
 import '../../models/application/models_controller.dart';
 import '../../models/domain/model_capabilities.dart';
+import 'background_task_bridge.dart';
 import 'chat_tool_runtime_registry.dart';
 import '../data/chat_repository.dart';
 import '../data/conversation_store.dart';
@@ -48,6 +49,7 @@ class ChatController extends _$ChatController {
           state = AsyncData(state.requireValue.copyWith(errorMessage: message));
         },
         toolRuntime: ref.read(chatToolRuntimeRegistryProvider),
+        backgroundTasks: ref.read(backgroundTaskBridgeProvider),
       );
 
   Future<void> createConversation(String modelId) async {
