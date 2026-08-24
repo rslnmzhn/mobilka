@@ -222,4 +222,38 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('header stays overflow-free with large text at 320 pixels', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.platformDispatcher.textScaleFactorTestValue = 1.8;
+    addTearDown(
+      () => tester.platformDispatcher.clearTextScaleFactorTestValue(),
+    );
+    const longName = 'very_long_tool_name_that_must_fit_on_a_phone';
+    await tester.pumpWidget(
+      app(
+        ToolCallCard(
+          data: ToolCardData.fromExecution(
+            ToolExecution(
+              assistantMessageId: 'assistant',
+              callIndex: 0,
+              callOccurrence: 0,
+              call: const ChatToolCall(
+                id: 'big-text',
+                name: longName,
+                arguments: '{}',
+              ),
+              status: ToolExecutionStatus.completed,
+              awaitingConfirmation: true,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+  });
 }

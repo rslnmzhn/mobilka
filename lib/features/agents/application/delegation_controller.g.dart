@@ -13,14 +13,14 @@ String _$delegationControllerHash() =>
 @ProviderFor(DelegationController)
 final delegationControllerProvider =
     AutoDisposeNotifierProvider<DelegationController, DelegationState>.internal(
-  DelegationController.new,
-  name: r'delegationControllerProvider',
-  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-      ? null
-      : _$delegationControllerHash,
-  dependencies: null,
-  allTransitiveDependencies: null,
-);
+      DelegationController.new,
+      name: r'delegationControllerProvider',
+      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+          ? null
+          : _$delegationControllerHash,
+      dependencies: null,
+      allTransitiveDependencies: null,
+    );
 
 typedef _$DelegationController = AutoDisposeNotifier<DelegationState>;
 // ignore_for_file: type=lint

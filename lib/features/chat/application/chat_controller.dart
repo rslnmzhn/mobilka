@@ -92,6 +92,17 @@ class ChatController extends _$ChatController {
   void dismissError() =>
       state = AsyncData(state.requireValue.copyWith(clearError: true));
 
+  /// Persists the newest snapshot of the active conversation.
+  ///
+  /// Lifecycle safety net (roadmap item 47): streaming already persists every
+  /// delta, but the final batch can be lost if the process dies between the
+  /// last event and the next save — this flush makes pause/hidden durable.
+  Future<void> flushActiveConversation() async {
+    final conversation = state.valueOrNull?.activeConversation;
+    if (conversation == null) return;
+    await ref.read(conversationStoreProvider).save(conversation);
+  }
+
   void selectConversation(String id) =>
       state = AsyncData(state.requireValue.copyWith(activeConversationId: id));
 

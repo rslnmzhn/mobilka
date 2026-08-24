@@ -7,6 +7,7 @@ import '../../../core/logging/app_logger.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/theme/workbench_widgets.dart';
+import 'user_data_section.dart';
 import '../../updater/presentation/update_settings_section.dart';
 import '../application/settings_controller.dart';
 
@@ -159,6 +160,8 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 20),
             const UpdateSettingsSection(),
+            const SizedBox(height: 20),
+            const UserDataSection(),
             const SizedBox(height: 20),
             WorkbenchSectionLabel(
               label: 'settings.connection'.tr(),

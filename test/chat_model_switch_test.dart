@@ -67,6 +67,36 @@ void main() {
   });
 
   test(
+    'flushActiveConversation restores the newest in-memory snapshot',
+    () async {
+      final conversation = Conversation(
+        id: 'conversation',
+        title: 'Chat',
+        modelId: 'model-a',
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+        messages: const [],
+      );
+      final models = _FakeModelsController(initialSelectedModelId: 'model-a');
+      final providerContainer = await bootstrap(
+        conversations: [conversation],
+        models: models,
+      );
+      final notifier = providerContainer.read(chatControllerProvider.notifier);
+
+      await notifier.rename('conversation', 'Renamed');
+      // Simulate losing the last disk write before pause.
+      await Hive.box<dynamic>('conversations').delete('conversation');
+      expect(ConversationStore().loadAll(), isEmpty);
+
+      await notifier.flushActiveConversation();
+
+      final stored = ConversationStore().loadAll();
+      expect(stored.single.title, 'Renamed');
+    },
+  );
+
+  test(
     'applyModel without a conversation only updates the global choice',
     () async {
       final models = _FakeModelsController(initialSelectedModelId: 'model-a');

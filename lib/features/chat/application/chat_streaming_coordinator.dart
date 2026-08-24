@@ -23,12 +23,14 @@ class ChatStreamingCoordinator {
     required void Function(String message) publishError,
     ChatToolRuntime? toolRuntime,
     BackgroundTaskBridge backgroundTasks = const NoopBackgroundTaskBridge(),
+    void Function(String event)? onTransientRetry,
   }) : _streamer = streamer,
        _conversationById = conversationById,
        _persistAndPublish = persistAndPublish,
        _publishError = publishError,
        _toolRuntime = toolRuntime,
-       _backgroundTasks = backgroundTasks;
+       _backgroundTasks = backgroundTasks,
+       _onTransientRetry = onTransientRetry;
 
   final ChatCompletionStreamer _streamer;
   final Conversation? Function(String id) _conversationById;
@@ -36,6 +38,12 @@ class ChatStreamingCoordinator {
   final void Function(String message) _publishError;
   final ChatToolRuntime? _toolRuntime;
   final BackgroundTaskBridge _backgroundTasks;
+  final void Function(String event)? _onTransientRetry;
+
+  /// One automatic retry per request for connection-level failures that occur
+  /// before any token arrives (roadmap item 48); anything after streaming
+  /// started stays interrupted to avoid duplicated partial output.
+  static const maxTransientRetries = 1;
 
   ChatStreamRequest? _activeRequest;
   CancelToken? _cancelToken;
@@ -150,108 +158,71 @@ class ChatStreamingCoordinator {
       var history = request.history;
       var assistantId = request.assistantMessageId;
       var toolRounds = 0;
+      var transientRetriesLeft = maxTransientRetries;
       final tools =
           await _toolRuntime?.availableTools(request.allowedTools) ??
           const <ChatToolDefinition>[];
       while (true) {
         var terminalSeen = false;
         String? finishReason;
+        var receivedAnyToken = false;
         final buffers = <int, _ToolCallBuffer>{};
-        await for (final event in _streamer.streamCompletion(
-          model: request.modelId,
-          messages: history,
-          cancelToken: cancelToken,
-          tools: tools,
-        )) {
-          final latest = _conversationById(request.conversationId);
-          if (latest == null) {
-            cancelToken.cancel('Conversation deleted');
-            return;
-          }
-          for (final delta in event.toolCallDeltas) {
-            buffers.putIfAbsent(delta.index, _ToolCallBuffer.new).append(delta);
-          }
-          terminalSeen = terminalSeen || event.isTerminal;
-          finishReason = event.finishReason ?? finishReason;
-          final updated = latest.copyWith(
-            updatedAt: DateTime.now(),
-            usage: event.usage == null
-                ? null
-                : ConversationUsage.fromChatUsage(event.usage!),
-            messages: latest.messages
-                .map(
-                  (message) => message.id == assistantId
-                      ? message.copyWith(
-                          content: '${message.content}${event.delta}',
-                          status: ChatMessageStatus.streaming,
-                        )
-                      : message,
-                )
-                .toList(),
-          );
-          await _persistAndPublish(updated);
-        }
-        if (terminalSeen && finishReason == 'tool_calls') {
-          toolRounds++;
-          if (toolRounds > 8) {
-            throw const FormatException('Tool call round limit exceeded');
-          }
-          final ordered = buffers.entries.toList()
-            ..sort((a, b) => a.key.compareTo(b.key));
-          final shouldContinue = await _executeTools(
-            request,
-            assistantId,
-            ordered.map((entry) => entry.value.build()).toList(),
-          );
-          if (!shouldContinue) return;
-          final conversation = _conversationById(request.conversationId)!;
-          history = conversation.messages
-              .where((message) => message.status == ChatMessageStatus.complete)
-              .toList(growable: false);
-          assistantId = '${request.assistantMessageId}-followup-$toolRounds';
-          await _appendPendingAssistant(request, assistantId);
-          continue;
-        }
-        if (terminalSeen && buffers.isEmpty) {
-          final conversation = _conversationById(request.conversationId)!;
-          final assistant = conversation.messages.firstWhere(
-            (message) => message.id == assistantId,
-          );
-          final parsed = parseFallbackToolCalls(
-            assistantText: assistant.content,
-            requestMessageId: request.requestMessageId,
-            previouslyPersistedCallIds: conversation.messages
-                .expand((message) => message.toolCalls)
-                .map((call) => call.id)
-                .toSet(),
-          );
-          if (parsed.visibleText != assistant.content) {
-            await _persistAndPublish(
-              conversation.copyWith(
-                updatedAt: DateTime.now(),
-                messages: conversation.messages
-                    .map(
-                      (message) => message.id == assistantId
-                          ? message.copyWith(content: parsed.visibleText)
-                          : message,
-                    )
-                    .toList(),
-              ),
+        try {
+          await for (final event in _streamer.streamCompletion(
+            model: request.modelId,
+            messages: history,
+            cancelToken: cancelToken,
+            tools: tools,
+          )) {
+            receivedAnyToken =
+                receivedAnyToken ||
+                event.delta.isNotEmpty ||
+                event.toolCallDeltas.isNotEmpty;
+            final latest = _conversationById(request.conversationId);
+            if (latest == null) {
+              cancelToken.cancel('Conversation deleted');
+              return;
+            }
+            for (final delta in event.toolCallDeltas) {
+              buffers
+                  .putIfAbsent(delta.index, _ToolCallBuffer.new)
+                  .append(delta);
+            }
+            terminalSeen = terminalSeen || event.isTerminal;
+            finishReason = event.finishReason ?? finishReason;
+            final updated = latest.copyWith(
+              updatedAt: DateTime.now(),
+              usage: event.usage == null
+                  ? null
+                  : ConversationUsage.fromChatUsage(event.usage!),
+              messages: latest.messages
+                  .map(
+                    (message) => message.id == assistantId
+                        ? message.copyWith(
+                            content: '${message.content}${event.delta}',
+                            status: ChatMessageStatus.streaming,
+                          )
+                        : message,
+                  )
+                  .toList(),
             );
+            await _persistAndPublish(updated);
           }
-          if (parsed.calls.isNotEmpty) {
+          if (terminalSeen && finishReason == 'tool_calls') {
             toolRounds++;
             if (toolRounds > 8) {
               throw const FormatException('Tool call round limit exceeded');
             }
+            final ordered = buffers.entries.toList()
+              ..sort((a, b) => a.key.compareTo(b.key));
             final shouldContinue = await _executeTools(
               request,
               assistantId,
-              parsed.calls,
+              ordered.map((entry) => entry.value.build()).toList(),
             );
             if (!shouldContinue) return;
-            final updated = _conversationById(request.conversationId)!;
-            history = updated.messages
+            final conversation = _conversationById(request.conversationId)!;
+            history = conversation.messages
                 .where(
                   (message) => message.status == ChatMessageStatus.complete,
                 )
@@ -260,6 +231,70 @@ class ChatStreamingCoordinator {
             await _appendPendingAssistant(request, assistantId);
             continue;
           }
+          if (terminalSeen && buffers.isEmpty) {
+            final conversation = _conversationById(request.conversationId)!;
+            final assistant = conversation.messages.firstWhere(
+              (message) => message.id == assistantId,
+            );
+            final parsed = parseFallbackToolCalls(
+              assistantText: assistant.content,
+              requestMessageId: request.requestMessageId,
+              previouslyPersistedCallIds: conversation.messages
+                  .expand((message) => message.toolCalls)
+                  .map((call) => call.id)
+                  .toSet(),
+            );
+            if (parsed.visibleText != assistant.content) {
+              await _persistAndPublish(
+                conversation.copyWith(
+                  updatedAt: DateTime.now(),
+                  messages: conversation.messages
+                      .map(
+                        (message) => message.id == assistantId
+                            ? message.copyWith(content: parsed.visibleText)
+                            : message,
+                      )
+                      .toList(),
+                ),
+              );
+            }
+            if (parsed.calls.isNotEmpty) {
+              toolRounds++;
+              if (toolRounds > 8) {
+                throw const FormatException('Tool call round limit exceeded');
+              }
+              final shouldContinue = await _executeTools(
+                request,
+                assistantId,
+                parsed.calls,
+              );
+              if (!shouldContinue) return;
+              final updated = _conversationById(request.conversationId)!;
+              history = updated.messages
+                  .where(
+                    (message) => message.status == ChatMessageStatus.complete,
+                  )
+                  .toList(growable: false);
+              assistantId =
+                  '${request.assistantMessageId}-followup-$toolRounds';
+              await _appendPendingAssistant(request, assistantId);
+              continue;
+            }
+          }
+        } on DioException catch (error) {
+          final retryable =
+              _isTransient(error) &&
+              !receivedAnyToken &&
+              !terminalSeen &&
+              buffers.isEmpty &&
+              transientRetriesLeft > 0;
+          if (retryable) {
+            transientRetriesLeft--;
+            _onTransientRetry?.call('chat.transient_retry');
+            await Future<void>.delayed(const Duration(seconds: 1));
+            continue;
+          }
+          rethrow;
         }
         if (cancelToken.isCancelled) {
           await _finish(request, ChatMessageStatus.interrupted);
@@ -461,6 +496,14 @@ class ChatStreamingCoordinator {
     );
     await _persistAndPublish(updated);
   }
+
+  static bool _isTransient(DioException error) => switch (error.type) {
+    DioExceptionType.connectionTimeout ||
+    DioExceptionType.sendTimeout ||
+    DioExceptionType.receiveTimeout ||
+    DioExceptionType.connectionError => true,
+    _ => false,
+  };
 
   static String _friendlyError(DioException error) => switch (error.type) {
     DioExceptionType.connectionTimeout ||

@@ -11,16 +11,19 @@ String _$memoryBackupControllerHash() =>
 
 /// See also [MemoryBackupController].
 @ProviderFor(MemoryBackupController)
-final memoryBackupControllerProvider = AutoDisposeNotifierProvider<
-    MemoryBackupController, MemoryBackupState>.internal(
-  MemoryBackupController.new,
-  name: r'memoryBackupControllerProvider',
-  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-      ? null
-      : _$memoryBackupControllerHash,
-  dependencies: null,
-  allTransitiveDependencies: null,
-);
+final memoryBackupControllerProvider =
+    AutoDisposeNotifierProvider<
+      MemoryBackupController,
+      MemoryBackupState
+    >.internal(
+      MemoryBackupController.new,
+      name: r'memoryBackupControllerProvider',
+      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+          ? null
+          : _$memoryBackupControllerHash,
+      dependencies: null,
+      allTransitiveDependencies: null,
+    );
 
 typedef _$MemoryBackupController = AutoDisposeNotifier<MemoryBackupState>;
 // ignore_for_file: type=lint

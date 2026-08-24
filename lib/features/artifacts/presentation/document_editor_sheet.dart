@@ -119,7 +119,9 @@ class _DocumentEditorSheetState extends State<DocumentEditorSheet> {
             ),
           ],
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
             children: [
               if (widget.artifact != null) ...[
                 TextButton.icon(
@@ -130,7 +132,6 @@ class _DocumentEditorSheetState extends State<DocumentEditorSheet> {
                   icon: const Icon(Icons.open_in_new, size: 18),
                   label: Text('artifacts.open'.tr()),
                 ),
-                const Spacer(),
                 TextButton.icon(
                   key: const Key('artifact-export-docx'),
                   onPressed: _busy || widget.onExportDocx == null
@@ -139,8 +140,7 @@ class _DocumentEditorSheetState extends State<DocumentEditorSheet> {
                   icon: const Icon(Icons.description_outlined, size: 18),
                   label: Text('artifacts.exportDocx'.tr()),
                 ),
-              ] else
-                const Spacer(),
+              ],
             ],
           ),
           Row(
