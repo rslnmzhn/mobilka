@@ -65,7 +65,7 @@
 - [ ] Validate foreground-service streaming on a physical Android 13+ device (notification permission grant and background survival).
 - [x] 47. Save and restore in-flight task state across lifecycle transitions.
 - [x] 48. Add retry policies, endpoint timeouts, offline state, and diagnostic logs.
-- [ ] 49. Design iOS-compliant background behavior without promising unrestricted execution.
+- [x] 49. Design iOS-compliant background behavior without promising unrestricted execution.
 
 ## Milestone 7 — Future platforms and release readiness
 - [ ] 50. Generate and configure the iOS project with security-scoped file access.
@@ -80,4 +80,4 @@
 - [ ] 56. Run full security, dependency, architecture, performance, and release validation.
 - [x] 57. Add GitHub Actions quality, Android, Windows, Linux, AppImage, and stable release automation.
 - [ ] 58. Verify signed-manifest update discovery, verified installer staging, and platform-bridged installation for Android and MSI-installed Windows after dependency access is restored.
-- [ ] 59. Publish detached Ed25519 manifest signatures and wire the updater platform channel implementations and settings section.
+- [x] 59. Publish detached Ed25519 manifest signatures and wire the updater platform channel implementations and settings section.
