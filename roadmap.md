@@ -76,7 +76,7 @@
 - [ ] 54. Complete accessibility, keyboard navigation, screen-reader, and large-text audits.
 - [x] Support Enter-to-send, Shift+Enter newlines, and mobile send actions without keyboard-triggered stream cancellation.
 - [x] Add an always-visible New Chat header action and searchable favorite-first quick model picker.
-- [ ] 55. Add privacy disclosures, export/delete controls, and store metadata.
+- [x] 55. Add privacy disclosures, export/delete controls, and store metadata.
 - [ ] 56. Run full security, dependency, architecture, performance, and release validation.
 - [x] 57. Add GitHub Actions quality, Android, Windows, Linux, AppImage, and stable release automation.
 - [ ] 58. Verify signed-manifest update discovery, verified installer staging, and platform-bridged installation for Android and MSI-installed Windows after dependency access is restored.
