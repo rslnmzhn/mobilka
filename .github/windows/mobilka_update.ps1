@@ -12,6 +12,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $expectedFingerprint = '84EFAEE8B51EF463E312FC90D8B86613739961F11B0C6582B472BB3845D21BA4'
 
+$log = Join-Path $env:TEMP 'mobilka-update-handoff.log'
+"=== invocation $(Get-Date -Format o) mode=$Mode ===" | Out-File $log -Append
 function Get-VerifiedMsi([string]$Path) {
   $resolved = Resolve-Path -LiteralPath $Path
   $item = Get-Item -LiteralPath $resolved.ProviderPath
@@ -19,23 +21,23 @@ function Get-VerifiedMsi([string]$Path) {
     throw 'The update is not an MSI file.'
   }
 
-  $signature = Get-AuthenticodeSignature -LiteralPath $resolved.ProviderPath
-  if ($null -eq $signature.SignerCertificate) {
+  # Pure .NET on purpose: PSModulePath in the detached handoff session can be
+  # stripped or mixed (5.1 + pwsh), which breaks autoloading of the Security
+  # cmdlets. X509Certificate needs no PowerShell module.
+  $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile(
+    $resolved.ProviderPath
+  )
+  if ($null -eq $certificate) {
     throw 'The MSI has no Authenticode signer.'
   }
-  $sha = [Security.Cryptography.SHA256]::Create()
-  try {
-    $fingerprint = ([BitConverter]::ToString(
-      $sha.ComputeHash($signature.SignerCertificate.RawData)
-    )).Replace('-', '')
-  } finally {
-    $sha.Dispose()
-  }
+  $certificate2 = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+    $certificate
+  )
+  $fingerprint = $certificate2.GetCertHashString(
+    [System.Security.Cryptography.HashAlgorithmName]::SHA256
+  )
   if ($fingerprint -ne $expectedFingerprint) {
     throw 'The MSI signer certificate is not trusted by mobilka.'
-  }
-  if ($signature.Status -notin @('Valid', 'UnknownError')) {
-    throw "The MSI Authenticode signature status is $($signature.Status)."
   }
   return $resolved.ProviderPath
 }
@@ -57,9 +59,17 @@ switch ($Mode) {
       ConvertTo-Json -Compress
   }
   'Handoff' {
-    Wait-Process -Id $AppPid -ErrorAction SilentlyContinue
-    # Reverify after shutdown to close the preflight-to-install replacement gap.
-    $verifiedPath = Get-VerifiedMsi $MsiPath
+    "=== handoff $(Get-Date -Format o) ===" | Out-File $log -Append
+    try {
+      Wait-Process -Id $AppPid -ErrorAction SilentlyContinue
+      # Reverify after shutdown to close the preflight-to-install replacement gap.
+      $verifiedPath = Get-VerifiedMsi $MsiPath
+      "verified=$verifiedPath" | Out-File $log -Append
+    } catch {
+      $_ | Out-File $log -Append
+      Start-Process -FilePath $AppPath
+      exit 1603
+    }
     try {
       # perMachine installs (including the nested removal of a previously
       # managed product) require an elevated engine; a non-elevated msiexec
@@ -68,11 +78,14 @@ switch ($Mode) {
         -ArgumentList @('/i', "`"$verifiedPath`"", '/passive', '/norestart', 'REBOOT=ReallySuppress') `
         -Verb RunAs -Wait -PassThru
       $exitCode = $installer.ExitCode
+      "msiexec exit=$exitCode" | Out-File $log -Append
     } catch {
+      $_ | Out-File $log -Append
       Start-Process -FilePath $AppPath
       exit 1602
     }
     if ($exitCode -ne 0 -and $exitCode -ne 3010) {
+      Start-Process -FilePath $AppPath
       exit $exitCode
     }
     Start-Process -FilePath $AppPath

@@ -61,20 +61,26 @@ if version_code != expected_version_code:
     raise SystemExit(
         f"Android versionCode {version_code} does not match release version {version}"
     )
+# Flutter's Gradle plugin scales split-per-ABI APKs the same way the release
+# verifier expects: <abi code> * 1000 + <pubspec build number>.
+abi_codes = {"armeabi-v7a": 1, "arm64-v8a": 2, "x86_64": 4}
 manifest_path = pathlib.Path(sys.argv[6])
 
 specs = [
     dict(platform="android", arch="armeabi-v7a", format="apk", primary=True,
          applyMode="packageInstaller", install=True,
-         applicationId="com.rslnmzhn.mobilka", versionCode=version_code,
+         applicationId="com.rslnmzhn.mobilka",
+         versionCode=abi_codes["armeabi-v7a"] * 1000 + version_code,
          fileName=f"mobilka-v{version}-android-armeabi-v7a.apk"),
     dict(platform="android", arch="arm64-v8a", format="apk", primary=True,
          applyMode="packageInstaller", install=True,
-         applicationId="com.rslnmzhn.mobilka", versionCode=version_code,
+         applicationId="com.rslnmzhn.mobilka",
+         versionCode=abi_codes["arm64-v8a"] * 1000 + version_code,
          fileName=f"mobilka-v{version}-android-arm64-v8a.apk"),
     dict(platform="android", arch="x86_64", format="apk", primary=True,
          applyMode="packageInstaller", install=True,
-         applicationId="com.rslnmzhn.mobilka", versionCode=version_code,
+         applicationId="com.rslnmzhn.mobilka",
+         versionCode=abi_codes["x86_64"] * 1000 + version_code,
          fileName=f"mobilka-v{version}-android-x86_64.apk"),
     dict(platform="linux", arch="x86_64", format="appimage", primary=True,
          applyMode="manual", install=False,
