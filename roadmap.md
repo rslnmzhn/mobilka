@@ -78,7 +78,7 @@
 - [x] Support Enter-to-send, Shift+Enter newlines, and mobile send actions without keyboard-triggered stream cancellation.
 - [x] Add an always-visible New Chat header action and searchable favorite-first quick model picker.
 - [x] 55. Add privacy disclosures, export/delete controls, and store metadata.
-- [ ] 56. Run full security, dependency, architecture, performance, and release validation.
+- [x] 56. Run full security, dependency, architecture, performance, and release validation.
 - [x] 57. Add GitHub Actions quality, Android, Windows, Linux, AppImage, and stable release automation.
 - [ ] 58. Verify signed-manifest update discovery, verified installer staging, and platform-bridged installation for Android and MSI-installed Windows after dependency access is restored.
 - [x] 59. Publish detached Ed25519 manifest signatures and wire the updater platform channel implementations and settings section.
