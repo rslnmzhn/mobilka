@@ -19,8 +19,8 @@
 - [x] 16. Implement visible directory selection on Windows and Linux.
 - [x] 17. Create missing `user_profile.md`, `project_context.md`, `system_instructions.md`, and `memory_log.md` without overwriting user data.
 - [x] 18. Add the disabled chat composer shell without message sending.
-- [ ] 19. Validate external-folder behavior on a physical Android 10+ device.
-- [ ] 20. Validate Linux build on a Linux host.
+- [x] 19. Validate external-folder behavior on a physical Android 10+ device.
+- [x] 20. Validate Linux build on a Linux host.
 
 ## Milestone 2 — Streaming chat
 - [x] 21. Implement OpenAI-compatible `/chat/completions` requests.
@@ -57,28 +57,30 @@
 - [x] 41. Implement template-based `.docx` generation with Markdown fallback.
 - [x] 42. Implement opening and sharing files via Android FileProvider and platform-native APIs.
 - [x] 43. Add image and document attachments.
-- [ ] 44. Downscale/compress images before Base64 encoding to prevent OOM.
+- [x] 44. Downscale/compress images before Base64 encoding to prevent OOM.
 - [x] 45. Add provider-capability detection for vision and tool support.
 
 ## Milestone 6 — Background reliability
-- [ ] 46. Add Android Foreground Service for user-visible long-running tasks.
-- [ ] Validate foreground-service streaming on a physical Android 13+ device (notification permission grant and background survival).
+- [x] 46. Add Android Foreground Service for user-visible long-running tasks.
+- [x] Validated foreground-service streaming on a physical Android 13+ device (notification permission grant and background survival).
 - [x] 47. Save and restore in-flight task state across lifecycle transitions.
 - [x] 48. Add retry policies, endpoint timeouts, offline state, and diagnostic logs.
 - [x] 49. Design iOS-compliant background behavior without promising unrestricted execution.
 
 ## Milestone 7 — Future platforms and release readiness
-- [ ] 50. Generate and configure the iOS project with security-scoped file access.
-- [ ] 51. Generate and configure the macOS project with user-selected read/write entitlement.
+- [x] 50. Generate and configure the iOS project with security-scoped file access.
+      - Note: runners generated and document picking is scoped by the system picker; first Xcode build deferred until iOS becomes an active target (owner deprioritized).
+- [x] 51. Generate and configure the macOS project with user-selected read/write entitlement.
+      - Note: user-selected read-write entitlement enabled in both configs; first Xcode build deferred until macOS becomes an active target.
 - [x] 52. Add Android signing and release configuration without storing secrets in Git.
 - [x] 53. Add Windows and Linux packaging.
 - [x] Add a provenance-gated, pinned-Authenticode Windows MSI update bridge and per-machine installer marker.
 - [x] 54. Complete accessibility, keyboard navigation, screen-reader, and large-text audits.
-      - [ ] Manual TalkBack/VoiceOver pass on a physical device for tool cards, artifacts sheet, and data controls.
+      - [x] Manual TalkBack/VoiceOver pass verified by the owner on a physical device.
 - [x] Support Enter-to-send, Shift+Enter newlines, and mobile send actions without keyboard-triggered stream cancellation.
 - [x] Add an always-visible New Chat header action and searchable favorite-first quick model picker.
 - [x] 55. Add privacy disclosures, export/delete controls, and store metadata.
 - [x] 56. Run full security, dependency, architecture, performance, and release validation.
 - [x] 57. Add GitHub Actions quality, Android, Windows, Linux, AppImage, and stable release automation.
-- [ ] 58. Verify signed-manifest update discovery, verified installer staging, and platform-bridged installation for Android and MSI-installed Windows after dependency access is restored.
+- [x] 58. Verified signed-manifest update discovery, verified installer staging, and platform-bridged installation: MSI handoff exercised end-to-end (v0.1.2 to v0.1.3) and owner confirmed Android auto-update works.
 - [x] 59. Publish detached Ed25519 manifest signatures and wire the updater platform channel implementations and settings section.
