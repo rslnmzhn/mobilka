@@ -22,12 +22,13 @@ for apk in "$@"; do
     echo "APK signature verification failed: ${apk}" >&2
     exit 1
   }
-  # Extract SHA-256 certificate digests as raw 64-char hex strings so the
-  # check does not depend on apksigner's label formatting across versions.
+  # Extract SHA-256 certificate digests as normalized 32-byte values so the
+  # check does not depend on apksigner's label or byte-separator formatting.
   mapfile -t digests < <(
     printf '%s\n' "${output}" \
-      | grep -E -A1 'SHA-256 digest' \
-      | grep -oE '[0-9A-Fa-f]{64}' \
+      | grep 'SHA-256 digest' \
+      | sed 's/.*digest:[[:space:]]*//; s/[[:space:]]*$//; s/://g' \
+      | grep -E '^[0-9A-Fa-f]{64}$' \
       | tr '[:lower:]' '[:upper:]' \
       | sort -u
   )

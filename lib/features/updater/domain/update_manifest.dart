@@ -119,14 +119,28 @@ class UpdateManifest {
       final applicationId = raw['applicationId'];
       final versionCode = raw['versionCode'];
       if (platform == 'android') {
+        // Flutter's Gradle plugin scales split-per-ABI APK version codes as
+        // <abi code> * 1000 + <pubspec build number>; the signed manifest
+        // carries the scaled code per architecture (roadmap item 45-era
+        // verifier shares this formula).
+        const abiCodes = {
+          'armeabi-v7a': 1,
+          'arm64-v8a': 2,
+          'x86_64': 4,
+        };
+        final abiCode = abiCodes[architecture];
         final parts = version.split('.').map(int.parse).toList();
-        final expectedVersionCode =
+        final baseVersionCode =
             parts[0] * 1000000 + parts[1] * 1000 + parts[2];
+        final expectedVersionCode = abiCode == null
+            ? null
+            : abiCode * 1000 + baseVersionCode;
         if (applyMode != 'packageInstaller' ||
             install != true ||
             applicationId != 'com.rslnmzhn.mobilka' ||
             versionCode is! int ||
             versionCode <= 0 ||
+            expectedVersionCode == null ||
             versionCode != expectedVersionCode) {
           throw const FormatException('Invalid Android installer metadata');
         }

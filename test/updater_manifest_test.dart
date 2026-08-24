@@ -18,6 +18,18 @@ void main() {
     expect(release.version, '1.2.3');
     expect(release.asset.format, 'apk');
     expect(release.asset.architecture, 'arm64-v8a');
+    // Scaled split-per-ABI code must survive parsing untouched.
+    expect(release.asset.versionCode, 1004003);
+  });
+
+  test('flat unscaled Android version codes are rejected', () {
+    final value = _manifest();
+    ((value['assets'] as List).first as Map)['versionCode'] = 1002003;
+
+    expect(
+      () => UpdateManifest.parse(utf8.encode(jsonEncode(value))),
+      throwsFormatException,
+    );
   });
 
   test('strict manifest rejects unknown fields', () {
@@ -84,7 +96,13 @@ Map<String, Object?> _asset({
   if (installer != null) 'installer': installer,
   if (platform == 'android') ...{
     'applicationId': 'com.rslnmzhn.mobilka',
-    'versionCode': 1002003,
+    // Scaled per Flutter's split-per-ABI formula: abi*1000 + build number.
+    'versionCode': switch (arch) {
+      'armeabi-v7a' => 1003003,
+      'arm64-v8a' => 1004003,
+      'x86_64' => 1006003,
+      _ => throw StateError('unexpected arch'),
+    },
   },
   'fileName': fileName,
   'size': 4,

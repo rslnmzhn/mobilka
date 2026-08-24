@@ -32,7 +32,8 @@ assert raw == canonical
 android = [asset for asset in value["assets"] if asset["platform"] == "android"]
 assert len(android) == 3
 assert all(asset["applicationId"] == "com.rslnmzhn.mobilka" for asset in android)
-assert all(asset["versionCode"] == 1002003 for asset in android)
+scaled = {"armeabi-v7a": 1003003, "arm64-v8a": 1004003, "x86_64": 1006003}
+assert all(asset["versionCode"] == scaled[asset["arch"]] for asset in android)
 assert all(asset["applyMode"] == "packageInstaller" and asset["install"] for asset in android)
 assert all(len(asset["sha256"]) == 64 and asset["size"] > 0 for asset in value["assets"])
 PY
@@ -70,11 +71,17 @@ echo "Signer #1 certificate SHA-256 digest: 4a:76:9b:92:8d:47:82:77:30:e3:c5:e1:
 SH
 cat > "${android_home}/cmdline-tools/latest/bin/apkanalyzer" <<'SH'
 #!/usr/bin/env bash
-case "$2" in
-  application-id) echo com.rslnmzhn.mobilka ;;
-  version-code) echo 1002003 ;;
-  *) exit 1 ;;
-esac
+if [ "$2" = application-id ]; then echo com.rslnmzhn.mobilka; exit 0; fi
+if [ "$2" = version-code ]; then
+  case "$3" in
+    *armeabi-v7a*) abi=1 ;;
+    *arm64-v8a*) abi=2 ;;
+    *x86_64*) abi=4 ;;
+  esac
+  echo $((abi * 1000 + 1002003))
+  exit 0
+fi
+exit 1
 SH
 cat > "${work}/unzip" <<'SH'
 #!/usr/bin/env bash
@@ -95,4 +102,19 @@ if ANDROID_HOME="${android_home}" ANDROID_SIGNER_SHA256="00:00" \
   echo "Android verifier accepted a mismatched signer." >&2
   exit 1
 fi
+# Android assets must carry scaled split-per-ABI version codes:
+# abi*1000 + build number (armeabi=1, arm64=2, x86_64=4) for 1.2.3/1002003.
+python3 - "${work}/mobilka-v1.2.3-release-manifest.json" <<'PY'
+import json, sys
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+codes = {
+    asset["arch"]: asset["versionCode"]
+    for asset in manifest["assets"]
+    if asset["platform"] == "android"
+}
+expected = {"armeabi-v7a": 1003003, "arm64-v8a": 1004003, "x86_64": 1006003}
+if codes != expected:
+    raise SystemExit(f"Unexpected scaled version codes: {codes}")
+PY
+
 echo "release manifest tests passed"
