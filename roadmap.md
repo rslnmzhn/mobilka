@@ -70,14 +70,14 @@
 ## Milestone 7 — Future platforms and release readiness
 - [ ] 50. Generate and configure the iOS project with security-scoped file access.
 - [ ] 51. Generate and configure the macOS project with user-selected read/write entitlement.
-- [ ] 52. Add Android signing and release configuration without storing secrets in Git.
-- [ ] 53. Add Windows and Linux packaging.
+- [x] 52. Add Android signing and release configuration without storing secrets in Git.
+- [x] 53. Add Windows and Linux packaging.
 - [x] Add a provenance-gated, pinned-Authenticode Windows MSI update bridge and per-machine installer marker.
 - [ ] 54. Complete accessibility, keyboard navigation, screen-reader, and large-text audits.
 - [x] Support Enter-to-send, Shift+Enter newlines, and mobile send actions without keyboard-triggered stream cancellation.
 - [x] Add an always-visible New Chat header action and searchable favorite-first quick model picker.
 - [ ] 55. Add privacy disclosures, export/delete controls, and store metadata.
 - [ ] 56. Run full security, dependency, architecture, performance, and release validation.
-- [ ] 57. Add GitHub Actions quality, Android, Windows, Linux, AppImage, and stable release automation.
+- [x] 57. Add GitHub Actions quality, Android, Windows, Linux, AppImage, and stable release automation.
 - [ ] 58. Verify signed-manifest update discovery, verified installer staging, and platform-bridged installation for Android and MSI-installed Windows after dependency access is restored.
 - [ ] 59. Publish detached Ed25519 manifest signatures and wire the updater platform channel implementations and settings section.
