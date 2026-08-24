@@ -12,14 +12,14 @@ String _$chatControllerHash() => r'd6c5114ee7aa8818844b9391cb6c6d83258c213b';
 @ProviderFor(ChatController)
 final chatControllerProvider =
     AsyncNotifierProvider<ChatController, ChatState>.internal(
-  ChatController.new,
-  name: r'chatControllerProvider',
-  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-      ? null
-      : _$chatControllerHash,
-  dependencies: null,
-  allTransitiveDependencies: null,
-);
+      ChatController.new,
+      name: r'chatControllerProvider',
+      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+          ? null
+          : _$chatControllerHash,
+      dependencies: null,
+      allTransitiveDependencies: null,
+    );
 
 typedef _$ChatController = AsyncNotifier<ChatState>;
 // ignore_for_file: type=lint

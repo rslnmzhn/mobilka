@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/chat/application/chat_streaming_coordinator.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
@@ -20,6 +21,56 @@ void main() {
     expect(fixture.conversation.pendingRequestMessageId, isNull);
     expect(fixture.conversation.usage?.totalTokens, 5);
     expect(fixture.errors, isEmpty);
+  });
+
+  test(
+    'transient connection failure before first token is retried once',
+    () async {
+      final fixture = CoordinatorFixture(
+        streamer: SequencedStreamer(const [
+          [
+            ChatStreamEvent(delta: 'Recovered'),
+            ChatStreamEvent(isTerminal: true),
+          ],
+        ]),
+        streamerErrors: [
+          DioException(
+            type: DioExceptionType.connectionError,
+            requestOptions: RequestOptions(path: '/'),
+          ),
+        ],
+      );
+
+      await fixture.run();
+
+      expect(fixture.assistant.status, ChatMessageStatus.complete);
+      expect(fixture.assistant.content, 'Recovered');
+      expect(fixture.errors, isEmpty);
+    },
+  );
+
+  test('transient retry is capped at one attempt per request', () async {
+    final fixture = CoordinatorFixture(
+      streamer: SequencedStreamer(const [
+        [ChatStreamEvent(isTerminal: true)],
+      ]),
+      streamerErrors: [
+        DioException(
+          type: DioExceptionType.connectionError,
+          requestOptions: RequestOptions(path: '/'),
+        ),
+        DioException(
+          type: DioExceptionType.connectionError,
+          requestOptions: RequestOptions(path: '/'),
+        ),
+      ],
+    );
+
+    await fixture.run();
+
+    expect(fixture.assistant.status, ChatMessageStatus.interrupted);
+    expect(fixture.errors, hasLength(1));
+    expect(fixture.errors.single, contains('Could not connect'));
   });
 
   test(

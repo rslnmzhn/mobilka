@@ -18,11 +18,14 @@ class CoordinatorFixture {
     ChatCompletionStreamer? streamer,
     runtime.ChatToolRuntime? toolRuntime,
     BackgroundTaskBridge? backgroundTasks,
+    List<Object>? streamerErrors,
   }) {
     conversations['conversation-1'] = conversationWithId(
       'conversation-1',
       pending: true,
     );
+    final sequenced = streamer is SequencedStreamer ? streamer : null;
+    streamerErrors?.forEach(sequenced!.errors.add);
     coordinator = ChatStreamingCoordinator(
       streamer: streamer ?? EventStreamer(events ?? const []),
       conversationById: (id) => conversations[id],
@@ -90,6 +93,10 @@ class SequencedStreamer implements ChatCompletionStreamer {
   final List<List<ChatMessage>> histories = [];
   void Function()? onStart;
 
+  /// Errors thrown instead of a response batch, consumed in order.
+  final List<Object> errors = [];
+  int _servedResponses = 0;
+
   @override
   Stream<ChatStreamEvent> streamCompletion({
     required String model,
@@ -99,7 +106,13 @@ class SequencedStreamer implements ChatCompletionStreamer {
   }) {
     onStart?.call();
     histories.add(messages);
-    return Stream.fromIterable(responses[histories.length - 1]);
+    if (errors.isNotEmpty) {
+      final error = errors.removeAt(0);
+      return Stream.error(error);
+    }
+    final response = responses[_servedResponses];
+    _servedResponses++;
+    return Stream.fromIterable(response);
   }
 }
 
