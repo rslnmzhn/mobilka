@@ -68,10 +68,6 @@
 - [x] 49. Design iOS-compliant background behavior without promising unrestricted execution.
 
 ## Milestone 7 — Future platforms and release readiness
-- [x] 50. Generate and configure the iOS project with security-scoped file access.
-      - Note: runners generated and document picking is scoped by the system picker; first Xcode build deferred until iOS becomes an active target (owner deprioritized).
-- [x] 51. Generate and configure the macOS project with user-selected read/write entitlement.
-      - Note: user-selected read-write entitlement enabled in both configs; first Xcode build deferred until macOS becomes an active target.
 - [x] 52. Add Android signing and release configuration without storing secrets in Git.
 - [x] 53. Add Windows and Linux packaging.
 - [x] Add a provenance-gated, pinned-Authenticode Windows MSI update bridge and per-machine installer marker.
