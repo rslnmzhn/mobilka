@@ -73,7 +73,8 @@
 - [x] 52. Add Android signing and release configuration without storing secrets in Git.
 - [x] 53. Add Windows and Linux packaging.
 - [x] Add a provenance-gated, pinned-Authenticode Windows MSI update bridge and per-machine installer marker.
-- [ ] 54. Complete accessibility, keyboard navigation, screen-reader, and large-text audits.
+- [x] 54. Complete accessibility, keyboard navigation, screen-reader, and large-text audits.
+      - [ ] Manual TalkBack/VoiceOver pass on a physical device for tool cards, artifacts sheet, and data controls.
 - [x] Support Enter-to-send, Shift+Enter newlines, and mobile send actions without keyboard-triggered stream cancellation.
 - [x] Add an always-visible New Chat header action and searchable favorite-first quick model picker.
 - [x] 55. Add privacy disclosures, export/delete controls, and store metadata.
