@@ -123,15 +123,10 @@ class UpdateManifest {
         // <abi code> * 1000 + <pubspec build number>; the signed manifest
         // carries the scaled code per architecture (roadmap item 45-era
         // verifier shares this formula).
-        const abiCodes = {
-          'armeabi-v7a': 1,
-          'arm64-v8a': 2,
-          'x86_64': 4,
-        };
+        const abiCodes = {'armeabi-v7a': 1, 'arm64-v8a': 2, 'x86_64': 4};
         final abiCode = abiCodes[architecture];
         final parts = version.split('.').map(int.parse).toList();
-        final baseVersionCode =
-            parts[0] * 1000000 + parts[1] * 1000 + parts[2];
+        final baseVersionCode = parts[0] * 1000000 + parts[1] * 1000 + parts[2];
         final expectedVersionCode = abiCode == null
             ? null
             : abiCode * 1000 + baseVersionCode;

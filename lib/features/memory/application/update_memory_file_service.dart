@@ -44,11 +44,9 @@ class UpdateMemoryFileService {
        _locationId = locationId,
        _logger = logger ?? AppLogger();
 
-  static const approvedFileNames = {
-    'user_profile.md',
-    'project_context.md',
-    'system_instructions.md',
-  };
+  /// Owner-editable files (Memory screen). Model-facing rejection of
+  /// soul.md happens in MemoryChatToolRuntime.prepareMemoryProposal.
+  static const approvedFileNames = {'user.md', 'memory.md', 'soul.md'};
   final MemoryFileBoundary _boundary;
   final MemoryMutationCoordinator _mutations;
   final ConfirmationTokenFactory _tokenFactory;

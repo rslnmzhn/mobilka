@@ -10,6 +10,7 @@ import '../../chat/domain/chat_message.dart';
 import '../../chat/domain/chat_tool.dart';
 import '../../chat/domain/pending_memory_proposal.dart';
 import 'update_memory_file_service.dart';
+import '../domain/memory_file_names.dart';
 
 class MemoryToolPermissionException extends StateError {
   MemoryToolPermissionException(super.message);
@@ -40,18 +41,19 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
   static const updateMemoryFile = ChatToolDefinition(
     name: 'update_memory_file',
     description:
-        'Propose complete replacement Markdown for an approved memory file. '
-        'The user must review and confirm the exact diff before it is written.',
+        'Write complete Markdown content to a memory file. '
+        'user.md stores durable facts about the user (applied after explicit '
+        'user confirmation of the diff). memory.md is your working notebook: '
+        'tool findings, decisions, recurring patterns — applied instantly, '
+        'and loaded into your context only on the next session or explicit '
+        'context rebuild. Delete entries only when they are truly obsolete. '
+        'soul.md cannot be changed by you.',
     parameters: {
       'type': 'object',
       'properties': {
         'file_name': {
           'type': 'string',
-          'enum': [
-            'user_profile.md',
-            'project_context.md',
-            'system_instructions.md',
-          ],
+          'enum': ['user.md', 'memory.md'],
         },
         'content': {
           'type': 'string',
@@ -109,7 +111,14 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     );
     if (updates == null) throw StateError('Memory storage is not configured');
     final arguments = _decodeArguments(call.arguments);
-    final fileName = arguments['file_name'] as String;
+    var fileName = arguments['file_name'] as String;
+    if (fileName == MemoryFiles.soul) {
+      // soul.md is the owner's personality file; the model may not change it.
+      throw const FormatException(
+        'soul.md is owner-managed and cannot be changed by the model',
+      );
+    }
+    if (fileName == MemoryFiles.memory) fileName = MemoryFiles.user;
     final proposedContent = arguments['content'] as String;
     final stopwatch = Stopwatch()..start();
     _logger.log(

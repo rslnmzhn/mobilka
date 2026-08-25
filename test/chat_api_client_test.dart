@@ -99,8 +99,8 @@ void main() {
 
   test('sends tools and parses fragmented native tool call deltas', () async {
     final adapter = _StreamingAdapter([
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"update_memory_file","arguments":"{\\"file_name\\":\\"user_"}}]},"finish_reason":null}]}\n\n',
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"profile.md\\",\\"content\\":\\"# User\\\\n\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"update_memory_file","arguments":"{\\"file_name\\":\\"user."}}]},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"md\\",\\"content\\":\\"# User\\\\n\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
     ]);
     final dio = Dio()..httpClientAdapter = adapter;
 
@@ -132,7 +132,7 @@ void main() {
     expect(events.first.toolCallDeltas.single.id, 'call-1');
     expect(
       events.map((event) => event.toolCallDeltas.single.arguments).join(),
-      '{"file_name":"user_profile.md","content":"# User\\n"}',
+      '{"file_name":"user.md","content":"# User\\n"}',
     );
   });
 

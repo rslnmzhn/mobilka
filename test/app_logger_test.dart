@@ -15,7 +15,7 @@ void main() {
       operationId: 'operation-1',
       conversationId: 'conversation-1',
       toolCallId: 'tool-1',
-      fileName: 'user_profile.md',
+      fileName: 'user.md',
       status: 'failed',
       error: StateError('secret proposed content and confirmation token'),
       duration: const Duration(milliseconds: 12),

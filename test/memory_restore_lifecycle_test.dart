@@ -10,6 +10,7 @@ import 'package:mobilka/features/memory/application/memory_mutation_coordinator.
 import 'package:mobilka/features/memory/data/memory_backup_document_adapter.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
+import 'support/memory_delete_mixins.dart';
 
 void main() {
   test(
@@ -22,22 +23,24 @@ void main() {
       final state = fixture.container.read(memoryBackupControllerProvider);
 
       expect(state.hasPendingRestore, isTrue);
-      expect(state.payload!.files['user_profile.md'], 'first');
-      final file = state.preview!.files['user_profile.md']!;
-      expect(file.current, MemoryRepository.templates['user_profile.md']);
+      expect(state.payload!.files['user.md'], 'first');
+      final file = state.preview!.files['user.md']!;
+      expect(file.current, MemoryRepository.templates['user.md']);
       expect(file.incoming, 'first');
       expect(
         file.diff,
-        '--- current/user_profile.md\n'
-        '+++ incoming/user_profile.md\n'
-        '-# User Profile\n'
+        '--- current/user.md\n'
+        '+++ incoming/user.md\n'
+        '-# О пользователе\n'
         '-\n'
-        '-Add stable facts and preferences here.\n'
+        '-## Факты\n'
+        '-\n'
+        '-- (пока пусто — агент дополнит)\n'
         '-\n'
         '+first\n',
       );
       expect(
-        () => state.preview!.files['user_profile.md'] = file,
+        () => state.preview!.files['user.md'] = file,
         throwsUnsupportedError,
       );
     },
@@ -51,10 +54,10 @@ void main() {
     final firstToken = fixture.state.preview!.confirmationToken;
     await fixture.controller.chooseRestore();
 
-    expect(fixture.state.payload!.files['user_profile.md'], 'second');
+    expect(fixture.state.payload!.files['user.md'], 'second');
     expect(fixture.state.preview!.confirmationToken, isNot(firstToken));
     await fixture.controller.confirmRestore();
-    expect(fixture.destination.files['user_profile.md'], 'second');
+    expect(fixture.destination.files['user.md'], 'second');
   });
 
   test('cancellation clears the entire pending restore state', () async {
@@ -164,7 +167,9 @@ class _BackupAdapter implements MemoryBackupDocumentAdapter {
   Future<String?> importDocument() async => documents.removeAt(0);
 }
 
-class _MemoryBoundary implements MemoryFileBoundary, MemoryFileTransaction {
+class _MemoryBoundary
+    with MemoryBoundaryDelete
+    implements MemoryFileBoundary, MemoryFileTransaction {
   _MemoryBoundary(this.files);
   final Map<String, String> files;
 

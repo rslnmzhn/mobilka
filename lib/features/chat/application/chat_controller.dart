@@ -8,6 +8,7 @@ import '../../agents/application/agents_controller.dart';
 import '../../memory/application/update_memory_file_service.dart';
 import '../../models/application/models_controller.dart';
 import '../../models/domain/model_capabilities.dart';
+import '../../../features/memory/application/instant_memory_writer.dart';
 import 'background_task_bridge.dart';
 import 'chat_tool_runtime_registry.dart';
 import '../data/chat_repository.dart';
@@ -50,6 +51,7 @@ class ChatController extends _$ChatController {
         },
         toolRuntime: ref.read(chatToolRuntimeRegistryProvider),
         backgroundTasks: ref.read(backgroundTaskBridgeProvider),
+        instantMemoryWriter: ref.read(instantMemoryWriterProvider),
       );
 
   Future<void> createConversation(String modelId) async {

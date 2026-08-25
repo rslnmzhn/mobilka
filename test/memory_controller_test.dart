@@ -8,6 +8,7 @@ import 'package:mobilka/features/memory/application/memory_update_proposal_autho
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
 import 'package:saf/saf.dart';
+import 'support/memory_delete_mixins.dart';
 
 void main() {
   const original = MemoryLocation(value: 'original', isContentUri: false);
@@ -152,7 +153,9 @@ class _MemoryRepository extends MemoryRepository {
   MemoryFileBoundary boundaryFor(MemoryLocation location) => boundary;
 }
 
-class _MemoryBoundary implements MemoryFileBoundary, MemoryFileTransaction {
+class _MemoryBoundary
+    with MemoryBoundaryDelete
+    implements MemoryFileBoundary, MemoryFileTransaction {
   _MemoryBoundary(this.files);
 
   final Map<String, String> files;

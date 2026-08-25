@@ -13,6 +13,7 @@ import 'package:mobilka/features/memory/data/memory_selection_store.dart';
 import 'package:mobilka/features/memory/presentation/memory_editor_sheet.dart';
 import 'package:mobilka/features/memory/presentation/memory_backup_card.dart';
 import 'package:mobilka/features/memory/presentation/memory_screen.dart';
+import 'support/memory_delete_mixins.dart';
 
 void main() {
   testWidgets('restore UI exposes exact reviewed content before confirmation', (
@@ -20,11 +21,11 @@ void main() {
   ) async {
     const current = 'current profile';
     const incoming = 'incoming profile';
-    const diff = '--- current/user_profile.md\n+++ incoming/user_profile.md\n';
+    const diff = '--- current/user.md\n+++ incoming/user.md\n';
     final preview = MemoryRestorePreview(
       confirmationToken: 'token',
       files: const {
-        'user_profile.md': MemoryRestoreFilePreview(
+        'user.md': MemoryRestoreFilePreview(
           current: current,
           incoming: incoming,
           diff: diff,
@@ -45,9 +46,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(
-      find.byKey(const Key('memory-restore-file-user_profile.md')),
-    );
+    await tester.tap(find.byKey(const Key('memory-restore-file-user.md')));
     await tester.pumpAndSettle();
 
     expect(find.text(current), findsOneWidget);
@@ -78,21 +77,21 @@ void main() {
         memorySelectionControllerProvider.notifier,
       );
 
-      await controller.setIncluded('memory_log.md', included: false);
+      await controller.setIncluded('memory.md', included: false);
       expect(
         container.read(memorySelectionControllerProvider),
-        isNot(contains('memory_log.md')),
+        isNot(contains('memory.md')),
       );
-      expect(values, isNot(contains('memory_log.md')));
+      expect(values, isNot(contains('memory.md')));
 
       fail = true;
       await expectLater(
-        controller.setIncluded('user_profile.md', included: false),
+        controller.setIncluded('user.md', included: false),
         throwsStateError,
       );
       expect(
         container.read(memorySelectionControllerProvider),
-        contains('user_profile.md'),
+        contains('user.md'),
       );
     },
   );
@@ -123,9 +122,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('memory-inclusion-user_profile.md')));
+    await tester.tap(find.byKey(const Key('memory-inclusion-user.md')));
     await tester.pumpAndSettle();
-    expect(values, isNot(contains('user_profile.md')));
+    expect(values, isNot(contains('user.md')));
   });
 
   testWidgets('editor reads and saves only after explicit save', (
@@ -136,7 +135,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: MemoryEditorSheet(
-            fileName: 'user_profile.md',
+            fileName: 'user.md',
             editor: MemoryFileEditor(
               boundary,
               MemoryMutationCoordinator(boundary),
@@ -150,12 +149,12 @@ void main() {
       find.byKey(const Key('memory-editor-content')),
       'edited',
     );
-    expect(boundary.files['user_profile.md'], isNot('edited'));
+    expect(boundary.files['user.md'], isNot('edited'));
 
     await tester.tap(find.byKey(const Key('memory-editor-save')));
     await tester.pumpAndSettle();
-    expect(boundary.files['user_profile.md'], 'edited');
-    expect(boundary.files['memory_log.md'], contains('manual_memory_edit'));
+    expect(boundary.files['user.md'], 'edited');
+    expect(boundary.files['memory.md'], contains('manual_memory_edit'));
   });
 
   testWidgets('editor exposes safe read errors and disables save', (
@@ -167,7 +166,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: MemoryEditorSheet(
-            fileName: 'user_profile.md',
+            fileName: 'user.md',
             editor: MemoryFileEditor(
               boundary,
               MemoryMutationCoordinator(boundary),
@@ -190,14 +189,14 @@ void main() {
       boundary,
       MemoryMutationCoordinator(boundary),
     );
-    final snapshot = await editor.read('user_profile.md');
-    boundary.files['user_profile.md'] = 'changed elsewhere';
+    final snapshot = await editor.read('user.md');
+    boundary.files['user.md'] = 'changed elsewhere';
 
     await expectLater(
-      editor.save('user_profile.md', 'mine', expectedVersion: snapshot.version),
+      editor.save('user.md', 'mine', expectedVersion: snapshot.version),
       throwsA(isA<StaleMemoryMutationException>()),
     );
-    expect(boundary.files['user_profile.md'], 'changed elsewhere');
+    expect(boundary.files['user.md'], 'changed elsewhere');
   });
 
   test('manual edit finalizes when audit initially fails', () async {
@@ -206,16 +205,12 @@ void main() {
       boundary,
       MemoryMutationCoordinator(boundary),
     );
-    final snapshot = await editor.read('user_profile.md');
+    final snapshot = await editor.read('user.md');
     boundary.failWriteNumber = 2;
 
-    await editor.save(
-      'user_profile.md',
-      'edited',
-      expectedVersion: snapshot.version,
-    );
-    expect(boundary.files['user_profile.md'], 'edited');
-    expect(boundary.files['memory_log.md'], contains('"status":"committed"'));
+    await editor.save('user.md', 'edited', expectedVersion: snapshot.version);
+    expect(boundary.files['user.md'], 'edited');
+    expect(boundary.files['memory.md'], contains('"status":"committed"'));
   });
 }
 
@@ -226,7 +221,7 @@ class _PreviewBackupController extends MemoryBackupController {
   @override
   MemoryBackupState build() => MemoryBackupState.pending(
     payload: MemoryRestorePayload(
-      files: const {'user_profile.md': 'incoming profile'},
+      files: const {'user.md': 'incoming profile'},
       totalBytes: 'incoming profile'.length,
     ),
     preview: preview,
@@ -238,7 +233,9 @@ class _MemoryLocationController extends MemoryController {
   Future<MemoryLocation?> build() async => null;
 }
 
-class _Boundary implements MemoryFileBoundary, MemoryFileTransaction {
+class _Boundary
+    with MemoryBoundaryDelete
+    implements MemoryFileBoundary, MemoryFileTransaction {
   _Boundary(this.files);
   final Map<String, String> files;
   bool failReads = false;

@@ -182,7 +182,7 @@ class MemoryProposalRuntime
     callOccurrence: callOccurrence,
     selectedAgentId: selectedAgentId ?? 'agent-1',
     allowedTools: allowedTools,
-    fileName: 'user_profile.md',
+    fileName: 'user.md',
     proposedContent: '# User\nnew\n',
     diff: '+new',
     confirmationToken: 'token',

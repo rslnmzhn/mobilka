@@ -108,10 +108,10 @@ class AppLogger {
 
   static final RegExp _safeLabelPattern = RegExp(r'^[a-z0-9_.-]{1,64}$');
   static const _safeFileNames = {
-    'user_profile.md',
-    'project_context.md',
-    'system_instructions.md',
-    'memory_log.md',
+    'user.md',
+    'soul.md',
+    'memory.md',
+    'personas.yaml',
   };
 
   static String _safeLabel(String value) =>

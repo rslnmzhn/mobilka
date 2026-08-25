@@ -8,6 +8,8 @@ import 'background_task_bridge.dart';
 import 'chat_stream_request.dart';
 import 'chat_tool_runtime.dart';
 import 'fallback_tool_call_parser.dart';
+import '../../../features/memory/application/instant_memory_writer.dart';
+import '../../../features/memory/domain/memory_file_names.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_stream_event.dart';
@@ -23,6 +25,7 @@ class ChatStreamingCoordinator {
     required void Function(String message) publishError,
     ChatToolRuntime? toolRuntime,
     BackgroundTaskBridge backgroundTasks = const NoopBackgroundTaskBridge(),
+    InstantMemoryWriter? instantMemoryWriter,
     void Function(String event)? onTransientRetry,
   }) : _streamer = streamer,
        _conversationById = conversationById,
@@ -30,6 +33,7 @@ class ChatStreamingCoordinator {
        _publishError = publishError,
        _toolRuntime = toolRuntime,
        _backgroundTasks = backgroundTasks,
+       _instantMemoryWriter = instantMemoryWriter,
        _onTransientRetry = onTransientRetry;
 
   final ChatCompletionStreamer _streamer;
@@ -37,6 +41,7 @@ class ChatStreamingCoordinator {
   final Future<void> Function(Conversation conversation) _persistAndPublish;
   final void Function(String message) _publishError;
   final ChatToolRuntime? _toolRuntime;
+  final InstantMemoryWriter? _instantMemoryWriter;
   final BackgroundTaskBridge _backgroundTasks;
   final void Function(String event)? _onTransientRetry;
 
@@ -365,6 +370,36 @@ class ChatStreamingCoordinator {
           .where((candidate) => candidate.id == call.id)
           .length;
       if (call.name == 'update_memory_file') {
+        // memory.md is the agent's instant notebook: applied without a
+        // confirmation proposal (roadmap Memory 2.0).
+        if (_isMemoryNotebook(call)) {
+          final writer = _instantMemoryWriter;
+          if (writer == null) {
+            results.add(
+              _toolErrorResult(
+                call,
+                'Memory storage is not configured.',
+                results.length,
+              ),
+            );
+            continue;
+          }
+          try {
+            final note = await writer.write(_memoryContentOf(call));
+            results.add(
+              _toolResult(
+                call,
+                jsonEncode({'ok': true, 'file': 'memory.md', 'status': note}),
+                results.length,
+              ),
+            );
+          } on Object catch (error) {
+            results.add(
+              _toolErrorResult(call, error.toString(), results.length),
+            );
+          }
+          continue;
+        }
         if (pendingProposal != null) {
           results.add(
             _toolErrorResult(
@@ -495,6 +530,20 @@ class ChatStreamingCoordinator {
           .toList(),
     );
     await _persistAndPublish(updated);
+  }
+
+  bool _isMemoryNotebook(ChatToolCall call) {
+    try {
+      final args = jsonDecode(call.arguments);
+      return args is Map && args['file_name'] == MemoryFiles.memory;
+    } on Object {
+      return false;
+    }
+  }
+
+  String _memoryContentOf(ChatToolCall call) {
+    final args = jsonDecode(call.arguments);
+    return args is Map ? args['content']?.toString() ?? '' : '';
   }
 
   static bool _isTransient(DioException error) => switch (error.type) {

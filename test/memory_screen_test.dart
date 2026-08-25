@@ -10,9 +10,10 @@ import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
 import 'package:mobilka/features/memory/data/memory_selection_store.dart';
 import 'package:mobilka/features/memory/presentation/memory_screen.dart';
+import 'support/memory_delete_mixins.dart';
 
 void main() {
-  const fileName = 'user_profile.md';
+  const fileName = 'user.md';
   const content = '# Test profile\n\nLoaded from the fake memory boundary.\n';
 
   for (final size in const [Size(320, 720), Size(1280, 800)]) {
@@ -87,7 +88,9 @@ class _MemoryBackupController extends MemoryBackupController {
   MemoryBackupState build() => const MemoryBackupState.empty();
 }
 
-class _MemoryBoundary implements MemoryFileBoundary, MemoryFileTransaction {
+class _MemoryBoundary
+    with MemoryBoundaryDelete
+    implements MemoryFileBoundary, MemoryFileTransaction {
   _MemoryBoundary(this.files);
 
   final Map<String, String> files;

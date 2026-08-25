@@ -6,6 +6,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:saf/saf.dart';
 
 import '../../../core/storage/app_boxes.dart';
+import '../domain/memory_file_names.dart';
 import 'memory_file_store.dart';
 
 part 'memory_repository.g.dart';
@@ -24,14 +25,52 @@ class MemoryRepository {
   final Saf _saf;
 
   static const templates = {
-    'user_profile.md':
-        '# User Profile\n\nAdd stable facts and preferences here.\n',
-    'project_context.md':
-        '# Project Context\n\nActive projects and working context.\n',
-    'system_instructions.md':
-        '# System Instructions\n\nUser-controlled instructions for agents.\n',
-    'memory_log.md': '# Memory Log\n\nChronological memory updates.\n',
+    'user.md':
+        '# О пользователе\n\n## Факты\n\n- (пока пусто — агент дополнит)\n',
+    'soul.md': '',
+    'memory.md':
+        '# Память агента\n\nРабочие заметки: находки об инструментах, решения, повторяющиеся паттерны.\n',
   };
+
+  /// One-shot rename of legacy files to the Memory 2.0 scheme.
+  /// Idempotent: skips when the old file is absent or the target exists.
+  /// Keeps a `.migrated.bak` copy of the original next to the new file.
+  Future<void> migrateLegacyFiles() async {
+    final location = savedLocation();
+    if (location == null) return;
+    final boundary = boundaryFor(location);
+    for (final entry in MemoryFiles.legacyRenames.entries) {
+      final oldName = entry.key;
+      final newName = entry.value;
+      String? legacyContent;
+      try {
+        legacyContent = await boundary.read(oldName);
+      } on Object {
+        continue; // nothing to migrate for this pair
+      }
+      if (legacyContent.trim().isEmpty) continue;
+      if (!legacyContent.endsWith('\n')) legacyContent += '\n';
+      var modernContent = '';
+      try {
+        modernContent = await boundary.read(newName);
+      } on Object {
+        // target missing — will be created below
+      }
+      if (modernContent.trim().isNotEmpty) {
+        // Target already has content: merge legacy under a section header
+        // instead of overwriting user data.
+        modernContent =
+            '${modernContent.trimRight()}\n\n'
+            '## Перенесено из $oldName\n\n'
+            '${legacyContent.trim()}\n';
+        await boundary.write(newName, modernContent);
+      } else {
+        await boundary.write(newName, legacyContent);
+      }
+      await boundary.write('$oldName.migrated.bak', legacyContent);
+      await boundary.delete(oldName);
+    }
+  }
 
   MemoryLocation? savedLocation() {
     final value = preferencesBox.get('memoryLocation') as String?;

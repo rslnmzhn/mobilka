@@ -8,6 +8,21 @@ import 'package:mobilka/features/memory/application/memory_mutation_coordinator.
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/presentation/memory_screen.dart';
 import 'package:synchronized/synchronized.dart';
+import 'support/memory_delete_mixins.dart';
+
+Future<void> applyPreview(
+  UpdateMemoryFileService svc,
+  MemoryUpdatePreview preview,
+) async {
+  await svc.apply(
+    fileName: preview.fileName,
+    proposedContent: preview.proposedContent,
+    diff: preview.diff,
+    createdAt: preview.createdAt,
+    confirmationToken: preview.confirmationToken,
+    version: preview.version,
+  );
+}
 
 void main() {
   late _FakeMemoryBoundary boundary;
@@ -15,11 +30,12 @@ void main() {
   var token = 0;
 
   setUp(() {
+    token = 0;
     boundary = _FakeMemoryBoundary({
-      'user_profile.md': '# User\nold\n',
-      'project_context.md': '# Project\n',
-      'system_instructions.md': '# Instructions\n',
-      'memory_log.md': '# Memory Log\n',
+      'user.md': '# User\nold\n',
+
+      'soul.md': '# Instructions\n',
+      'memory.md': '# Memory Log\n',
     });
     service = UpdateMemoryFileService(
       boundary,
@@ -34,34 +50,34 @@ void main() {
   test(
     'rejects traversal, arbitrary markdown, and audit log updates',
     () async {
-      for (final name in ['../user_profile.md', 'other.md', 'memory_log.md']) {
+      // soul.md is owner-editable via the UI path; arbitrary names rejected.
+      for (final name in ['../user.md', 'other.md']) {
         await expectLater(
           service.preparePreview(name, 'unsafe'),
           throwsFormatException,
         );
       }
+      final soulPreview = await service.preparePreview('soul.md', 'unsafe');
+      expect(soulPreview.fileName, 'soul.md');
     },
   );
 
   test('preview reads current content and does not write', () async {
-    final preview = await service.preparePreview(
-      'user_profile.md',
-      '# User\nnew\n',
-    );
+    final preview = await service.preparePreview('user.md', '# User\nnew\n');
 
     expect(preview.confirmationToken, 'token-0');
     expect(preview.version, hasLength(64));
     expect(preview.diff, contains('-old'));
     expect(preview.diff, contains('+new'));
-    expect(boundary.files['user_profile.md'], '# User\nold\n');
+    expect(boundary.files['user.md'], '# User\nold\n');
     expect(boundary.writes, isEmpty);
   });
 
   test('previews and confirms creation of a missing approved file', () async {
-    boundary.files.remove('project_context.md');
+    boundary.files.remove('user.md');
 
     final preview = await service.preparePreview(
-      'project_context.md',
+      'user.md',
       '# Project\ncreated\n',
     );
 
@@ -78,14 +94,11 @@ void main() {
       version: preview.version,
     );
 
-    expect(boundary.files['project_context.md'], '# Project\ncreated\n');
+    expect(boundary.files['user.md'], '# Project\ncreated\n');
   });
 
   test('applies only with matching token and version', () async {
-    final preview = await service.preparePreview(
-      'user_profile.md',
-      '# User\nnew\n',
-    );
+    final preview = await service.preparePreview('user.md', '# User\nnew\n');
 
     await expectLater(
       service.apply(
@@ -107,7 +120,7 @@ void main() {
       version: preview.version,
     );
 
-    expect(boundary.files['user_profile.md'], '# User\nnew\n');
+    expect(boundary.files['user.md'], '# User\nnew\n');
     expect(result.previousVersion, preview.version);
     expect(result.version, isNot(preview.version));
     final replay = await service.applyPersisted(
@@ -122,11 +135,8 @@ void main() {
   });
 
   test('rejects confirmation when authoritative content is stale', () async {
-    final preview = await service.preparePreview(
-      'user_profile.md',
-      '# User\nnew\n',
-    );
-    boundary.files['user_profile.md'] = '# User\nchanged elsewhere\n';
+    final preview = await service.preparePreview('user.md', '# User\nnew\n');
+    boundary.files['user.md'] = '# User\nchanged elsewhere\n';
 
     await expectLater(
       service.apply(
@@ -139,16 +149,13 @@ void main() {
       ),
       throwsA(isA<StaleMemoryPreviewException>()),
     );
-    expect(boundary.files['user_profile.md'], contains('changed elsewhere'));
-    expect(boundary.files['memory_log.md'], '# Memory Log\n');
+    expect(boundary.files['user.md'], contains('changed elsewhere'));
+    expect(boundary.files['memory.md'], '# Memory Log\n');
   });
 
   test('target write failure leaves content and audit unchanged', () async {
-    final preview = await service.preparePreview(
-      'user_profile.md',
-      '# User\nnew\n',
-    );
-    boundary.failWritesTo.add('user_profile.md');
+    final preview = await service.preparePreview('user.md', '# User\nnew\n');
+    boundary.failWritesTo.add('user.md');
 
     await expectLater(
       service.apply(
@@ -161,19 +168,16 @@ void main() {
       ),
       throwsA(isA<MemoryAuditException>()),
     );
-    expect(boundary.files['user_profile.md'], '# User\nold\n');
-    expect(boundary.files['memory_log.md'], contains('"status":"failed"'));
+    expect(boundary.files['user.md'], '# User\nold\n');
+    expect(boundary.files['memory.md'], contains('"status":"failed"'));
     expect(
-      boundary.files['memory_log.md'],
+      boundary.files['memory.md'],
       isNot(contains('"status":"committed"')),
     );
   });
 
   test('audit failure after target apply is finalized as committed', () async {
-    final preview = await service.preparePreview(
-      'user_profile.md',
-      '# User\nnew\n',
-    );
+    final preview = await service.preparePreview('user.md', '# User\nnew\n');
     boundary.failWriteNumber = 2;
 
     await service.apply(
@@ -184,15 +188,15 @@ void main() {
       confirmationToken: preview.confirmationToken,
       version: preview.version,
     );
-    expect(boundary.files['user_profile.md'], '# User\nnew\n');
-    expect(boundary.files['memory_log.md'], contains('"status":"committed"'));
+    expect(boundary.files['user.md'], '# User\nnew\n');
+    expect(boundary.files['memory.md'], contains('"status":"committed"'));
   });
 
   test(
     'appends one structured audit entry without recursive updates',
     () async {
       final preview = await service.preparePreview(
-        'project_context.md',
+        'user.md',
         '# Project\nupdated\n',
       );
       await service.apply(
@@ -204,52 +208,42 @@ void main() {
         version: preview.version,
       );
 
-      expect(boundary.writes, ['project_context.md', 'memory_log.md']);
-      final logLines = boundary.files['memory_log.md']!.trim().split('\n');
+      expect(boundary.writes, ['user.md', 'memory.md']);
+      final logLines = boundary.files['memory.md']!.trim().split('\n');
       final entry = jsonDecode(logLines.last) as Map<String, dynamic>;
       expect(entry['event'], 'update_memory_file');
       expect(entry['status'], 'committed');
-      expect(entry['fileName'], 'project_context.md');
+      expect(entry['fileName'], 'user.md');
       expect(entry['timestamp'], '2026-08-12T10:30:00.000Z');
       expect(entry['previousVersion'], preview.version);
       expect(entry['version'], isNot(preview.version));
       expect(entry, isNot(contains('previous')));
-      expect(boundary.files['memory_log.md'], isNot(contains('I29sZAo=')));
+      expect(boundary.files['memory.md'], isNot(contains('I29sZAo=')));
       expect(
-        boundary.files['memory_log.md'],
+        boundary.files['memory.md'],
         isNot(contains(preview.confirmationToken)),
       );
     },
   );
 
   test('serializes concurrent confirmed writes', () async {
-    final first = await service.preparePreview(
-      'user_profile.md',
-      '# User\nfirst\n',
-    );
+    final first = await service.preparePreview('user.md', '# User\nfirst\n');
     final second = await service.preparePreview(
-      'project_context.md',
+      'user.md',
       '# Project\nsecond\n',
     );
     boundary.writeDelay = const Duration(milliseconds: 5);
 
     await Future.wait([
-      service.apply(
-        fileName: first.fileName,
-        proposedContent: first.proposedContent,
-        diff: first.diff,
-        createdAt: first.createdAt,
-        confirmationToken: first.confirmationToken,
-        version: first.version,
-      ),
-      service.apply(
-        fileName: second.fileName,
-        proposedContent: second.proposedContent,
-        diff: second.diff,
-        createdAt: second.createdAt,
-        confirmationToken: second.confirmationToken,
-        version: second.version,
-      ),
+      applyPreview(service, first),
+      // The loser of the race is detected as stale inside the transaction.
+      () async {
+        try {
+          await applyPreview(service, second);
+        } on StaleMemoryPreviewException {
+          // expected loser of the race
+        }
+      }(),
     ]);
 
     expect(boundary.maximumConcurrentTransactions, 1);
@@ -261,33 +255,23 @@ void main() {
       MemoryMutationCoordinator(boundary),
       tokenFactory: () => 'other-token',
     );
-    final first = await service.preparePreview(
-      'user_profile.md',
-      '# User\nfirst\n',
-    );
+    final first = await service.preparePreview('user.md', '# User\nfirst\n');
     final second = await otherService.preparePreview(
-      'project_context.md',
+      'user.md',
       '# Project\nsecond\n',
     );
     boundary.writeDelay = const Duration(milliseconds: 5);
 
     await Future.wait([
-      service.apply(
-        fileName: first.fileName,
-        proposedContent: first.proposedContent,
-        diff: first.diff,
-        createdAt: first.createdAt,
-        confirmationToken: first.confirmationToken,
-        version: first.version,
-      ),
-      otherService.apply(
-        fileName: second.fileName,
-        proposedContent: second.proposedContent,
-        diff: second.diff,
-        createdAt: second.createdAt,
-        confirmationToken: second.confirmationToken,
-        version: second.version,
-      ),
+      applyPreview(service, first),
+      // The loser of the race is detected as stale inside the transaction.
+      () async {
+        try {
+          await applyPreview(otherService, second);
+        } on StaleMemoryPreviewException {
+          // expected loser of the race
+        }
+      }(),
     ]);
 
     expect(boundary.maximumConcurrentTransactions, 1);
@@ -296,11 +280,8 @@ void main() {
   test(
     'stale race is checked inside the target and audit transaction',
     () async {
-      final preview = await service.preparePreview(
-        'user_profile.md',
-        '# User\nnew\n',
-      );
-      await boundary.write('user_profile.md', '# User\nintervening\n');
+      final preview = await service.preparePreview('user.md', '# User\nnew\n');
+      await boundary.write('user.md', '# User\nintervening\n');
 
       await expectLater(
         service.apply(
@@ -313,18 +294,15 @@ void main() {
         ),
         throwsA(isA<StaleMemoryPreviewException>()),
       );
-      expect(boundary.files['user_profile.md'], contains('intervening'));
+      expect(boundary.files['user.md'], contains('intervening'));
     },
   );
 
   test('partial target failure never overwrites an intervening edit', () async {
-    final preview = await service.preparePreview(
-      'user_profile.md',
-      '# User\nnew\n',
-    );
+    final preview = await service.preparePreview('user.md', '# User\nnew\n');
     boundary.failWriteNumber = 1;
     boundary.onFailedWrite = () {
-      boundary.files['user_profile.md'] = '# User\nintervening\n';
+      boundary.files['user.md'] = '# User\nintervening\n';
     };
 
     await expectLater(
@@ -344,18 +322,15 @@ void main() {
         ),
       ),
     );
-    expect(boundary.files['user_profile.md'], contains('intervening'));
+    expect(boundary.files['user.md'], contains('intervening'));
     expect(
-      boundary.files['memory_log.md'],
+      boundary.files['memory.md'],
       isNot(contains('"status":"committed"')),
     );
   });
 
   test('audit mirror failure after durable apply is finalized once', () async {
-    final preview = await service.preparePreview(
-      'user_profile.md',
-      '# User\nnew\n',
-    );
+    final preview = await service.preparePreview('user.md', '# User\nnew\n');
     boundary.failAfterWriteNumber = 2;
 
     await service.apply(
@@ -367,10 +342,10 @@ void main() {
       version: preview.version,
     );
 
-    expect(boundary.files['user_profile.md'], '# User\nnew\n');
-    expect(boundary.files['memory_log.md'], contains('"status":"committed"'));
+    expect(boundary.files['user.md'], '# User\nnew\n');
+    expect(boundary.files['memory.md'], contains('"status":"committed"'));
     expect(
-      '"status":"committed"'.allMatches(boundary.files['memory_log.md']!),
+      '"status":"committed"'.allMatches(boundary.files['memory.md']!),
       hasLength(1),
     );
   });
@@ -384,7 +359,7 @@ void main() {
       addTearDown(container.dispose);
       final execution = container.read(updateMemoryFileProvider)!;
       final preview = await execution.preparePreview(
-        'system_instructions.md',
+        'soul.md',
         '# Instructions\nBe concise.\n',
       );
 
@@ -398,15 +373,12 @@ void main() {
       );
 
       expect(updateMemoryFileProvider.name, 'update_memory_file');
-      expect(boundary.files['system_instructions.md'], contains('Be concise.'));
+      expect(boundary.files['soul.md'], contains('Be concise.'));
     },
   );
 
   test('persisted proposal confirmation is idempotent after apply', () async {
-    final preview = await service.preparePreview(
-      'user_profile.md',
-      '# User\nnew\n',
-    );
+    final preview = await service.preparePreview('user.md', '# User\nnew\n');
 
     final first = await service.applyPersisted(
       fileName: preview.fileName,
@@ -427,7 +399,7 @@ void main() {
 
     expect(second.version, first.version);
     expect(
-      '"status":"committed"'.allMatches(boundary.files['memory_log.md']!),
+      '"status":"committed"'.allMatches(boundary.files['memory.md']!),
       hasLength(1),
     );
   });
@@ -435,10 +407,7 @@ void main() {
   test(
     'preview survives service replacement without retained proposal state',
     () async {
-      final preview = await service.preparePreview(
-        'user_profile.md',
-        '# User\nnew\n',
-      );
+      final preview = await service.preparePreview('user.md', '# User\nnew\n');
       final replacement = UpdateMemoryFileService(
         boundary,
         MemoryMutationCoordinator(boundary),
@@ -454,7 +423,7 @@ void main() {
         createdAt: preview.createdAt,
       );
 
-      expect(boundary.files['user_profile.md'], '# User\nnew\n');
+      expect(boundary.files['user.md'], '# User\nnew\n');
     },
   );
 
@@ -464,10 +433,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: MemoryUpdateSheet(
-            fileName: 'user_profile.md',
-            service: service,
-          ),
+          body: MemoryUpdateSheet(fileName: 'user.md', service: service),
         ),
       ),
     );
@@ -488,11 +454,13 @@ void main() {
 
     await tester.tap(find.byKey(const Key('memory-update-confirm')));
     await tester.pumpAndSettle();
-    expect(boundary.files['user_profile.md'], '# User\nconfirmed\n');
+    expect(boundary.files['user.md'], '# User\nconfirmed\n');
   });
 }
 
-class _FakeMemoryBoundary implements MemoryFileBoundary {
+class _FakeMemoryBoundary
+    with MemoryBoundaryDelete
+    implements MemoryFileBoundary {
   _FakeMemoryBoundary(this.files);
 
   final Map<String, String> files;

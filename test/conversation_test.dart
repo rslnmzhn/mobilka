@@ -25,7 +25,7 @@ void main() {
         assistantMessageId: 'assistant-1',
         selectedAgentId: 'agent-1',
         allowedTools: const {'update_memory_file'},
-        fileName: 'user_profile.md',
+        fileName: 'user.md',
         proposedContent: '# User\nNew fact\n',
         diff: '-old\n+New fact',
         confirmationToken: 'token-1',
@@ -56,7 +56,7 @@ void main() {
         ChatToolCall(
           id: 'call-1',
           name: 'update_memory_file',
-          arguments: '{"file_name":"user_profile.md"}',
+          arguments: '{"file_name":"user.md"}',
         ),
       ],
     );
