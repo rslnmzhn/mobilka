@@ -6,6 +6,7 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'features/chat/application/chat_controller.dart';
+import 'features/memory/data/memory_repository.dart';
 import 'features/updater/application/update_controller.dart';
 
 class MobilkaApp extends ConsumerStatefulWidget {
@@ -21,9 +22,15 @@ class _MobilkaAppState extends ConsumerState<MobilkaApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    Future<void>.microtask(
-      () => ref.read(updateControllerProvider.notifier).check(),
-    );
+    Future<void>.microtask(() async {
+      // Memory 2.0: rename legacy files before anything reads them.
+      try {
+        await ref.read(memoryRepositoryProvider).migrateLegacyFiles();
+      } on Object {
+        // Migration is best-effort; missing folder is the common no-op path.
+      }
+      await ref.read(updateControllerProvider.notifier).check();
+    });
   }
 
   @override

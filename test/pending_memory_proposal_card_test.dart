@@ -13,7 +13,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: PendingMemoryProposalCard(
-            fileName: 'user_profile.md',
+            fileName: 'user.md',
             diff: '+fact',
             onConfirm: () => confirmation.future,
             onReject: () async {},
@@ -55,7 +55,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: PendingMemoryProposalCard(
-            fileName: 'user_profile.md',
+            fileName: 'user.md',
             diff: '+fact',
             onConfirm: () => throw StateError('failed'),
             onReject: () async {},

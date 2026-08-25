@@ -7,6 +7,7 @@ import 'package:mobilka/features/memory/application/memory_chat_tool_runtime.dar
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
 import 'package:mobilka/features/memory/application/update_memory_file_service.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
+import 'support/memory_delete_mixins.dart';
 
 void main() {
   late _MemoryBoundary boundary;
@@ -14,10 +15,10 @@ void main() {
 
   setUp(() {
     boundary = _MemoryBoundary({
-      'user_profile.md': '# User\nold\n',
-      'project_context.md': '# Project\n',
-      'system_instructions.md': '# Instructions\n',
-      'memory_log.md': '# Memory Log\n',
+      'user.md': '# User\nold\n',
+
+      'soul.md': '# Instructions\n',
+      'memory.md': '# Memory Log\n',
     });
     updates = UpdateMemoryFileService(
       boundary,
@@ -57,8 +58,7 @@ void main() {
         const ChatToolCall(
           id: 'call-1',
           name: 'update_memory_file',
-          arguments:
-              '{"file_name":"user_profile.md","content":"# User\\nnew\\n"}',
+          arguments: '{"file_name":"user.md","content":"# User\\nnew\\n"}',
         ),
         'assistant-1',
         'agent',
@@ -66,7 +66,7 @@ void main() {
       );
 
       expect(proposal?.proposedContent, '# User\nnew\n');
-      expect(boundary.files['user_profile.md'], '# User\nold\n');
+      expect(boundary.files['user.md'], '# User\nold\n');
       expect(boundary.writes, isEmpty);
     },
   );
@@ -81,8 +81,7 @@ void main() {
           const ChatToolCall(
             id: 'call-1',
             name: 'update_memory_file',
-            arguments:
-                '{"file_name":"user_profile.md","content":"new","extra":true}',
+            arguments: '{"file_name":"user.md","content":"new","extra":true}',
           ),
           'assistant-1',
           'agent',
@@ -102,14 +101,13 @@ void main() {
         const ChatToolCall(
           id: 'call-1',
           name: 'update_memory_file',
-          arguments:
-              '{"file_name":"user_profile.md","content":"# User\\nnew\\n"}',
+          arguments: '{"file_name":"user.md","content":"# User\\nnew\\n"}',
         ),
         const {'update_memory_file'},
       ),
       throwsFormatException,
     );
-    expect(boundary.files['user_profile.md'], '# User\nold\n');
+    expect(boundary.files['user.md'], '# User\nold\n');
     expect(boundary.writes, isEmpty);
   });
 
@@ -121,8 +119,7 @@ void main() {
         const ChatToolCall(
           id: 'call-1',
           name: 'update_memory_file',
-          arguments:
-              '{"file_name":"user_profile.md","content":"# User\\nnew\\n"}',
+          arguments: '{"file_name":"user.md","content":"# User\\nnew\\n"}',
         ),
         'assistant-1',
         'agent',
@@ -143,7 +140,7 @@ void main() {
           const ChatToolCall(
             id: 'call-1',
             name: 'update_memory_file',
-            arguments: '{"file_name":"user_profile.md","content":"new"}',
+            arguments: '{"file_name":"user.md","content":"new"}',
           ),
           'assistant-1',
           'agent',
@@ -183,7 +180,7 @@ void main() {
       version: proposal.version,
       createdAt: proposal.createdAt,
     );
-    expect(boundary.files['user_profile.md'], '# User\nnew\n');
+    expect(boundary.files['user.md'], '# User\nnew\n');
   });
 
   test('revalidation resolves the proposal agent by id', () async {
@@ -202,8 +199,7 @@ Future<PendingMemoryProposal> _proposal(MemoryChatToolRuntime runtime) async =>
       const ChatToolCall(
         id: 'call-1',
         name: 'update_memory_file',
-        arguments:
-            '{"file_name":"user_profile.md","content":"# User\\nnew\\n"}',
+        arguments: '{"file_name":"user.md","content":"# User\\nnew\\n"}',
       ),
       'assistant-1',
       'agent',
@@ -233,7 +229,7 @@ AgentCatalogEntry _entry(List<String> tools) => AgentCatalogEntry(
   isFavorite: false,
 );
 
-class _MemoryBoundary implements MemoryFileBoundary {
+class _MemoryBoundary with MemoryBoundaryDelete implements MemoryFileBoundary {
   _MemoryBoundary(this.files);
 
   final Map<String, String> files;

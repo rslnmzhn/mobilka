@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../features/memory/application/persona_chat_tools.dart';
 import '../../artifacts/application/artifacts_chat_tool_runtime.dart';
 import '../../chat/domain/chat_message.dart';
 import '../../chat/domain/chat_tool.dart';
@@ -20,6 +21,7 @@ final chatToolRuntimeRegistryProvider = Provider<CompositeChatToolRuntime>((
 ) {
   return CompositeChatToolRuntime([
     ref.watch(artifactsChatToolRuntimeProvider),
+    ref.watch(personaChatToolsProvider),
     ref.watch(memoryChatToolRuntimeProvider),
   ]);
 });

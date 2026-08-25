@@ -19,6 +19,7 @@ import 'package:mobilka/features/memory/application/memory_chat_tool_runtime.dar
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
 import 'package:mobilka/features/memory/application/update_memory_file_service.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
+import 'support/memory_delete_mixins.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +31,9 @@ void main() {
     await Future.wait([
       Hive.openBox<dynamic>('conversations'),
       Hive.openBox<dynamic>('memory_recovery'),
+      Hive.openBox<dynamic>('preferences'),
+      Hive.openBox<dynamic>('artifacts'),
+      Hive.openBox<dynamic>('memory_proposals'),
     ]);
   });
 
@@ -61,7 +65,11 @@ void main() {
           .read(chatControllerProvider)
           .requireValue
           .conversationById('conversation')!;
-      expect(boundary.files['project_context.md'], '# Created\n');
+      // ignore: avoid_print
+      print(
+        'FILES=$boundary TOOLMSG=${conversation.messages.where((m) => m.role == ChatRole.tool).length}',
+      );
+      expect(boundary.files['user.md'], '# Created\n');
       expect(conversation.pendingMemoryProposal, isNull);
       expect(
         conversation.messages.where((message) => message.role == ChatRole.tool),
@@ -170,10 +178,7 @@ ProviderContainer _container(
 );
 
 Future<PendingMemoryProposal> _proposal(UpdateMemoryFileService updates) async {
-  final preview = await updates.preparePreview(
-    'project_context.md',
-    '# Created\n',
-  );
+  final preview = await updates.preparePreview('user.md', '# Created\n');
   return PendingMemoryProposal(
     toolCallId: 'call',
     assistantMessageId: 'assistant-tool-call',
@@ -237,8 +242,8 @@ class _Streamer implements ChatCompletionStreamer {
   ]);
 }
 
-class _Boundary implements MemoryFileBoundary {
-  final Map<String, String> files = {'memory_log.md': '# Memory Log\n'};
+class _Boundary with MemoryBoundaryDelete implements MemoryFileBoundary {
+  final Map<String, String> files = {'memory.md': '# Memory Log\n'};
 
   @override
   Future<String> read(String fileName) async => files[fileName]!;

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/logging/app_logger.dart';
 import '../../../core/storage/app_boxes.dart';
+import '../domain/memory_file_names.dart';
 import '../data/memory_file_store.dart';
 import '../data/memory_repository.dart';
 import 'memory_recovery_journal.dart';
@@ -54,7 +55,7 @@ class MemoryMutationCoordinator {
        _journal = journal ?? _journalFor(_boundary),
        _logger = logger ?? AppLogger();
 
-  static const auditFile = 'memory_log.md';
+  static const auditFile = MemoryFiles.memory;
   final MemoryFileBoundary _boundary;
   final DateTime Function() _now;
   final String Function() _operationId;
@@ -164,11 +165,20 @@ class MemoryMutationCoordinator {
         return Map.unmodifiable(snapshot);
       });
 
-  Future<String?> _readIfExists(MemoryFileTransaction files, String fileName) {
+  Future<String?> _readIfExists(
+    MemoryFileTransaction files,
+    String fileName,
+  ) async {
     if (files case final MissingAwareMemoryFileTransaction missingAware) {
       return missingAware.readIfExists(fileName);
     }
-    return files.read(fileName).then<String?>((content) => content);
+    // Plain boundaries treat absent files as unreadable; creation flows rely
+    // on this mapping to null.
+    try {
+      return await files.read(fileName);
+    } on Object {
+      return null;
+    }
   }
 
   Future<void> _recover(MemoryFileTransaction files) async {

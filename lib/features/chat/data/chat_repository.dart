@@ -5,8 +5,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../agents/application/agents_controller.dart';
 import '../../settings/data/settings_repository.dart';
 import '../../memory/application/context_injector.dart';
-import '../../memory/application/memory_selection_controller.dart';
 import '../../memory/application/memory_mutation_coordinator.dart';
+import '../../memory/application/persona_registry.dart';
 import '../../memory/data/context_sources.dart';
 import '../../memory/data/memory_repository.dart';
 import '../../models/domain/model_capabilities.dart';
@@ -37,7 +37,7 @@ ChatRepository chatRepository(Ref ref) => ChatRepository(
       () => ref.read(memoryMutationCoordinatorProvider),
     ),
     ref.watch(selectedAgentPromptAdapterProvider),
-    () => ref.read(memorySelectionControllerProvider),
+    () async => ref.read(personaRegistryProvider).overlayText(),
   ),
 );
 

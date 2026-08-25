@@ -9,7 +9,7 @@ void main() {
   const call = ChatToolCall(
     id: 'call-1',
     name: 'read_memory',
-    arguments: '{"file":"user_profile.md"}',
+    arguments: '{"file":"user.md"}',
   );
 
   Widget app(Widget child) => MaterialApp(home: Scaffold(body: child));
@@ -36,7 +36,7 @@ void main() {
     await tester.tap(find.byKey(const Key('tool-call-toggle-call-1')));
     await tester.pump();
     expect(find.byKey(const Key('tool-call-input-call-1')), findsOneWidget);
-    expect(find.textContaining('user_profile.md'), findsOneWidget);
+    expect(find.textContaining('user.md'), findsOneWidget);
   });
 
   testWidgets('shows completed output and assistant text', (tester) async {

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
+import 'support/memory_delete_mixins.dart';
 
 void main() {
   late Directory directory;
@@ -20,11 +21,11 @@ void main() {
     final second = 'B' * 10000;
     final otherStore = PathMemoryFileStore(directory.path);
     await Future.wait([
-      store.write('memory_log.md', first),
-      otherStore.write('memory_log.md', second),
+      store.write('memory.md', first),
+      otherStore.write('memory.md', second),
     ]);
 
-    final result = await store.read('memory_log.md');
+    final result = await store.read('memory.md');
     expect(result == first || result == second, isTrue);
   });
 
@@ -34,15 +35,15 @@ void main() {
   });
 
   test('reads the last serialized write', () async {
-    await store.write('user_profile.md', 'first');
-    await store.write('user_profile.md', 'second');
-    expect(await store.read('user_profile.md'), 'second');
+    await store.write('user.md', 'first');
+    await store.write('user.md', 'second');
+    expect(await store.read('user.md'), 'second');
   });
 
   test('createIfMissing preserves existing user content', () async {
-    await store.createIfMissing('user_profile.md', 'first');
-    await store.createIfMissing('user_profile.md', 'second');
-    expect(await store.read('user_profile.md'), 'first');
+    await store.createIfMissing('user.md', 'first');
+    await store.createIfMissing('user.md', 'second');
+    expect(await store.read('user.md'), 'first');
   });
 
   test('rejects a symbolic-link target when supported', () async {
@@ -50,9 +51,7 @@ void main() {
       '${directory.parent.path}${Platform.pathSeparator}mobilka-outside.md',
     );
     await outside.writeAsString('outside');
-    final link = Link(
-      '${directory.path}${Platform.pathSeparator}memory_log.md',
-    );
+    final link = Link('${directory.path}${Platform.pathSeparator}memory.md');
     try {
       await link.create(outside.path);
     } on FileSystemException {
@@ -60,7 +59,7 @@ void main() {
       return;
     }
     expect(
-      () => store.write('memory_log.md', 'unsafe'),
+      () => store.write('memory.md', 'unsafe'),
       throwsA(isA<FileSystemException>()),
     );
     expect(await outside.readAsString(), 'outside');
@@ -72,9 +71,7 @@ void main() {
       '${directory.parent.path}${Platform.pathSeparator}mobilka-race-outside.md',
     );
     await outside.writeAsString('outside');
-    final target = File(
-      '${directory.path}${Platform.pathSeparator}memory_log.md',
-    );
+    final target = File('${directory.path}${Platform.pathSeparator}memory.md');
     await target.writeAsString('inside');
     final link = Link(target.path);
     try {
@@ -87,7 +84,7 @@ void main() {
     }
 
     await expectLater(
-      store.write('memory_log.md', 'unsafe'),
+      store.write('memory.md', 'unsafe'),
       throwsA(isA<FileSystemException>()),
     );
     expect(await outside.readAsString(), 'outside');
@@ -99,15 +96,15 @@ void main() {
     'SAF store reads exact children and overwrites through adapter',
     () async {
       final access = _FakeSafMemoryAccess({
-        'user_profile.md': 'old',
-        'user_profile.md.bak': 'backup',
+        'user.md': 'old',
+        'user.md.bak': 'backup',
       });
       final safStore = SafMemoryFileStore('content://memory', access);
 
-      expect(await safStore.read('user_profile.md'), 'old');
-      await safStore.write('user_profile.md', 'new');
+      expect(await safStore.read('user.md'), 'old');
+      await safStore.write('user.md', 'new');
 
-      expect(await safStore.read('user_profile.md'), 'new');
+      expect(await safStore.read('user.md'), 'new');
       expect(access.lastOverwrite, isTrue);
     },
   );
@@ -116,63 +113,62 @@ void main() {
     final access = _FakeSafMemoryAccess({});
     final safStore = SafMemoryFileStore('content://memory', access);
 
-    expect(
-      () => safStore.write('../user_profile.md', 'unsafe'),
-      throwsFormatException,
-    );
+    expect(() => safStore.write('../user.md', 'unsafe'), throwsFormatException);
     expect(access.calls, 0);
   });
 
   test('SAF snapshot rejects duplicate file names', () async {
-    final access = _FakeSafMemoryAccess({'user_profile.md': 'profile'})
-      ..duplicateName = 'user_profile.md';
+    final access = _FakeSafMemoryAccess({'user.md': 'profile'})
+      ..duplicateName = 'user.md';
     final safStore = SafMemoryFileStore('content://memory', access);
 
     await expectLater(
-      safStore.transaction((files) => files.read('user_profile.md')),
+      safStore.transaction((files) => files.read('user.md')),
       throwsStateError,
     );
   });
 
   test('rejects malformed UTF-8 and oversized reads', () async {
-    final malformed = _FakeSafMemoryAccess({'user_profile.md': 'profile'})
+    final malformed = _FakeSafMemoryAccess({'user.md': 'profile'})
       ..rawBytes = Uint8List.fromList([0xC3, 0x28]);
     await expectLater(
-      SafMemoryFileStore('content://memory', malformed).read('user_profile.md'),
+      SafMemoryFileStore('content://memory', malformed).read('user.md'),
       throwsFormatException,
     );
     malformed.rawBytes = Uint8List(maxMemoryFileBytes + 1);
     await expectLater(
-      SafMemoryFileStore('content://memory', malformed).read('user_profile.md'),
+      SafMemoryFileStore('content://memory', malformed).read('user.md'),
       throwsFormatException,
     );
   });
 
   test('desktop transaction keeps reads and writes on one adapter', () async {
-    await store.createIfMissing('user_profile.md', 'before');
+    await store.createIfMissing('user.md', 'before');
     await store.transaction((files) async {
-      expect(await files.read('user_profile.md'), 'before');
-      await files.write('user_profile.md', 'after');
+      expect(await files.read('user.md'), 'before');
+      await files.write('user.md', 'after');
     });
-    expect(await store.read('user_profile.md'), 'after');
+    expect(await store.read('user.md'), 'after');
   });
 
   test(
     'SAF create preserves existing files and creates missing files',
     () async {
-      final access = _FakeSafMemoryAccess({'user_profile.md': 'existing'});
+      final access = _FakeSafMemoryAccess({'user.md': 'existing'});
       final safStore = SafMemoryFileStore('content://memory', access);
-      await safStore.createIfMissing('user_profile.md', 'replacement');
-      await safStore.createIfMissing('memory_log.md', 'created');
+      await safStore.createIfMissing('user.md', 'replacement');
+      await safStore.createIfMissing('memory.md', 'created');
 
-      expect(access.files['user_profile.md'], 'existing');
-      expect(access.files['memory_log.md'], 'created');
+      expect(access.files['user.md'], 'existing');
+      expect(access.files['memory.md'], 'created');
       expect(access.lastOverwrite, isFalse);
     },
   );
 }
 
-class _FakeSafMemoryAccess implements SafMemoryAccess {
+class _FakeSafMemoryAccess
+    with SafAccessDeleteMixin
+    implements SafMemoryAccess {
   _FakeSafMemoryAccess(this.files);
 
   final Map<String, String> files;

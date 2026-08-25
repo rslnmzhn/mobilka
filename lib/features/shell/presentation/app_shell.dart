@@ -42,7 +42,7 @@ class AppShell extends StatelessWidget {
               backgroundColor: Colors.transparent,
               selectedIndex: shell.currentIndex,
               onDestinationSelected: select,
-              labelType: NavigationRailLabelType.all,
+              labelType: NavigationRailLabelType.none,
               groupAlignment: -0.72,
               leading: const Padding(
                 padding: EdgeInsets.only(top: 12, bottom: 22),
@@ -72,9 +72,7 @@ class AppShell extends StatelessWidget {
             child: NavigationBar(
               selectedIndex: shell.currentIndex,
               onDestinationSelected: select,
-              labelBehavior: constraints.maxWidth < 360
-                  ? NavigationDestinationLabelBehavior.alwaysHide
-                  : NavigationDestinationLabelBehavior.alwaysShow,
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
               destinations: destinations
                   .map(
                     (destination) => NavigationDestination(

@@ -12,6 +12,7 @@ abstract interface class MemoryFileBoundary {
 
   Future<String> read(String fileName);
   Future<void> write(String fileName, String content);
+  Future<void> delete(String fileName);
 }
 
 abstract interface class MemoryFileTransaction {
@@ -45,6 +46,18 @@ class PathMemoryFileStore implements MemoryFileStore {
   Future<void> write(String fileName, String content) {
     _validateFileName(fileName);
     return transaction((files) => files.write(fileName, content));
+  }
+
+  @override
+  Future<void> delete(String fileName) {
+    _validateFileName(fileName);
+    return transaction((files) async {
+      final transaction = files as _PathMemoryFileTransaction;
+      final file = transaction.target(fileName);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    });
   }
 
   @override
@@ -135,6 +148,7 @@ class _PathMemoryFileTransaction
 abstract interface class SafMemoryAccess {
   Future<List<SafMemoryDocument>> list(String directoryUri);
   Future<Uint8List> read(String documentUri);
+  Future<void> delete(String documentUri);
   Future<void> write(
     String directoryUri,
     String fileName,
@@ -176,6 +190,9 @@ class SafMemoryAccessAdapter implements SafMemoryAccess {
   Future<Uint8List> read(String documentUri) => _saf.readFileBytes(documentUri);
 
   @override
+  Future<void> delete(String documentUri) => _saf.delete(documentUri);
+
+  @override
   Future<void> write(
     String directoryUri,
     String fileName,
@@ -211,6 +228,20 @@ class SafMemoryFileStore implements MemoryFileStore {
   Future<void> write(String fileName, String content) {
     _validateFileName(fileName);
     return transaction((files) => files.write(fileName, content));
+  }
+
+  @override
+  Future<void> delete(String fileName) {
+    _validateFileName(fileName);
+    return _lock.synchronized(() async {
+      final documents = await _access.list(directoryUri);
+      final matches = documents
+          .where((document) => document.name == fileName)
+          .toList();
+      if (matches.length == 1 && !matches.single.isDirectory) {
+        await _access.delete(matches.single.uri);
+      }
+    });
   }
 
   @override
@@ -306,7 +337,7 @@ String _decodeMemoryFile(List<int> bytes) {
 }
 
 bool _isSafeMarkdownName(String fileName) =>
-    RegExp(r'^[a-z0-9][a-z0-9_-]*\.md$').hasMatch(fileName) &&
+    RegExp(r'^[a-z0-9][a-z0-9_-]*\.(md|yaml)$').hasMatch(fileName) &&
     !fileName.contains('..');
 
 void _validateFileName(String fileName) {

@@ -14,7 +14,7 @@ void main() {
         events: const [
           ChatStreamEvent(
             delta:
-                '```tool_call\n{"name":"update_memory_file","arguments":{"file_name":"user_profile.md","content":"# New"}}\n```',
+                '```tool_call\n{"name":"update_memory_file","arguments":{"file_name":"user.md","content":"# New"}}\n```',
             isTerminal: true,
             finishReason: 'stop',
           ),
@@ -46,8 +46,7 @@ void main() {
               index: 0,
               id: 'call-1',
               name: 'update_memory_file',
-              arguments:
-                  '{"file_name":"user_profile.md","content":"# User\\nnew\\n"}',
+              arguments: '{"file_name":"user.md","content":"# User\\nnew\\n"}',
             ),
           ],
         ),
@@ -199,7 +198,7 @@ void main() {
         assistantMessageId: 'assistant',
         selectedAgentId: 'agent-1',
         allowedTools: const {'update_memory_file'},
-        fileName: 'user_profile.md',
+        fileName: 'user.md',
         proposedContent: '# User\nFact\n',
         diff: '+Fact',
         confirmationToken: 'token',

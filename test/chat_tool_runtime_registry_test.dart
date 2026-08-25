@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive/hive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/chat/application/chat_tool_runtime.dart';
 import 'package:mobilka/features/chat/application/chat_tool_runtime_registry.dart';
@@ -75,6 +78,12 @@ void main() {
   });
 
   test('production registry exposes a proposal-capable runtime', () async {
+    Hive.init(Directory.systemTemp.createTempSync('registry-test').path);
+    await Hive.openBox<dynamic>('preferences');
+    addTearDown(() async {
+      await Hive.deleteBoxFromDisk('preferences');
+      await Hive.close();
+    });
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -132,7 +141,7 @@ class _ProposalCapableRuntime extends _StubRuntime
       assistantMessageId: assistantMessageId,
       selectedAgentId: 'agent',
       allowedTools: allowedTools,
-      fileName: 'user_profile.md',
+      fileName: 'user.md',
       proposedContent: '# new',
       diff: '+new',
       confirmationToken: 'token',

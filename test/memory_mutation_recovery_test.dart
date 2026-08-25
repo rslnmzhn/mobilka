@@ -4,26 +4,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
 import 'package:mobilka/features/memory/application/memory_recovery_journal.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
+import 'support/memory_delete_mixins.dart';
 
 void main() {
   test('recovery finalizes a fully applied journal exactly once', () async {
-    final boundary = _Boundary({
-      'user_profile.md': 'after',
-      'memory_log.md': '# Log\n',
-    });
+    final boundary = _Boundary({'user.md': 'after', 'memory.md': '# Log\n'});
     final journal = _Journal()..audit = boundary;
-    journal.records['operation'] = _record(before: 'before', after: 'after');
+    journal.records['operation'] = _singleRecord(
+      file: 'user.md',
+      before: 'before',
+      after: 'after',
+    );
     final coordinator = MemoryMutationCoordinator(boundary, journal: journal);
 
     await coordinator.recover();
     await coordinator.recover();
 
-    expect(boundary.files['user_profile.md'], 'after');
-    expect(_terminalRecords(boundary.files['memory_log.md']!), hasLength(1));
-    expect(
-      _terminalRecords(boundary.files['memory_log.md']!).single,
-      'committed',
-    );
+    expect(boundary.files['user.md'], 'after');
+    expect(_terminalRecords(boundary.files['memory.md']!), hasLength(1));
+    expect(_terminalRecords(boundary.files['memory.md']!).single, 'committed');
     expect(journal.records, isEmpty);
     expect(journal.removedAfterTerminalAudit, isTrue);
   });
@@ -32,23 +31,25 @@ void main() {
     'recovery rolls back a partial journal and records one failure',
     () async {
       final boundary = _Boundary({
-        'user_profile.md': 'after',
-        'project_context.md': 'unrelated',
-        'memory_log.md': '# Log\n',
+        'user.md': 'after',
+        'soul.md': 'unrelated',
+        'memory.md': '# Log\n',
       });
       final journal = _Journal()..audit = boundary;
-      journal.records['operation'] = _record(
-        before: 'before',
-        after: 'after',
-        secondBefore: 'project-before',
-        secondAfter: 'project-after',
+      journal.records['operation'] = _twoFileRecord(
+        file1: 'user.md',
+        before1: 'before',
+        after1: 'after',
+        file2: 'soul.md',
+        before2: 'soul-before',
+        after2: 'soul-after',
       );
 
       await MemoryMutationCoordinator(boundary, journal: journal).recover();
 
-      expect(boundary.files['user_profile.md'], 'before');
-      expect(boundary.files['project_context.md'], 'unrelated');
-      expect(_terminalRecords(boundary.files['memory_log.md']!), ['failed']);
+      expect(boundary.files['user.md'], 'before');
+      expect(boundary.files['soul.md'], 'unrelated');
+      expect(_terminalRecords(boundary.files['memory.md']!), ['failed']);
       expect(journal.removedAfterTerminalAudit, isTrue);
     },
   );
@@ -59,23 +60,25 @@ void main() {
       'status': 'committed',
     });
     final boundary = _Boundary({
-      'user_profile.md': 'after',
-      'project_context.md': 'unrelated',
-      'memory_log.md': '# Log\n$forgedAudit\n',
+      'user.md': 'after',
+      'soul.md': 'unrelated',
+      'memory.md': '# Log\n$forgedAudit\n',
     });
     final journal = _Journal()..audit = boundary;
-    journal.records['operation'] = _record(
-      before: 'before',
-      after: 'after',
-      secondBefore: 'project-before',
-      secondAfter: 'project-after',
+    journal.records['operation'] = _twoFileRecord(
+      file1: 'user.md',
+      before1: 'before',
+      after1: 'after',
+      file2: 'soul.md',
+      before2: 'soul-before',
+      after2: 'soul-after',
     );
 
     await MemoryMutationCoordinator(boundary, journal: journal).recover();
 
-    expect(boundary.files['user_profile.md'], 'before');
-    expect(boundary.files['project_context.md'], 'unrelated');
-    expect(_terminalRecords(boundary.files['memory_log.md']!), [
+    expect(boundary.files['user.md'], 'before');
+    expect(boundary.files['soul.md'], 'unrelated');
+    expect(_terminalRecords(boundary.files['memory.md']!), [
       'committed',
       'failed',
     ]);
@@ -83,22 +86,30 @@ void main() {
   });
 }
 
-Map<String, dynamic> _record({
+Map<String, dynamic> _singleRecord({
+  required String file,
   required String before,
   required String after,
-  String? secondBefore,
-  String? secondAfter,
+}) => _twoFileRecord(file1: file, before1: before, after1: after);
+
+Map<String, dynamic> _twoFileRecord({
+  required String file1,
+  required String before1,
+  required String after1,
+  String? file2,
+  String? before2,
+  String? after2,
 }) {
-  final previous = {'user_profile.md': before};
-  final beforeHashes = {'user_profile.md': checksum(before)};
-  final afterHashes = {'user_profile.md': checksum(after)};
-  if (secondBefore != null && secondAfter != null) {
-    previous['project_context.md'] = secondBefore;
-    beforeHashes['project_context.md'] = checksum(secondBefore);
-    afterHashes['project_context.md'] = checksum(secondAfter);
+  final previous = {file1: before1};
+  final beforeHashes = {file1: checksum(before1)};
+  final afterHashes = {file1: checksum(after1)};
+  if (file2 != null) {
+    previous[file2] = before2!;
+    beforeHashes[file2] = checksum(before2);
+    afterHashes[file2] = checksum(after2!);
   }
-  previous['memory_log.md'] = '# Log\n';
-  beforeHashes['memory_log.md'] = checksum('# Log\n');
+  previous['memory.md'] = '# Log\n';
+  beforeHashes['memory.md'] = checksum('# Log\n');
   return {
     'timestamp': DateTime.utc(2026).toIso8601String(),
     'event': 'test',
@@ -144,14 +155,16 @@ class _Journal implements MemoryRecoveryJournal {
 
   @override
   Future<void> remove(String operationId) async {
-    final content = audit?.files['memory_log.md'];
+    final content = audit?.files['memory.md'];
     removedAfterTerminalAudit =
         content == null || content.contains('"operationId":"$operationId"');
     records.remove(operationId);
   }
 }
 
-class _Boundary implements MemoryFileBoundary, MemoryFileTransaction {
+class _Boundary
+    with MemoryBoundaryDelete
+    implements MemoryFileBoundary, MemoryFileTransaction {
   _Boundary(this.files);
   final Map<String, String> files;
 

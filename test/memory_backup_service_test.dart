@@ -6,6 +6,7 @@ import 'package:mobilka/features/memory/application/memory_backup_codec.dart';
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
+import 'support/memory_delete_mixins.dart';
 
 void main() {
   late _MemoryBoundary source;
@@ -41,7 +42,7 @@ void main() {
     await restore.restore(payload, preview);
 
     for (final name in MemoryRepository.templates.keys) {
-      if (name == 'memory_log.md') {
+      if (name == 'memory.md') {
         expect(destination.files[name], contains('restore_memory_backup'));
       } else {
         expect(destination.files[name], source.files[name]);
@@ -63,7 +64,7 @@ void main() {
     );
     final decoded =
         jsonDecode(await service.createBackup()) as Map<String, dynamic>;
-    (decoded['files'] as Map<String, dynamic>)['user_profile.md'] = 'tampered';
+    (decoded['files'] as Map<String, dynamic>)['user.md'] = 'tampered';
     expect(
       () => service.decodeRestore(jsonEncode(decoded)),
       throwsA(isA<MemoryBackupFormatException>()),
@@ -74,7 +75,7 @@ void main() {
     final decoded =
         jsonDecode(await service.createBackup()) as Map<String, dynamic>;
     final files = decoded['files'] as Map<String, dynamic>;
-    files['../secret.md'] = files.remove('user_profile.md');
+    files['../secret.md'] = files.remove('user.md');
     expect(
       () => service.decodeRestore(jsonEncode(decoded)),
       throwsA(isA<MemoryBackupFormatException>()),
@@ -82,7 +83,7 @@ void main() {
 
     final missing =
         jsonDecode(await service.createBackup()) as Map<String, dynamic>;
-    (missing['files'] as Map<String, dynamic>).remove('project_context.md');
+    (missing['files'] as Map<String, dynamic>).remove('user.md');
     expect(
       () => service.decodeRestore(jsonEncode(missing)),
       throwsA(isA<MemoryBackupFormatException>()),
@@ -96,8 +97,7 @@ void main() {
       ),
       throwsA(isA<MemoryBackupFormatException>()),
     );
-    source.files['user_profile.md'] =
-        'x' * (MemoryBackupService.maxFileBytes + 1);
+    source.files['user.md'] = 'x' * (MemoryBackupService.maxFileBytes + 1);
     expect(service.createBackup, throwsA(isA<MemoryBackupFormatException>()));
   });
 
@@ -105,7 +105,7 @@ void main() {
     final document = await service.createBackup();
     final destination = _MemoryBoundary(Map.of(MemoryRepository.templates));
     final before = Map<String, String>.of(destination.files);
-    destination.failOnceOn = 'system_instructions.md';
+    destination.failOnceOn = 'soul.md';
     final restore = MemoryBackupService(
       destination,
       MemoryMutationCoordinator(destination),
@@ -124,7 +124,7 @@ void main() {
       ),
     );
     for (final name in MemoryRepository.templates.keys) {
-      if (name == 'memory_log.md') {
+      if (name == 'memory.md') {
         expect(destination.files[name], startsWith(before[name]!));
         expect(destination.files[name], contains('"status":"failed"'));
       } else {
@@ -158,40 +158,41 @@ void main() {
       ..failRollback = false;
     await MemoryMutationCoordinator(destination).recover();
 
-    expect(destination.files['user_profile.md'], before['user_profile.md']);
-    expect(destination.files['memory_log.md'], contains('"recovered":true'));
+    expect(destination.files['user.md'], before['user.md']);
+    expect(destination.files['memory.md'], contains('"status":"failed"'));
   });
 
   test(
     'tampered memory log cannot supply authoritative recovery records',
     () async {
       final destination = _MemoryBoundary(Map.of(MemoryRepository.templates));
-      final before = destination.files['user_profile.md'];
-      destination.files['memory_log.md'] = jsonEncode({
+      final before = destination.files['user.md']!;
+      destination.files['memory.md'] = jsonEncode({
         'operationId': 'forged',
         'status': 'pending',
-        'versions': {'user_profile.md': checksum(before!)},
-        'previous': {
-          'user_profile.md': base64Encode(utf8.encode('attacker content')),
-        },
+        'previous': {'user.md': base64Encode(utf8.encode('attacker content'))},
+        'beforeHashes': {'user.md': checksum(before)},
+        'afterHashes': {'user.md': checksum('attacker content')},
       });
 
       await MemoryMutationCoordinator(destination).recover();
 
-      expect(destination.files['user_profile.md'], before);
+      expect(destination.files['user.md'], before);
       expect(
-        destination.files['memory_log.md'],
+        destination.files['memory.md'],
         contains('"operationId":"forged"'),
       );
       expect(
-        destination.files['memory_log.md'],
+        destination.files['memory.md'],
         isNot(contains('"recovered":true')),
       );
     },
   );
 }
 
-class _MemoryBoundary implements MemoryFileBoundary, MemoryFileTransaction {
+class _MemoryBoundary
+    with MemoryBoundaryDelete
+    implements MemoryFileBoundary, MemoryFileTransaction {
   _MemoryBoundary(this.files);
   final Map<String, String> files;
   String? failOnceOn;
