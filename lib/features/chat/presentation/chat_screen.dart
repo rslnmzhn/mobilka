@@ -1,5 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/workbench_widgets.dart';
@@ -27,6 +28,40 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final composer = TextEditingController();
   final scrollController = ScrollController();
+
+  /// Auto-follow streaming output while the user is at the bottom; a swipe
+  /// up pauses it until they return (roadmap: chat UX).
+  var _pinnedToBottom = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Jump to the newest message once the first frame is laid out.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    if (notification is UserScrollNotification) {
+      final goingUp = notification.direction == ScrollDirection.reverse;
+      if (goingUp && _pinnedToBottom) {
+        setState(() => _pinnedToBottom = false);
+      }
+    } else if (notification is ScrollUpdateNotification) {
+      final metrics = notification.metrics;
+      final nearBottom =
+          metrics.pixels >= metrics.maxScrollExtent - 80 &&
+          metrics.axis == Axis.vertical;
+      if (nearBottom && !_pinnedToBottom) {
+        setState(() => _pinnedToBottom = true);
+      }
+    }
+    return false;
+  }
+
+  void _scrollToBottom() {
+    if (!scrollController.hasClients || !_pinnedToBottom) return;
+    scrollController.jumpTo(scrollController.position.maxScrollExtent);
+  }
 
   Future<String?> _pickModel(ModelsState models) =>
       showModalBottomSheet<String>(
@@ -84,6 +119,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final chat = ref.watch(chatControllerProvider);
     final models = ref.watch(modelsControllerProvider);
+    // Auto-follow streaming output while pinned to the bottom.
+    ref.listen<AsyncValue<ChatState>>(chatControllerProvider, (_, _) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    });
     return Scaffold(
       appBar: AppBar(
         title: WorkbenchPageTitle(
@@ -176,20 +215,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     : Center(
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 920),
-                          child: ListView.builder(
-                            controller: scrollController,
-                            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                            itemCount: messages!.length,
-                            itemBuilder: (context, index) => MessageCard(
-                              key: ValueKey(messages[index].id),
-                              message: messages[index],
-                              toolExecutions: toolExecutions
-                                  .where(
-                                    (execution) =>
-                                        execution.assistantMessageId ==
-                                        messages[index].id,
-                                  )
-                                  .toList(growable: false),
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: _onScrollNotification,
+                            child: ListView.builder(
+                              controller: scrollController,
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                20,
+                                20,
+                                12,
+                              ),
+                              itemCount: messages!.length,
+                              itemBuilder: (context, index) => MessageCard(
+                                key: ValueKey(messages[index].id),
+                                message: messages[index],
+                                toolExecutions: toolExecutions
+                                    .where(
+                                      (execution) =>
+                                          execution.assistantMessageId ==
+                                          messages[index].id,
+                                    )
+                                    .toList(growable: false),
+                              ),
                             ),
                           ),
                         ),
@@ -222,6 +269,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 onCancel: ref.read(chatControllerProvider.notifier).cancel,
                 onSend: (text, attachments) {
                   composer.clear();
+                  _pinnedToBottom = true;
+                  WidgetsBinding.instance.addPostFrameCallback(
+                    (_) => _scrollToBottom(),
+                  );
                   ref
                       .read(chatControllerProvider.notifier)
                       .send(text, attachments: attachments);

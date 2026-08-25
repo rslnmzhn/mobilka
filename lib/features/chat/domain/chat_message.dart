@@ -86,6 +86,7 @@ class ChatMessage {
     this.toolCalls = const [],
     this.toolCallId,
     this.attachments = const [],
+    this.reasoningContent = '',
   });
 
   final String id;
@@ -96,6 +97,10 @@ class ChatMessage {
   final List<ChatToolCall> toolCalls;
   final String? toolCallId;
   final List<ChatAttachment> attachments;
+
+  /// Model reasoning/thinking stream (e.g. delta.reasoning_content).
+  /// Stored for display only; never sent back to the provider.
+  final String reasoningContent;
 
   Map<String, dynamic> toJson() => {
     'role': role.name,
@@ -144,6 +149,7 @@ class ChatMessage {
     if (toolCallId != null) 'toolCallId': toolCallId,
     if (attachments.isNotEmpty)
       'attachments': attachments.map((a) => a.toStorageJson()).toList(),
+    if (reasoningContent.isNotEmpty) 'reasoningContent': reasoningContent,
   };
 
   ChatMessage copyWith({
@@ -151,6 +157,7 @@ class ChatMessage {
     ChatMessageStatus? status,
     List<ChatToolCall>? toolCalls,
     List<ChatAttachment>? attachments,
+    String? reasoningContent,
   }) => ChatMessage(
     id: id,
     role: role,
@@ -160,6 +167,7 @@ class ChatMessage {
     toolCalls: toolCalls ?? this.toolCalls,
     toolCallId: toolCallId,
     attachments: attachments ?? this.attachments,
+    reasoningContent: reasoningContent ?? this.reasoningContent,
   );
 
   factory ChatMessage.fromStorageJson(Map<dynamic, dynamic> json) =>
@@ -180,6 +188,7 @@ class ChatMessage {
             .whereType<Map>()
             .map(ChatAttachment.fromStorageJson)
             .toList(growable: false),
+        reasoningContent: json['reasoningContent']?.toString() ?? '',
       );
 }
 

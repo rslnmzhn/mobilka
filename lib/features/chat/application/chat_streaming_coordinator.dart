@@ -186,6 +186,7 @@ class ChatStreamingCoordinator {
             receivedAnyToken =
                 receivedAnyToken ||
                 event.delta.isNotEmpty ||
+                event.reasoningDelta.isNotEmpty ||
                 event.toolCallDeltas.isNotEmpty;
             final latest = _conversationById(request.conversationId);
             if (latest == null) {
@@ -209,6 +210,9 @@ class ChatStreamingCoordinator {
                     (message) => message.id == assistantId
                         ? message.copyWith(
                             content: '${message.content}${event.delta}',
+                            reasoningContent:
+                                '${message.reasoningContent}'
+                                '${event.reasoningDelta}',
                             status: ChatMessageStatus.streaming,
                           )
                         : message,

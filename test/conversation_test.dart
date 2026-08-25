@@ -77,6 +77,27 @@ void main() {
     expect(restoredTool.toJson()['tool_call_id'], 'call-1');
   });
 
+  test(
+    'reasoning content round trips through storage and stays off the wire',
+    () {
+      final message = ChatMessage(
+        id: 'assistant-reasoning',
+        role: ChatRole.assistant,
+        content: 'Answer',
+        createdAt: DateTime.utc(2026),
+        reasoningContent: 'thinking hard',
+      );
+
+      final restored = ChatMessage.fromStorageJson(message.toStorageJson());
+      expect(restored.reasoningContent, 'thinking hard');
+
+      final wire = message.toJson();
+      // Reasoning is display-only: it must never be sent to the provider.
+      expect(wire.containsKey('reasoning_content'), isFalse);
+      expect(wire['content'], 'Answer');
+    },
+  );
+
   test('pending message can be marked interrupted after restart', () {
     final message = ChatMessage(
       id: 'message-1',

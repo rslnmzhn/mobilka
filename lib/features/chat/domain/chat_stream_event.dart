@@ -1,6 +1,7 @@
 class ChatStreamEvent {
   const ChatStreamEvent({
     this.delta = '',
+    this.reasoningDelta = '',
     this.finishReason,
     this.usage,
     this.isTerminal = false,
@@ -8,6 +9,9 @@ class ChatStreamEvent {
   });
 
   final String delta;
+
+  /// Reasoning/thinking tokens (delta.reasoning / delta.reasoning_content).
+  final String reasoningDelta;
   final String? finishReason;
   final ChatUsage? usage;
   final bool isTerminal;

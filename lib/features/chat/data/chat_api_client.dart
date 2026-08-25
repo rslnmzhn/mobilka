@@ -62,22 +62,52 @@ class ChatApiClient {
       if (decoded is! Map) continue;
       final choices = decoded['choices'];
       String delta = '';
+      String reasoningDelta = '';
       String? finishReason;
       var toolCallDeltas = const <ChatToolCallDelta>[];
       if (choices is List && choices.isNotEmpty && choices.first is Map) {
         final choice = choices.first as Map;
         final deltaMap = choice['delta'];
-        if (deltaMap is Map && deltaMap['content'] is String) {
-          delta = deltaMap['content'] as String;
-        }
         if (deltaMap is Map) {
+          final content = deltaMap['content'];
+          if (content is String) {
+            delta = content;
+          } else if (content is List) {
+            // Multi-part content: concatenate text parts, ignore images.
+            for (final part in content) {
+              if (part is Map &&
+                  part['type'] == 'text' &&
+                  part['text'] is String) {
+                delta += part['text'] as String;
+              }
+            }
+          }
+          // Reasoning streams: OpenRouter uses `reasoning`, DeepSeek-style
+          // endpoints use `reasoning_content`.
+          for (final key in const ['reasoning', 'reasoning_content']) {
+            final value = deltaMap[key];
+            if (value is String && value.isNotEmpty) {
+              reasoningDelta += value;
+            }
+          }
           toolCallDeltas = _parseToolCallDeltas(deltaMap['tool_calls']);
         }
         finishReason = choice['finish_reason']?.toString();
+        // Non-stream reasoning payloads put the whole block on the message.
+        final message = choice['message'];
+        if (message is Map) {
+          for (final key in const ['reasoning', 'reasoning_content']) {
+            final value = message[key];
+            if (value is String && value.isNotEmpty) {
+              reasoningDelta += value;
+            }
+          }
+        }
       }
       final usage = decoded['usage'];
       yield ChatStreamEvent(
         delta: delta,
+        reasoningDelta: reasoningDelta,
         finishReason: finishReason,
         usage: usage is Map ? ChatUsage.fromJson(usage) : null,
         toolCallDeltas: toolCallDeltas,
