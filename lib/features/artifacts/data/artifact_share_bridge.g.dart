@@ -7,7 +7,7 @@ part of 'artifact_share_bridge.dart';
 // **************************************************************************
 
 String _$artifactShareBridgeHash() =>
-    r'94181398f63460cd67305afd665cf602c1b8a6b8';
+    r'193a7439c04574811126424e2b968384408852e5';
 
 /// See also [artifactShareBridge].
 @ProviderFor(artifactShareBridge)

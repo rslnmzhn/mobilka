@@ -28,13 +28,25 @@ abstract interface class MemoryFileStore implements MemoryFileBoundary {
   Future<void> createIfMissing(String fileName, String content);
 }
 
+/// Capability interface for stores that can address files under validated
+/// relative sub-paths (skills/, sessions/...). Implemented by path-backed
+/// stores only; SAF storage falls back to flat equivalents for now.
+abstract interface class SubPathMemoryFileBoundary {
+  Future<String?> readSubPath(String relativePath);
+  Future<bool> writeSubPath(String relativePath, String content);
+}
+
 const maxMemoryFileBytes = 1024 * 1024;
 
-class PathMemoryFileStore implements MemoryFileStore {
+class PathMemoryFileStore
+    implements MemoryFileStore, SubPathMemoryFileBoundary {
   PathMemoryFileStore(this.directoryPath);
 
   final String directoryPath;
   static final Map<String, Lock> _directoryLocks = {};
+
+  /// Root directory of this store (path-backed only).
+  String get rootPath => directoryPath;
 
   @override
   Future<String> read(String fileName) {
@@ -58,6 +70,42 @@ class PathMemoryFileStore implements MemoryFileStore {
         await file.delete();
       }
     });
+  }
+
+  /// Reads a UTF-8 file under a validated relative sub-path
+  /// (e.g. `skills/x.md`, `sessions/<key>/session.md`). Null when missing.
+  @override
+  Future<String?> readSubPath(String relativePath) async {
+    final file = _subPathTarget(relativePath);
+    if (file == null || !await file.exists()) return null;
+    return file.readAsString();
+  }
+
+  /// Writes a UTF-8 file under a validated relative sub-path, creating parent
+  /// directories. Returns false when the path was rejected.
+  @override
+  Future<bool> writeSubPath(String relativePath, String content) async {
+    final file = _subPathTarget(relativePath);
+    if (file == null) return false;
+    await file.parent.create(recursive: true);
+    await file.writeAsString(content, flush: true);
+    return true;
+  }
+
+  File? _subPathTarget(String relativePath) {
+    // Whitelist: <root>/<folder>/<name>.<ext>, folders limited to the
+    // workspace scheme; traversal and absolute paths are impossible here.
+    final match = RegExp(
+      r'^(skills|sessions)/([a-z0-9_\-]+)/([a-z0-9_\-.]+)$',
+      caseSensitive: false,
+    ).firstMatch(relativePath.replaceAll('\\', '/'));
+    if (match == null) return null;
+    if (relativePath.contains('..')) return null;
+    return File(
+      '$directoryPath${Platform.pathSeparator}'
+      '${match.group(1)}${Platform.pathSeparator}'
+      '${match.group(2)}${Platform.pathSeparator}${match.group(3)}',
+    );
   }
 
   @override

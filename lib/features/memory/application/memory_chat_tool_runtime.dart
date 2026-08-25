@@ -53,7 +53,7 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
       'properties': {
         'file_name': {
           'type': 'string',
-          'enum': ['user.md', 'memory.md'],
+          'enum': ['user.md', 'memory.md', 'soul.md', 'personas.yaml'],
         },
         'content': {
           'type': 'string',
@@ -112,13 +112,14 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     if (updates == null) throw StateError('Memory storage is not configured');
     final arguments = _decodeArguments(call.arguments);
     var fileName = arguments['file_name'] as String;
-    if (fileName == MemoryFiles.soul) {
-      // soul.md is the owner's personality file; the model may not change it.
-      throw const FormatException(
-        'soul.md is owner-managed and cannot be changed by the model',
-      );
-    }
-    if (fileName == MemoryFiles.memory) fileName = MemoryFiles.user;
+    // memory.md never reaches this path (instant fast-path). soul.md and
+    // personas.yaml go through the same confirmation flow as user.md.
+    const confirmable = {MemoryFiles.user, MemoryFiles.soul};
+    final known =
+        confirmable.contains(fileName) ||
+        fileName == MemoryFiles.personas ||
+        fileName == MemoryFiles.memory;
+    if (!known) fileName = MemoryFiles.user;
     final proposedContent = arguments['content'] as String;
     final stopwatch = Stopwatch()..start();
     _logger.log(

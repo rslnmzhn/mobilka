@@ -22,6 +22,10 @@ class MarkdownDocxConverter {
       'openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
       '<Override PartName="/word/styles.xml" ContentType="application/vnd.'
       'openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+      '<Override PartName="/docProps/core.xml" ContentType="application/vnd.'
+      'openxmlformats-package.core-properties+xml"/>'
+      '<Override PartName="/docProps/app.xml" ContentType="application/vnd.'
+      'openxmlformats-officedocument.extended-properties+xml"/>'
       '</Types>';
 
   static const _rootRels =
@@ -32,6 +36,12 @@ class MarkdownDocxConverter {
       '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/'
       'officeDocument/2006/relationships/officeDocument" '
       'Target="word/document.xml"/>'
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/'
+      'package/2006/relationships/metadata/core-properties" '
+      'Target="docProps/core.xml"/>'
+      '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/'
+      'officeDocument/2006/relationships/extended-properties" '
+      'Target="docProps/app.xml"/>'
       '</Relationships>';
 
   static const _documentRels =
@@ -42,6 +52,32 @@ class MarkdownDocxConverter {
       '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/'
       'officeDocument/2006/relationships/styles" Target="styles.xml"/>'
       '</Relationships>';
+
+  static String _coreXml({required String title, required DateTime created}) =>
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/'
+      'package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/'
+      'elements/1.1/">'
+      '<dc:title>${_escapeXml(title)}</dc:title>'
+      '<dc:creator>mobilka</dc:creator>'
+      '<cp:lastModifiedBy>mobilka</cp:lastModifiedBy>'
+      '<dcterms:created xmlns:dcterms="http://purl.org/dc/terms/" '
+      'xsi:type="dcterms:W3CDTF" xmlns:xsi="http://www.w3.org/2001/'
+      'XMLSchema-instance">${created.toUtc().toIso8601String()}</dcterms:created>'
+      '</cp:coreProperties>';
+
+  static const _appXml =
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/'
+      '2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/'
+      'officeDocument/2006/docPropsVTypes">'
+      '<Application>mobilka</Application>'
+      '</Properties>';
+
+  static String _escapeXml(String value) => value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
 
   static const _styles =
       '<?xml version="1.0" encoding="UTF-8" '
@@ -135,6 +171,13 @@ class MarkdownDocxConverter {
         ArchiveFile.string('word/_rels/document.xml.rels', _documentRels),
       )
       ..addFile(ArchiveFile.string('word/styles.xml', _styles))
+      ..addFile(
+        ArchiveFile.string(
+          'docProps/core.xml',
+          _coreXml(title: title, created: DateTime.now()),
+        ),
+      )
+      ..addFile(ArchiveFile.string('docProps/app.xml', _appXml))
       ..addFile(ArchiveFile.string('word/document.xml', document));
     return ZipEncoder().encode(archive);
   }

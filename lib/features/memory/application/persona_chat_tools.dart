@@ -7,9 +7,12 @@ import '../../chat/domain/chat_message.dart';
 import '../../chat/domain/chat_tool.dart';
 import 'persona_registry.dart';
 
-/// Lets the model switch personality overlays by natural request:
-/// "включи персону reviewer", "какие есть персоны?", "выключи персону".
-/// The active overlay persists until switched again or cleared.
+/// Lets the model switch personality overlays by natural request and create
+/// or rewrite personas on demand. save_persona/delete_persona go through the
+/// standard confirmation flow: the model prepares a proposal for
+/// personas.yaml, the owner reviews the diff in the memory dialog. The
+/// coordinator intercepts these calls before executeTool and routes them
+/// through the standard proposal flow.
 class PersonaChatTools implements ChatToolRuntime {
   PersonaChatTools({required this.registry});
 
@@ -43,12 +46,48 @@ class PersonaChatTools implements ChatToolRuntime {
     },
   );
 
+  static const savePersona = ChatToolDefinition(
+    name: 'save_persona',
+    description:
+        'Create or update a named personality overlay in personas.yaml. The '
+        'user must confirm the exact diff before it is written.',
+    parameters: {
+      'type': 'object',
+      'properties': {
+        'name': {'type': 'string'},
+        'text': {
+          'type': 'string',
+          'description': 'Full overlay instructions for this persona.',
+        },
+      },
+      'required': ['name', 'text'],
+      'additionalProperties': false,
+    },
+  );
+
+  static const deletePersona = ChatToolDefinition(
+    name: 'delete_persona',
+    description:
+        'Remove a named persona from personas.yaml. Requires user '
+        'confirmation of the diff.',
+    parameters: {
+      'type': 'object',
+      'properties': {
+        'name': {'type': 'string'},
+      },
+      'required': ['name'],
+      'additionalProperties': false,
+    },
+  );
+
   @override
   Future<List<ChatToolDefinition>> availableTools(
     Set<String> allowedTools,
   ) async => [
     if (allowedTools.contains(listPersonas.name)) listPersonas,
     if (allowedTools.contains(switchPersona.name)) switchPersona,
+    if (allowedTools.contains(savePersona.name)) savePersona,
+    if (allowedTools.contains(deletePersona.name)) deletePersona,
   ];
 
   @override
@@ -77,7 +116,9 @@ class PersonaChatTools implements ChatToolRuntime {
           final status = await registry.switchTo(name);
           return jsonEncode({'ok': true, 'status': status});
         default:
-          throw StateError('Unknown persona tool: ${call.name}');
+          // save_persona/delete_persona are intercepted by the coordinator
+          // before executeTool; reaching here means a routing bug.
+          throw StateError('Unhandled persona tool: ${call.name}');
       }
     } on FormatException catch (error) {
       return jsonEncode({'ok': false, 'error': error.message});

@@ -9,6 +9,7 @@ import 'chat_stream_request.dart';
 import 'chat_tool_runtime.dart';
 import 'fallback_tool_call_parser.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
+import '../../../features/memory/application/persona_registry.dart';
 import '../../../features/memory/domain/memory_file_names.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_message.dart';
@@ -26,6 +27,7 @@ class ChatStreamingCoordinator {
     ChatToolRuntime? toolRuntime,
     BackgroundTaskBridge backgroundTasks = const NoopBackgroundTaskBridge(),
     InstantMemoryWriter? instantMemoryWriter,
+    PersonaRegistryAdapter? personaRegistry,
     void Function(String event)? onTransientRetry,
   }) : _streamer = streamer,
        _conversationById = conversationById,
@@ -34,6 +36,7 @@ class ChatStreamingCoordinator {
        _toolRuntime = toolRuntime,
        _backgroundTasks = backgroundTasks,
        _instantMemoryWriter = instantMemoryWriter,
+       _personaRegistry = personaRegistry,
        _onTransientRetry = onTransientRetry;
 
   final ChatCompletionStreamer _streamer;
@@ -42,6 +45,7 @@ class ChatStreamingCoordinator {
   final void Function(String message) _publishError;
   final ChatToolRuntime? _toolRuntime;
   final InstantMemoryWriter? _instantMemoryWriter;
+  final PersonaRegistryAdapter? _personaRegistry;
   final BackgroundTaskBridge _backgroundTasks;
   final void Function(String event)? _onTransientRetry;
 
@@ -369,7 +373,44 @@ class ChatStreamingCoordinator {
           .take(indexedCall.$1)
           .where((candidate) => candidate.id == call.id)
           .length;
-      if (call.name == 'update_memory_file') {
+      // Persona save/delete are transformed into whole-file replacement
+      // proposals for personas.yaml so the owner confirms an exact diff.
+      var effectiveCall = call;
+      if (call.name == 'save_persona' || call.name == 'delete_persona') {
+        final registry = _personaRegistry;
+        if (registry == null) {
+          results.add(
+            _toolErrorResult(
+              call,
+              'Memory storage is not configured.',
+              results.length,
+            ),
+          );
+          continue;
+        }
+        try {
+          final args = call.arguments.trim().isEmpty
+              ? const <String, Object?>{}
+              : jsonDecode(call.arguments) as Map;
+          final newYaml = await registry.yamlAfter(
+            operation: call.name,
+            name: args['name']?.toString() ?? '',
+            text: args['text']?.toString() ?? '',
+          );
+          effectiveCall = ChatToolCall(
+            id: call.id,
+            name: 'update_memory_file',
+            arguments: jsonEncode({
+              'file_name': MemoryFiles.personas,
+              'content': newYaml,
+            }),
+          );
+        } on Object catch (error) {
+          results.add(_toolErrorResult(call, error.toString(), results.length));
+          continue;
+        }
+      }
+      if (effectiveCall.name == 'update_memory_file') {
         // memory.md is the agent's instant notebook: applied without a
         // confirmation proposal (roadmap Memory 2.0).
         if (_isMemoryNotebook(call)) {
@@ -385,7 +426,7 @@ class ChatStreamingCoordinator {
             continue;
           }
           try {
-            final note = await writer.write(_memoryContentOf(call));
+            final note = await writer.write(_memoryContentOf(effectiveCall));
             results.add(
               _toolResult(
                 call,
@@ -416,7 +457,7 @@ class ChatStreamingCoordinator {
           }
           pendingProposal = await (runtime as MemoryProposalRuntime)
               .prepareMemoryProposal(
-                call,
+                effectiveCall,
                 assistantId,
                 request.selectedAgentId,
                 request.allowedTools,
@@ -426,7 +467,9 @@ class ChatStreamingCoordinator {
             throw StateError('The memory proposal could not be prepared.');
           }
         } on Object catch (error) {
-          results.add(_toolErrorResult(call, error.toString(), results.length));
+          results.add(
+            _toolErrorResult(effectiveCall, error.toString(), results.length),
+          );
         }
         continue;
       }

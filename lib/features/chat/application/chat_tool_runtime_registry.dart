@@ -1,6 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../features/memory/application/skills_chat_tools.dart';
+import '../../../features/memory/application/session_notes_tools.dart';
+import '../../../features/memory/application/workspace_paths.dart';
+import '../../../features/memory/data/memory_repository.dart';
+import 'chat_controller.dart';
 import '../../../features/memory/application/persona_chat_tools.dart';
 import '../../artifacts/application/artifacts_chat_tool_runtime.dart';
 import '../../chat/domain/chat_message.dart';
@@ -16,11 +21,35 @@ import 'chat_tool_runtime.dart';
 ///
 /// Also forwards [MemoryProposalRuntime] so the coordinator can keep preparing
 /// `update_memory_file` confirmable proposals through this composite.
+final skillsChatToolsProvider = Provider<SkillsChatTools>(
+  (ref) => SkillsChatTools(
+    workspace: WorkspaceStore(repository: ref.watch(memoryRepositoryProvider)),
+  ),
+);
+
+final sessionNotesToolsProvider = Provider<SessionNotesTools>((ref) {
+  final workspace = WorkspaceStore(
+    repository: ref.watch(memoryRepositoryProvider),
+  );
+  String? key() {
+    final state = ref.watch(chatControllerProvider).value;
+    final conversation = state?.activeConversation;
+    if (conversation == null) return null;
+    return WorkspaceStore.sessionKey(
+      createdAt: conversation.createdAt,
+      title: conversation.title,
+    );
+  }
+  return SessionNotesTools(workspace: workspace, sessionKey: key);
+});
+
 final chatToolRuntimeRegistryProvider = Provider<CompositeChatToolRuntime>((
   ref,
 ) {
   return CompositeChatToolRuntime([
     ref.watch(artifactsChatToolRuntimeProvider),
+    ref.watch(skillsChatToolsProvider),
+    ref.watch(sessionNotesToolsProvider),
     ref.watch(personaChatToolsProvider),
     ref.watch(memoryChatToolRuntimeProvider),
   ]);
