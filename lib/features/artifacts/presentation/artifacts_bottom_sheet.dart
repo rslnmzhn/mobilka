@@ -220,7 +220,10 @@ class _DocumentsTab extends ConsumerWidget {
           .read(artifactsControllerProvider.notifier)
           .exportDocx(artifact);
       if (!context.mounted) return;
-      await ref.read(artifactShareBridgeProvider)(file.path);
+      await ref.read(artifactShareBridgeProvider)(
+        file.path,
+        mimeType: docxMime,
+      );
     } on Object catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(

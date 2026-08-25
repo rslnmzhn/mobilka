@@ -56,8 +56,11 @@ void main() {
         containsAll([
           '[Content_Types].xml',
           '_rels/.rels',
+          'word/_rels/document.xml.rels',
           'word/document.xml',
           'word/styles.xml',
+          'docProps/core.xml',
+          'docProps/app.xml',
         ]),
       );
     });

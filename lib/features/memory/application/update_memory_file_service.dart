@@ -46,7 +46,12 @@ class UpdateMemoryFileService {
 
   /// Owner-editable files (Memory screen). Model-facing rejection of
   /// soul.md happens in MemoryChatToolRuntime.prepareMemoryProposal.
-  static const approvedFileNames = {'user.md', 'memory.md', 'soul.md'};
+  static const approvedFileNames = {
+    'user.md',
+    'memory.md',
+    'soul.md',
+    'personas.yaml',
+  };
   final MemoryFileBoundary _boundary;
   final MemoryMutationCoordinator _mutations;
   final ConfirmationTokenFactory _tokenFactory;

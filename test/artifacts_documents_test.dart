@@ -137,7 +137,7 @@ void main() {
 
   test('controller persists documents to hive and markdown files', () async {
     final container = ProviderContainer(
-      overrides: overrides(files(), (_) async {}),
+      overrides: overrides(files(), (_, {mimeType}) async {}),
     );
     addTearDown(container.dispose);
 
@@ -164,7 +164,7 @@ void main() {
 
   test('policy rejections leave no hive or disk residue', () async {
     final container = ProviderContainer(
-      overrides: overrides(files(), (_) async {}),
+      overrides: overrides(files(), (_, {mimeType}) async {}),
     );
     addTearDown(container.dispose);
     final notifier = container.read(artifactsControllerProvider.notifier);
@@ -196,7 +196,7 @@ void main() {
       ProviderScope(
         overrides: [
           artifactShareBridgeProvider.overrideWithValue(
-            (path) async => sharedPaths.add(path),
+            (path, {mimeType}) async => sharedPaths.add(path),
           ),
           artifactsControllerProvider.overrideWith(
             () => _FakeController(created),
@@ -303,7 +303,9 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          artifactShareBridgeProvider.overrideWithValue((_) async {}),
+          artifactShareBridgeProvider.overrideWithValue(
+            (_, {mimeType}) async {},
+          ),
           artifactsControllerProvider.overrideWith(
             () => _FakeController(created, deleted),
           ),

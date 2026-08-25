@@ -8,10 +8,14 @@ import 'package:share_plus/share_plus.dart';
 
 part 'artifact_share_bridge.g.dart';
 
-typedef ArtifactShare = Future<void> Function(String filePath);
+const docxMime =
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+typedef ArtifactShare =
+    Future<void> Function(String filePath, {String? mimeType});
 
 @Riverpod(keepAlive: true)
-ArtifactShare artifactShareBridge(Ref ref) => (filePath) async {
+ArtifactShare artifactShareBridge(Ref ref) => (filePath, {mimeType}) async {
   // ignore: deprecated_member_use
-  await Share.shareXFiles([XFile(filePath)]);
+  await Share.shareXFiles([XFile(filePath, mimeType: mimeType)]);
 };

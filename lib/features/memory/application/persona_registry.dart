@@ -141,6 +141,13 @@ abstract interface class PersonaRegistryAdapter {
   Future<List<PersonaEntry>> refresh();
 
   Future<String> switchTo(String? name);
+
+  /// Returns the full personas.yaml content after applying the edit.
+  Future<String> yamlAfter({
+    required String operation,
+    required String name,
+    required String text,
+  });
 }
 
 class PersonaRegistryAdapterImpl implements PersonaRegistryAdapter {
@@ -156,6 +163,35 @@ class PersonaRegistryAdapterImpl implements PersonaRegistryAdapter {
 
   @override
   Future<String> switchTo(String? name) => _registry.switchTo(name);
+
+  @override
+  Future<String> yamlAfter({
+    required String operation,
+    required String name,
+    required String text,
+  }) async {
+    final entries = await _registry.refresh();
+    final map = {for (final e in entries) e.name: e.text};
+    if (operation == 'save_persona') {
+      map[name] = text;
+    } else {
+      map.remove(name);
+    }
+    final buf = StringBuffer('personas:\n');
+    map.forEach((key, value) {
+      final lines = value.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i].trimRight();
+        if (line.isEmpty && i == lines.length - 1) continue;
+        buf.write(i == 0 ? '  : >-' : '      ');
+        buf.write('\n');
+      }
+      if (lines.length == 1) {
+        // single-line block scalar already written above with >-
+      }
+    });
+    return buf.toString();
+  }
 }
 
 final personaRegistryAdapterProvider = Provider<PersonaRegistryAdapter>(
