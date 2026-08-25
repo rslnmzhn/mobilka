@@ -40,7 +40,11 @@ class MessageCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (message.content.isNotEmpty || message.toolCalls.isEmpty)
+              if (message.reasoningContent.isNotEmpty)
+                _ReasoningBlock(text: message.reasoningContent),
+              if (message.content.isNotEmpty ||
+                  (message.reasoningContent.isEmpty &&
+                      message.toolCalls.isEmpty))
                 MarkdownBody(
                   data: message.content.isEmpty ? '…' : message.content,
                   selectable: true,
@@ -265,6 +269,73 @@ class _CodeHighlighter extends SyntaxHighlighter {
     return TextSpan(
       style: theme[node.className],
       children: node.children?.map((child) => _span(child, theme)).toList(),
+    );
+  }
+}
+
+/// Collapsible muted block showing the model's reasoning stream.
+class _ReasoningBlock extends StatefulWidget {
+  const _ReasoningBlock({required this.text});
+
+  final String text;
+
+  @override
+  State<_ReasoningBlock> createState() => _ReasoningBlockState();
+}
+
+class _ReasoningBlockState extends State<_ReasoningBlock> {
+  var _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        key: const Key('reasoning-toggle'),
+        onTap: () => setState(() => _expanded = !_expanded),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: colors.surfaceContainerLowest,
+            border: Border.all(color: colors.outlineVariant),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: _expanded
+              ? SelectableText(
+                  widget.text,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.onSurfaceVariant,
+                    height: 1.35,
+                  ),
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.psychology_outlined,
+                      size: 14,
+                      color: colors.outline,
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        'chat.reasoning'.tr(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
     );
   }
 }

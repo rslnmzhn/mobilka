@@ -97,6 +97,42 @@ void main() {
     expect(adapter.followRedirects, isFalse);
   });
 
+  test(
+    'parses reasoning deltas from both field names and content parts',
+    () async {
+      final adapter = _StreamingAdapter([
+        'data: {"choices":[{"delta":{"reasoning_content":"думаю "}}]}\n',
+        'data: {"choices":[{"delta":{"reasoning":"глубоко"}}]}\n',
+        'data: {"choices":[{"delta":{"content":[{"type":"text","text":"Ответ"}]}}]}\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+        'data: [DONE]\n',
+      ]);
+      final dio = Dio()..httpClientAdapter = adapter;
+      final events = await ChatApiClient(dio)
+          .streamCompletion(
+            baseUrl: 'https://api.example.com/v1',
+            apiKey: 'key',
+            model: 'model',
+            messages: [
+              ChatMessage(
+                id: 'm1',
+                role: ChatRole.user,
+                content: 'Hi',
+                createdAt: DateTime(2026),
+              ),
+            ],
+            cancelToken: CancelToken(),
+          )
+          .toList();
+
+      expect(
+        events.map((event) => event.reasoningDelta).join(),
+        'думаю глубоко',
+      );
+      expect(events.map((event) => event.delta).join(), 'Ответ');
+    },
+  );
+
   test('sends tools and parses fragmented native tool call deltas', () async {
     final adapter = _StreamingAdapter([
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"update_memory_file","arguments":"{\\"file_name\\":\\"user."}}]},"finish_reason":null}]}\n\n',

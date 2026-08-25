@@ -40,6 +40,7 @@ final sessionNotesToolsProvider = Provider<SessionNotesTools>((ref) {
       title: conversation.title,
     );
   }
+
   return SessionNotesTools(workspace: workspace, sessionKey: key);
 });
 
