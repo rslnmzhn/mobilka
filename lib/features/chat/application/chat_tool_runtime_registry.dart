@@ -5,7 +5,6 @@ import '../../../features/memory/application/skills_chat_tools.dart';
 import '../../../features/memory/application/session_notes_tools.dart';
 import '../../../features/memory/application/workspace_paths.dart';
 import '../../../features/memory/data/memory_repository.dart';
-import 'chat_controller.dart';
 import '../../../features/memory/application/persona_chat_tools.dart';
 import '../../artifacts/application/artifacts_chat_tool_runtime.dart';
 import '../../chat/domain/chat_message.dart';
@@ -31,17 +30,7 @@ final sessionNotesToolsProvider = Provider<SessionNotesTools>((ref) {
   final workspace = WorkspaceStore(
     repository: ref.watch(memoryRepositoryProvider),
   );
-  String? key() {
-    final state = ref.watch(chatControllerProvider).value;
-    final conversation = state?.activeConversation;
-    if (conversation == null) return null;
-    return WorkspaceStore.sessionKey(
-      createdAt: conversation.createdAt,
-      title: conversation.title,
-    );
-  }
-
-  return SessionNotesTools(workspace: workspace, sessionKey: key);
+  return SessionNotesTools(workspace: workspace);
 });
 
 final chatToolRuntimeRegistryProvider = Provider<CompositeChatToolRuntime>((
@@ -90,12 +79,13 @@ class CompositeChatToolRuntime
   @override
   Future<String> executeTool(
     ChatToolCall call,
-    Set<String> allowedTools,
-  ) async {
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) async {
     for (final runtime in _runtimes) {
       final advertised = await runtime.availableTools(allowedTools);
       if (advertised.any((definition) => definition.name == call.name)) {
-        return runtime.executeTool(call, allowedTools);
+        return runtime.executeTool(call, allowedTools, context: context);
       }
     }
     throw StateError('Unknown executable tool: ${call.name}');

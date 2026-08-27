@@ -14,9 +14,6 @@ const sessionsFolder = 'sessions';
 ///   sessions/yyyy-MM-DD_title/session.md
 ///   sessions/yyyy-MM-DD_title/artifacts/files
 ///
-/// Path-backed storage gets real subfolders. SAF-backed storage (Android)
-/// keeps memory files via document URIs; nested sessions/skills on SAF are
-/// deferred until sub-document support lands.
 class WorkspaceStore {
   WorkspaceStore({required this.repository});
 
@@ -46,26 +43,49 @@ class WorkspaceStore {
 
   /// Reads a UTF-8 text file under the workspace root; null when missing.
   Future<String?> readText(String relativePath) async {
-    final root = await rootPath();
-    if (root == null) return null;
-    final file = fileUnderRoot(relativePath, root: root);
-    if (file == null || !await file.exists()) return null;
-    try {
-      return await file.readAsString();
-    } on Object {
-      return null;
+    final location = repository.savedLocation();
+    if (location == null) throw const WorkspaceStorageException.unconfigured();
+    await repository.validateSavedLocationAccess(location);
+    final boundary = repository.boundaryFor(location);
+    if (boundary is! SubPathMemoryFileBoundary) {
+      throw const WorkspaceStorageException.io(
+        'Workspace storage is unavailable.',
+      );
     }
+    return (boundary as SubPathMemoryFileBoundary).readSubPath(relativePath);
   }
 
   /// Writes a UTF-8 text file under the workspace root (creates folders).
   Future<bool> writeText(String relativePath, String content) async {
-    final root = await rootPath();
-    if (root == null) return false;
-    final file = fileUnderRoot(relativePath, root: root);
-    if (file == null) return false;
-    await file.parent.create(recursive: true);
-    await file.writeAsString(content, flush: true);
-    return true;
+    final location = repository.savedLocation();
+    if (location == null) throw const WorkspaceStorageException.unconfigured();
+    await repository.validateSavedLocationAccess(location);
+    final boundary = repository.boundaryFor(location);
+    if (boundary is! SubPathMemoryFileBoundary) {
+      throw const WorkspaceStorageException.io(
+        'Workspace storage is unavailable.',
+      );
+    }
+    return (boundary as SubPathMemoryFileBoundary).writeSubPath(
+      relativePath,
+      content,
+    );
+  }
+
+  /// Lists safe regular files in a supported workspace directory.
+  Future<List<String>> listTextFiles(String relativeDirectory) async {
+    final location = repository.savedLocation();
+    if (location == null) throw const WorkspaceStorageException.unconfigured();
+    await repository.validateSavedLocationAccess(location);
+    final boundary = repository.boundaryFor(location);
+    if (boundary is! SubPathMemoryFileBoundary) {
+      throw const WorkspaceStorageException.io(
+        'Workspace storage is unavailable.',
+      );
+    }
+    return (boundary as SubPathMemoryFileBoundary).listSubPath(
+      relativeDirectory,
+    );
   }
 
   String skillFile(String name) => '$skillsFolder/$name.md';
@@ -82,6 +102,7 @@ class WorkspaceStore {
   static String sessionKey({
     required DateTime createdAt,
     required String title,
+    required String conversationId,
   }) {
     final date =
         '${createdAt.year.toString().padLeft(4, '0')}-'
@@ -93,6 +114,23 @@ class WorkspaceStore {
         .replaceAll(RegExp(r'^_+|_+$'), '');
     if (sanitized.length > 40) sanitized = sanitized.substring(0, 40);
     if (sanitized.isEmpty) sanitized = 'chat';
-    return '${date}_$sanitized';
+    final id = conversationId
+        .replaceAll(RegExp(r'[^a-z0-9]', caseSensitive: false), '')
+        .toLowerCase();
+    if (id.isEmpty) {
+      throw const FormatException('Conversation ID cannot form a session key.');
+    }
+    final suffix = id.length <= 10 ? id : id.substring(id.length - 10);
+    return '${date}_${sanitized}_$suffix';
   }
+}
+
+class WorkspaceStorageException implements Exception {
+  const WorkspaceStorageException.unconfigured()
+    : message = 'Choose a memory folder before using session notes.';
+  const WorkspaceStorageException.io(this.message);
+
+  final String message;
+  @override
+  String toString() => message;
 }

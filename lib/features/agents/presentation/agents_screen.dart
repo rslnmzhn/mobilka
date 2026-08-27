@@ -9,6 +9,7 @@ import '../application/subagent_executor.dart';
 import '../domain/agent_catalog.dart';
 import '../domain/agent_definition.dart';
 import 'delegation_sheet.dart';
+import 'personas_section.dart';
 
 class AgentsScreen extends ConsumerWidget {
   const AgentsScreen({super.key});
@@ -87,19 +88,23 @@ class _AgentList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (catalog.agents.isEmpty && catalog.issues.isEmpty) {
-      return Center(child: Text('agents.empty'.tr()));
-    }
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 880),
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
           children: [
+            const PersonasSection(),
+            const SizedBox(height: 20),
             WorkbenchSectionLabel(
               label: 'agents.title'.tr(),
               icon: Icons.account_tree_outlined,
             ),
+            if (catalog.agents.isEmpty && catalog.issues.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: Text('agents.empty'.tr())),
+              ),
             ref
                 .watch(agentGraphProvider)
                 .when(

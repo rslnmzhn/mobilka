@@ -18,6 +18,8 @@ format: dart format .
 - Context injection performs pending-memory recovery before taking one atomic snapshot of the selected memory files.
 - Current local persistence is Hive for chat history, favorites, model cache, and artifacts; retain Isar as a future architecture option and use `flutter_secure_storage` for API keys.
 - Agent catalog/controller state owns active-agent selection and user-authored agent files in the app sandbox.
+- Personas are presented under Agents, while the memory domain remains the owner of `personas.yaml` and its mutation safety.
+- Chat / Advanced Coding mode and a separate coding-agent catalog are future architecture, not current product behavior.
 - The chat application separates model/catalog state in the catalog controller from request streaming lifecycle in the streaming coordinator.
 - Streaming coordination is bound to immutable conversation, request, and assistant-message IDs rather than mutable active-chat state.
 - UI paradigm: Streaming chat with collapsible tool-calling cards, theme presets, and slide-up bottom sheets for artifacts, memory files, and tool execution logs.

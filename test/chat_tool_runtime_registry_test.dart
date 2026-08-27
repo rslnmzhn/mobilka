@@ -114,7 +114,11 @@ class _StubRuntime implements ChatToolRuntime {
   }
 
   @override
-  Future<String> executeTool(ChatToolCall call, Set<String> allowedTools) {
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) {
     executed = true;
     return Future.value('{}');
   }

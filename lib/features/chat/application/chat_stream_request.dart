@@ -4,6 +4,7 @@ import '../domain/conversation.dart';
 class ChatStreamRequest {
   ChatStreamRequest({
     required this.conversationId,
+    required this.sessionKey,
     required this.requestMessageId,
     required this.assistantMessageId,
     required this.modelId,
@@ -14,6 +15,7 @@ class ChatStreamRequest {
   }) : allowedTools = Set.unmodifiable(allowedTools);
 
   final String conversationId;
+  final String? sessionKey;
   final String requestMessageId;
   final String assistantMessageId;
   final String modelId;
@@ -75,6 +77,7 @@ ChatStreamRequest buildChatStreamRequest(
   required Set<String> allowedTools,
 }) => ChatStreamRequest(
   conversationId: conversation.id,
+  sessionKey: conversation.sessionKey,
   requestMessageId: requestId,
   assistantMessageId: assistantId,
   modelId: conversation.modelId,

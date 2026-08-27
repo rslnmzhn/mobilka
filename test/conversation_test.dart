@@ -3,6 +3,7 @@ import 'package:mobilka/features/chat/application/chat_state.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
+import 'package:mobilka/features/memory/application/workspace_paths.dart';
 
 void main() {
   test('conversation round trips through Hive-compatible maps', () {
@@ -75,6 +76,51 @@ void main() {
     expect(restoredAssistant.toolCalls.single.name, 'update_memory_file');
     expect(restoredTool.toolCallId, 'call-1');
     expect(restoredTool.toJson()['tool_call_id'], 'call-1');
+  });
+
+  test('persisted session key survives title rename', () {
+    final now = DateTime.utc(2026, 8, 27);
+    final conversation = Conversation(
+      id: 'conversation-1',
+      title: 'Original',
+      modelId: 'model',
+      createdAt: now,
+      updatedAt: now,
+      messages: const [],
+      sessionKey: 'stable-session-key',
+    );
+
+    final renamed = conversation.copyWith(title: 'Renamed');
+
+    expect(renamed.sessionKey, 'stable-session-key');
+    expect(
+      Conversation.fromJson(renamed.toJson()).sessionKey,
+      'stable-session-key',
+    );
+  });
+
+  test('legacy JSON without sessionKey derives a safe stable key', () {
+    final json = <String, dynamic>{
+      'id': 'legacy-conversation',
+      'title': 'Legacy title',
+      'modelId': 'model',
+      'createdAt': DateTime.utc(2026, 8, 27).toIso8601String(),
+      'updatedAt': DateTime.utc(2026, 8, 27).toIso8601String(),
+      'messages': <Object?>[],
+    };
+
+    final restored = Conversation.fromJson(json);
+
+    expect(restored.sessionKey, isNotNull);
+    expect(restored.sessionKey?.toLowerCase(), contains('legacy_title'));
+    expect(
+      restored.sessionKey,
+      WorkspaceStore.sessionKey(
+        createdAt: restored.createdAt,
+        title: restored.title,
+        conversationId: restored.id,
+      ),
+    );
   });
 
   test(

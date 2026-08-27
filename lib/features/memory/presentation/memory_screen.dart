@@ -7,7 +7,6 @@ import '../application/memory_controller.dart';
 import '../application/memory_file_editor.dart';
 import '../application/memory_selection_controller.dart';
 import '../application/update_memory_file_service.dart';
-import '../domain/memory_file_names.dart';
 import '../data/memory_repository.dart';
 import 'memory_backup_card.dart';
 import 'memory_editor_sheet.dart';
@@ -53,8 +52,30 @@ class MemoryScreen extends ConsumerWidget {
                       const SizedBox(height: 16),
                       memory.when(
                         loading: () => const LinearProgressIndicator(),
-                        error: (error, _) =>
+                        error: (error, _) => Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text('${'common.error'.tr()}: $error'),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              children: [
+                                FilledButton(
+                                  onPressed: () => ref
+                                      .read(memoryControllerProvider.notifier)
+                                      .retryCurrentFolder(),
+                                  child: Text('common.retry'.tr()),
+                                ),
+                                OutlinedButton(
+                                  onPressed: () => ref
+                                      .read(memoryControllerProvider.notifier)
+                                      .chooseFolder(),
+                                  child: Text('memory.change'.tr()),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                         data: (location) => Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -126,24 +147,6 @@ class MemoryScreen extends ConsumerWidget {
                       }
                     },
                   ),
-                ),
-              ),
-              Card(
-                child: ListTile(
-                  key: const Key('memory-edit-personas'),
-                  leading: const Icon(Icons.theater_comedy_outlined),
-                  title: Text(MemoryFiles.personas),
-                  subtitle: Text('memory.personasHint'.tr()),
-                  onTap: editor == null
-                      ? null
-                      : () => showModalBottomSheet<void>(
-                          context: context,
-                          isScrollControlled: true,
-                          builder: (_) => MemoryEditorSheet(
-                            fileName: MemoryFiles.personas,
-                            editor: editor,
-                          ),
-                        ),
                 ),
               ),
               const SizedBox(height: 16),

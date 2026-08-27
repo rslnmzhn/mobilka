@@ -1,8 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/chat/application/chat_streaming_coordinator.dart';
+import 'package:mobilka/features/chat/application/chat_tool_runtime.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/chat_stream_event.dart';
+import 'package:mobilka/features/chat/domain/chat_tool.dart';
+import 'package:mobilka/features/chat/domain/conversation.dart';
 
 import 'support/chat_streaming_coordinator_fakes.dart';
 
@@ -74,6 +77,24 @@ void main() {
   });
 
   test(
+    'unexpected coordinator errors do not expose raw exception text',
+    () async {
+      final fixture = CoordinatorFixture(
+        streamer: SequencedStreamer(const []),
+        streamerErrors: [StateError(r'failed at C:\Users\private\secret.txt')],
+      );
+
+      await fixture.run();
+
+      expect(
+        fixture.errors.single,
+        'The request failed unexpectedly. Please retry.',
+      );
+      expect(fixture.errors.single, isNot(contains('secret.txt')));
+    },
+  );
+
+  test(
     'does not execute tool calls before an explicit terminal event',
     () async {
       final runtime = ToolRuntime();
@@ -130,6 +151,99 @@ void main() {
     expect(fixture.assistant.content, 'Finished');
     expect(fixture.assistant.status, ChatMessageStatus.complete);
   });
+
+  test(
+    'sequential persona switch and session write share immutable request context',
+    () async {
+      late CoordinatorFixture fixture;
+      final contexts = <ChatToolExecutionContext?>[];
+      final runtime = _SequencingRuntime(
+        contexts,
+        onPersonaSwitch: () {
+          final mutable = fixture.conversation;
+          fixture.conversations.remove('conversation-1');
+          fixture.conversations['conversation-1'] = Conversation(
+            id: mutable.id,
+            title: 'Replacement active chat',
+            modelId: mutable.modelId,
+            createdAt: mutable.createdAt,
+            updatedAt: mutable.updatedAt,
+            messages: mutable.messages,
+            pendingRequestMessageId: mutable.pendingRequestMessageId,
+            sessionKey: 'replacement-session-key',
+          );
+          fixture.conversations['other'] = conversationWithId(
+            'other',
+          ).copyWith(title: 'Active elsewhere');
+        },
+      );
+      fixture = CoordinatorFixture(
+        streamer: SequencedStreamer(const [
+          [
+            ChatStreamEvent(
+              toolCallDeltas: [
+                ChatToolCallDelta(
+                  index: 0,
+                  id: 'persona',
+                  name: 'switch_persona',
+                  arguments: '{"name":"reviewer"}',
+                ),
+                ChatToolCallDelta(
+                  index: 1,
+                  id: 'notes',
+                  name: 'write_session_notes',
+                  arguments: '{"content":"bound notes"}',
+                ),
+              ],
+              isTerminal: true,
+              finishReason: 'tool_calls',
+            ),
+          ],
+          [ChatStreamEvent(isTerminal: true)],
+        ]),
+        toolRuntime: runtime,
+      );
+      fixture.conversations['conversation-1'] = fixture.conversation.copyWith(
+        title: 'Bound title',
+      );
+      fixture.conversations['conversation-1'] = Conversation(
+        id: fixture.conversation.id,
+        title: fixture.conversation.title,
+        modelId: fixture.conversation.modelId,
+        createdAt: fixture.conversation.createdAt,
+        updatedAt: fixture.conversation.updatedAt,
+        messages: fixture.conversation.messages,
+        pendingRequestMessageId: fixture.conversation.pendingRequestMessageId,
+        sessionKey: 'bound-session-key',
+      );
+
+      await fixture.coordinator.run(
+        ChatStreamRequest(
+          conversationId: 'conversation-1',
+          sessionKey: 'bound-session-key',
+          requestMessageId: 'user-1',
+          assistantMessageId: 'assistant-1',
+          modelId: 'model',
+          history: [fixture.conversation.messages.first],
+          selectedAgentId: 'agent-1',
+          allowedTools: const {'switch_persona', 'write_session_notes'},
+        ),
+      );
+
+      expect(runtime.calls, ['switch_persona', 'write_session_notes']);
+      expect(contexts, hasLength(2));
+      expect(
+        contexts.every(
+          (context) => context?.conversationId == 'conversation-1',
+        ),
+        isTrue,
+      );
+      expect(
+        contexts.every((context) => context?.sessionKey == 'bound-session-key'),
+        isTrue,
+      );
+    },
+  );
 
   test(
     'does not parse fallback text without explicit terminal event',
@@ -200,8 +314,31 @@ void main() {
       (message) => message.role == ChatRole.tool,
     );
     expect(runtime.calls.single.name, 'unknown_tool');
-    expect(result.content, contains('Unknown tool: unknown_tool'));
+    expect(result.content, contains('Tool execution failed unexpectedly'));
+    expect(result.content, isNot(contains('Unknown tool: unknown_tool')));
     expect(result.toolCallId, startsWith('fallback-'));
+  });
+
+  test('strict FormatException tool errors remain actionable', () async {
+    final fixture = CoordinatorFixture(
+      streamer: SequencedStreamer(const [
+        [
+          ChatStreamEvent(
+            delta: '```json\n{"name":"invalid_tool","arguments":{}}\n```',
+            isTerminal: true,
+          ),
+        ],
+        [ChatStreamEvent(isTerminal: true)],
+      ]),
+      toolRuntime: FormatRejectingToolRuntime(),
+    );
+
+    await fixture.run();
+
+    final result = fixture.conversation.messages.firstWhere(
+      (message) => message.role == ChatRole.tool,
+    );
+    expect(result.content, contains('content is required'));
   });
 
   test('persisted synthetic fallback call is not executed on retry', () async {
@@ -237,6 +374,7 @@ void main() {
     await retry.coordinator.run(
       ChatStreamRequest(
         conversationId: 'conversation-1',
+        sessionKey: retry.conversation.sessionKey,
         requestMessageId: 'user-1',
         assistantMessageId: 'assistant-retry',
         modelId: 'model',
@@ -329,4 +467,42 @@ void main() {
     expect(retry.conversation.messages.last.status, ChatMessageStatus.pending);
     expect(retry.request.history.map((message) => message.id), ['user-1']);
   });
+}
+
+class _SequencingRuntime implements ChatToolRuntime {
+  _SequencingRuntime(this.contexts, {required this.onPersonaSwitch});
+
+  final List<ChatToolExecutionContext?> contexts;
+  final void Function() onPersonaSwitch;
+  final List<String> calls = [];
+
+  @override
+  Future<List<ChatToolDefinition>> availableTools(
+    Set<String> allowedTools,
+  ) async => [
+    if (allowedTools.contains('switch_persona'))
+      const ChatToolDefinition(
+        name: 'switch_persona',
+        description: 'switch',
+        parameters: {'type': 'object'},
+      ),
+    if (allowedTools.contains('write_session_notes'))
+      const ChatToolDefinition(
+        name: 'write_session_notes',
+        description: 'write',
+        parameters: {'type': 'object'},
+      ),
+  ];
+
+  @override
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) async {
+    calls.add(call.name);
+    contexts.add(context);
+    if (call.name == 'switch_persona') onPersonaSwitch();
+    return '{"ok":true}';
+  }
 }

@@ -337,4 +337,14 @@ class _FakeSafAccess implements SafMemoryAccess {
     deletedNames.add(name);
     files.remove(name);
   }
+
+  @override
+  Future<SafMemoryDocument> createDirectory(
+    String directoryUri,
+    String name,
+  ) async => SafMemoryDocument(
+    uri: '$directoryUri/$name',
+    name: name,
+    isDirectory: true,
+  );
 }

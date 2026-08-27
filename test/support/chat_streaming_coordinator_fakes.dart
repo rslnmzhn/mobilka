@@ -49,6 +49,7 @@ class CoordinatorFixture {
   Future<void> run() => coordinator.run(
     ChatStreamRequest(
       conversationId: 'conversation-1',
+      sessionKey: conversation.sessionKey,
       requestMessageId: 'user-1',
       assistantMessageId: 'assistant-1',
       modelId: 'model',
@@ -133,8 +134,9 @@ class ToolRuntime implements runtime.ChatToolRuntime {
   @override
   Future<String> executeTool(
     ChatToolCall call,
-    Set<String> allowedTools,
-  ) async {
+    Set<String> allowedTools, {
+    runtime.ChatToolExecutionContext? context,
+  }) async {
     calls.add(call);
     return '{"ok":true}';
   }
@@ -144,10 +146,23 @@ class RejectingToolRuntime extends ToolRuntime {
   @override
   Future<String> executeTool(
     ChatToolCall call,
-    Set<String> allowedTools,
-  ) async {
+    Set<String> allowedTools, {
+    runtime.ChatToolExecutionContext? context,
+  }) async {
     calls.add(call);
     throw StateError('Unknown tool: ${call.name}');
+  }
+}
+
+class FormatRejectingToolRuntime extends ToolRuntime {
+  @override
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    runtime.ChatToolExecutionContext? context,
+  }) async {
+    calls.add(call);
+    throw const FormatException('content is required');
   }
 }
 
@@ -163,8 +178,9 @@ class MemoryProposalRuntime
   @override
   Future<String> executeTool(
     ChatToolCall call,
-    Set<String> allowedTools,
-  ) async {
+    Set<String> allowedTools, {
+    runtime.ChatToolExecutionContext? context,
+  }) async {
     executed = true;
     return '{}';
   }

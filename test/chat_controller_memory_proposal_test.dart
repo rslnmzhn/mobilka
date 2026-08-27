@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:mobilka/core/logging/app_logger.dart';
+import 'package:mobilka/core/storage/app_boxes.dart';
+import 'package:mobilka/features/agents/application/agents_controller.dart';
 import 'package:mobilka/features/agents/domain/agent_catalog.dart';
 import 'package:mobilka/features/agents/domain/agent_definition.dart';
 import 'package:mobilka/features/chat/application/chat_controller.dart';
@@ -17,8 +19,11 @@ import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
 import 'package:mobilka/features/memory/application/memory_chat_tool_runtime.dart';
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
+import 'package:mobilka/features/memory/application/persona_registry.dart';
 import 'package:mobilka/features/memory/application/update_memory_file_service.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
+import 'package:mobilka/features/memory/data/memory_repository.dart';
+import 'package:saf/saf.dart';
 import 'support/memory_delete_mixins.dart';
 
 void main() {
@@ -225,6 +230,77 @@ void main() {
       );
     },
   );
+
+  for (final operation in ['save_persona', 'delete_persona']) {
+    test(
+      '$operation after a location change uses the new persona YAML',
+      () async {
+        final oldBoundary = _Boundary()
+          ..files['personas.yaml'] =
+              'personas:\n  stale_old_folder: Old.\n  target: Old target.\n';
+        final newBoundary = _Boundary()
+          ..files['personas.yaml'] =
+              'personas:\n  fresh_new_folder: New.\n  target: New target.\n';
+        final boundaries = {
+          'old-folder': oldBoundary,
+          'new-folder': newBoundary,
+        };
+        final repository = MemoryRepository(
+          Saf(),
+          boundaryFactory: (location) => boundaries[location.value]!,
+        );
+        await preferencesBox.put('memoryLocation', 'old-folder');
+        await preferencesBox.put('memoryLocationIsUri', false);
+        await ConversationStore().save(_emptyConversation());
+        final streamer = _LocationChangeStreamer(operation);
+        final container = ProviderContainer(
+          overrides: [
+            memoryRepositoryProvider.overrideWithValue(repository),
+            agentsControllerProvider.overrideWith(
+              () => _PersonaAgentsController(operation),
+            ),
+            chatCompletionStreamerProvider.overrideWithValue(streamer),
+          ],
+        );
+        addTearDown(container.dispose);
+        await container.read(chatControllerProvider.future);
+
+        // Materialize and cache the controller's original coordinator/runtime.
+        await container.read(chatControllerProvider.notifier).send('first');
+        expect(streamer.requests, 1);
+        expect(
+          (await container.read(personaRegistryProvider).refresh()).map(
+            (entry) => entry.name,
+          ),
+          contains('stale_old_folder'),
+        );
+
+        await preferencesBox.put('memoryLocation', 'new-folder');
+        container.invalidate(memoryMutationCoordinatorProvider);
+        container.invalidate(updateMemoryFileProvider);
+        container.invalidate(personaRegistryProvider);
+        container.read(memoryLocationRevisionProvider.notifier).state++;
+
+        await container.read(chatControllerProvider.notifier).send('second');
+
+        final proposal = container
+            .read(chatControllerProvider)
+            .requireValue
+            .activeConversation!
+            .pendingMemoryProposal!;
+        expect(proposal.requiredToolPermission, operation);
+        expect(proposal.proposedContent, contains('fresh_new_folder'));
+        expect(proposal.proposedContent, isNot(contains('stale_old_folder')));
+        if (operation == 'save_persona') {
+          expect(proposal.proposedContent, contains('Updated target.'));
+        } else {
+          expect(proposal.proposedContent, isNot(contains('target')));
+        }
+        expect(proposal.version, checksum(newBoundary.files['personas.yaml']!));
+        expect(oldBoundary.files['personas.yaml'], contains('Old target.'));
+      },
+    );
+  }
 }
 
 ProviderContainer _container(
@@ -284,6 +360,15 @@ Conversation _conversation(PendingMemoryProposal proposal) => Conversation(
   pendingMemoryProposal: proposal,
 );
 
+Conversation _emptyConversation() => Conversation(
+  id: 'conversation',
+  title: 'Test',
+  modelId: 'model',
+  createdAt: DateTime.utc(2026),
+  updatedAt: DateTime.utc(2026),
+  messages: const [],
+);
+
 AgentCatalogEntry _agent() => AgentCatalogEntry(
   definition: AgentDefinition(
     id: 'agent',
@@ -292,6 +377,21 @@ AgentCatalogEntry _agent() => AgentCatalogEntry(
     mode: AgentMode.primary,
     prompt: 'Prompt',
     tools: const ['update_memory_file'],
+  ),
+  origin: AgentOrigin.user,
+  location: 'agent.md',
+  isHidden: false,
+  isFavorite: false,
+);
+
+AgentCatalogEntry _agentWithTools(List<String> tools) => AgentCatalogEntry(
+  definition: AgentDefinition(
+    id: 'agent',
+    name: 'Agent',
+    description: 'Agent',
+    mode: AgentMode.primary,
+    prompt: 'Prompt',
+    tools: tools,
   ),
   origin: AgentOrigin.user,
   location: 'agent.md',
@@ -310,6 +410,59 @@ class _Streamer implements ChatCompletionStreamer {
     ChatStreamEvent(delta: 'continued'),
     ChatStreamEvent(finishReason: 'stop', isTerminal: true),
   ]);
+}
+
+class _LocationChangeStreamer implements ChatCompletionStreamer {
+  _LocationChangeStreamer(this.operation);
+
+  final String operation;
+  int requests = 0;
+
+  @override
+  Stream<ChatStreamEvent> streamCompletion({
+    required String model,
+    required List<ChatMessage> messages,
+    required CancelToken cancelToken,
+    List<ChatToolDefinition> tools = const [],
+  }) {
+    requests++;
+    if (requests == 1) {
+      return Stream.value(
+        const ChatStreamEvent(finishReason: 'stop', isTerminal: true),
+      );
+    }
+    final arguments = operation == 'save_persona'
+        ? '{"name":"target","text":"Updated target."}'
+        : '{"name":"target"}';
+    return Stream.fromIterable([
+      ChatStreamEvent(
+        toolCallDeltas: [
+          ChatToolCallDelta(
+            index: 0,
+            id: 'persona-call',
+            name: operation,
+            arguments: arguments,
+          ),
+        ],
+      ),
+      const ChatStreamEvent(finishReason: 'tool_calls', isTerminal: true),
+    ]);
+  }
+}
+
+class _PersonaAgentsController extends AgentsController {
+  _PersonaAgentsController(this.operation);
+
+  final String operation;
+
+  @override
+  Future<AgentCatalog> build() async => AgentCatalog(
+    agents: [
+      _agentWithTools([operation]),
+    ],
+    issues: const [],
+    selectedId: 'agent',
+  );
 }
 
 class _Boundary with MemoryBoundaryDelete implements MemoryFileBoundary {
