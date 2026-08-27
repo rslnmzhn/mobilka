@@ -116,6 +116,20 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  testWidgets('composer input has no opaque fill', (tester) async {
+    await pumpComposer(
+      tester,
+      isStreaming: false,
+      canSend: true,
+      onSend: (_, _) {},
+      onCancel: () {},
+    );
+
+    final textField = tester.widget<TextField>(find.byType(TextField));
+    expect(textField.decoration?.filled, isFalse);
+    expect(textField.decoration?.fillColor, Colors.transparent);
+  });
+
   testWidgets('picked attachments appear as chips and reach onSend', (
     tester,
   ) async {

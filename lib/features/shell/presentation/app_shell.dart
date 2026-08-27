@@ -70,6 +70,7 @@ class AppShell extends StatelessWidget {
               ),
             ),
             child: NavigationBar(
+              height: 52,
               selectedIndex: shell.currentIndex,
               onDestinationSelected: select,
               labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,

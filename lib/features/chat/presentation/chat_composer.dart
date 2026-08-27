@@ -199,6 +199,8 @@ class _ChatComposerState extends State<ChatComposer> {
                 if (_canSend) _send();
               },
               decoration: InputDecoration(
+                filled: false,
+                fillColor: Colors.transparent,
                 hintText: 'chat.messageHint'.tr(),
                 prefixIcon: PopupMenuButton<String>(
                   key: const Key('attachment-menu'),
