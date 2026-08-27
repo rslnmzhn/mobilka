@@ -73,11 +73,20 @@ void main() {
     await pumpAppAtSize(tester, const Size(320, 720));
 
     expect(find.byType(NavigationBar), findsOneWidget);
+    final mobileNavigation = tester.widget<NavigationBar>(
+      find.byType(NavigationBar),
+    );
+    expect(mobileNavigation.height, 52);
+    expect(
+      mobileNavigation.labelBehavior,
+      NavigationDestinationLabelBehavior.alwaysHide,
+    );
     for (final label in ['Chat', 'Models', 'Agents', 'Memory', 'Settings']) {
       expect(find.text(label), findsWidgets);
     }
     expect(find.text('MOBILKA'), findsNothing);
     expect(find.text('Workbench'), findsNothing);
+    expect(tester.takeException(), isNull);
 
     await tester.binding.setSurfaceSize(
       const Size(expandedShellBreakpoint + 180, 800),

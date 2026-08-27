@@ -5,9 +5,7 @@ import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:highlight/highlight.dart' as hl;
 
-import '../application/chat_controller.dart';
 import '../domain/chat_message.dart';
-import '../domain/conversation.dart';
 import '../domain/tool_execution.dart';
 import 'tool_call_card.dart';
 
@@ -177,44 +175,6 @@ class _PendingMemoryProposalCardState extends State<PendingMemoryProposalCard> {
       ),
     ),
   );
-}
-
-class ContextIndicator extends StatelessWidget {
-  const ContextIndicator({
-    required this.conversation,
-    required this.state,
-    super.key,
-  });
-
-  final Conversation? conversation;
-  final ChatState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final characters =
-        conversation?.messages.fold<int>(
-          0,
-          (sum, message) => sum + message.content.length,
-        ) ??
-        0;
-    final estimate = (characters / 4).ceil();
-    final actual = conversation?.usage?.totalTokens;
-    final used = actual ?? estimate;
-    final limit = conversation?.contextLimitTokens ?? 32768;
-    final remaining = (limit - used).clamp(0, limit);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Align(
-        alignment: Alignment.centerRight,
-        child: Text(
-          actual == null
-              ? '≈ $used / $limit tokens · $remaining left'
-              : '$used / $limit tokens · $remaining left',
-          style: Theme.of(context).textTheme.labelSmall,
-        ),
-      ),
-    );
-  }
 }
 
 class EmptyChat extends StatelessWidget {

@@ -255,7 +255,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       .read(chatControllerProvider.notifier)
                       .rejectPendingMemoryProposal,
                 ),
-              ContextIndicator(conversation: conversation, state: state),
               ChatComposer(
                 controller: composer,
                 isStreaming: state.isStreaming,
