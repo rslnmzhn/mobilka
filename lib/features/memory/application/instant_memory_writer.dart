@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/memory_repository.dart';
@@ -17,12 +19,21 @@ class InstantMemoryWriter {
   final MemoryMutationCoordinator _mutations;
   final PromptGuard _guard;
 
+  /// Leaves headroom below the 1 MiB boundary limit for guard markers and
+  /// later journal/audit writes. The agent must compact rather than lose data.
+  static const softUtf8ByteLimit = 768 * 1024;
+
   Future<String> write(String content) async {
     final guarded = _guard.sanitize(content);
+    if (utf8.encode(guarded.content).length > softUtf8ByteLimit) {
+      throw StateError(
+        'memory.md is above the 768 KiB working limit after safety markers. '
+        'Compact the memory and try again; content was not truncated.',
+      );
+    }
     await _mutations.mutate(
       event: 'memory.instant_write',
       replacements: {MemoryFiles.memory: guarded.content},
-      createIfMissing: {MemoryFiles.memory},
     );
     return guarded.hasSuspectedInjection
         ? 'written with [suspected-injection] markers'

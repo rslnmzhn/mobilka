@@ -11,6 +11,8 @@ import '../data/memory_file_store.dart';
 import '../data/memory_repository.dart';
 import 'memory_recovery_journal.dart';
 
+part 'memory_mutation_recovery_helpers.dart';
+
 final memoryMutationCoordinatorProvider = Provider<MemoryMutationCoordinator?>((
   ref,
 ) {
@@ -56,6 +58,7 @@ class MemoryMutationCoordinator {
        _logger = logger ?? AppLogger();
 
   static const auditFile = MemoryFiles.memory;
+  static const terminalAuditUtf8Headroom = 16 * 1024;
   final MemoryFileBoundary _boundary;
   final DateTime Function() _now;
   final String Function() _operationId;
@@ -68,14 +71,60 @@ class MemoryMutationCoordinator {
     Map<String, String> expectedVersions = const {},
     Set<String> createIfMissing = const {},
     String? operationId,
+  }) => _mutate(
+    event: event,
+    replacements: replacements,
+    expectedVersions: expectedVersions,
+    createIfMissing: createIfMissing,
+    operationId: operationId,
+  );
+
+  Future<void> migrateLegacyAlias({
+    required String legacyName,
+    required String modernName,
+    required String backupName,
+    required String content,
+    bool backupAlreadyExists = false,
+  }) {
+    final valid = MemoryFiles.flattenedHistoricalAliases.any(
+      (alias) => alias.key == legacyName && alias.value == modernName,
+    );
+    if (!valid || backupName != '$legacyName.migrated.bak') {
+      throw const FormatException('Unsafe legacy migration target');
+    }
+    return _mutate(
+      event: 'memory.legacy_migration',
+      replacements: {
+        backupName: content,
+        modernName: content.endsWith('\n') ? content : '$content\n',
+      },
+      createIfMissing: backupAlreadyExists ? const {} : {backupName},
+      deletions: {legacyName},
+      additionallyAllowed: {legacyName, backupName},
+      deferTerminalAudit: modernName == auditFile,
+    );
+  }
+
+  Future<void> _mutate({
+    required String event,
+    required Map<String, String> replacements,
+    Map<String, String> expectedVersions = const {},
+    Set<String> createIfMissing = const {},
+    Set<String> deletions = const {},
+    Set<String> additionallyAllowed = const {},
+    bool deferTerminalAudit = false,
+    String? operationId,
   }) => _boundary.transaction((files) async {
     await _recover(files);
-    _validate(replacements.keys);
+    _validate(replacements.keys, additionallyAllowed: additionallyAllowed);
+    if (deletions.isNotEmpty) {
+      _validate(deletions, additionallyAllowed: additionallyAllowed);
+    }
     if (!replacements.keys.toSet().containsAll(createIfMissing)) {
       throw const FormatException('Create targets must be replacements');
     }
     final before = <String, String>{};
-    for (final name in {...replacements.keys, auditFile}) {
+    for (final name in {...replacements.keys, ...deletions, auditFile}) {
       before[name] = createIfMissing.contains(name)
           ? (await _readIfExists(files, name) ?? '')
           : await files.read(name);
@@ -99,8 +148,10 @@ class MemoryMutationCoordinator {
       'operationId': id,
       'status': 'pending',
       'terminalAuditWritten': false,
+      if (deferTerminalAudit) 'terminalAuditDeferred': true,
       'files': replacements.keys.toList(growable: false),
       'createdFiles': createIfMissing.toList(growable: false),
+      'deletedFiles': deletions.toList(growable: false),
       'previous': {
         for (final entry in before.entries)
           entry.key: base64Encode(utf8.encode(entry.value)),
@@ -117,11 +168,24 @@ class MemoryMutationCoordinator {
         'version': checksum(replacements.values.single),
       },
     };
+    _validateAuditCapacity(before[auditFile]!, record);
+    if (after.containsKey(auditFile)) {
+      _validateAuditCapacity(after[auditFile]!, record);
+    }
     _logger.log(event: 'memory.journal', operationId: id, status: 'pending');
     await _journal.write(id, record);
     try {
       for (final entry in after.entries) {
         await files.write(entry.key, entry.value);
+      }
+      if (deletions.isNotEmpty) {
+        if (files is! DeletingMemoryFileTransaction) {
+          throw StateError('Memory boundary cannot delete files');
+        }
+        final deletingFiles = files as DeletingMemoryFileTransaction;
+        for (final name in deletions) {
+          await deletingFiles.delete(name);
+        }
       }
       final applied = {...record, 'status': 'applied'};
       await _journal.write(id, applied);
@@ -208,6 +272,9 @@ class MemoryMutationCoordinator {
     final previous = _decodePrevious(record['previous']);
     final beforeHashes = _decodeHashes(record['beforeHashes']);
     final afterHashes = _decodeHashes(record['afterHashes']);
+    final deletedFiles = (record['deletedFiles'] as List<dynamic>? ?? const [])
+        .cast<String>()
+        .toSet();
     if (previous.keys
             .toSet()
             .difference(beforeHashes.keys.toSet())
@@ -221,9 +288,18 @@ class MemoryMutationCoordinator {
 
     var fullyApplied = true;
     for (final entry in afterHashes.entries) {
-      if (checksum(await files.read(entry.key)) != entry.value) {
+      final current = await _readIfExists(files, entry.key);
+      if (current == null || checksum(current) != entry.value) {
         fullyApplied = false;
         break;
+      }
+    }
+    if (fullyApplied) {
+      for (final name in deletedFiles) {
+        if (await _readIfExists(files, name) != null) {
+          fullyApplied = false;
+          break;
+        }
       }
     }
     if (fullyApplied) {
@@ -234,11 +310,28 @@ class MemoryMutationCoordinator {
       return _RecoveryOutcome.committed;
     }
 
+    final createdFiles = (record['createdFiles'] as List<dynamic>? ?? const [])
+        .cast<String>()
+        .toSet();
     for (final entry in afterHashes.entries) {
-      final currentHash = checksum(await files.read(entry.key));
+      final current = await _readIfExists(files, entry.key);
+      if (current == null) continue;
+      final currentHash = checksum(current);
       if (currentHash == entry.value &&
           currentHash != beforeHashes[entry.key]) {
-        await files.write(entry.key, previous[entry.key]!);
+        if (createdFiles.contains(entry.key)) {
+          if (files is! DeletingMemoryFileTransaction) {
+            throw StateError('Memory boundary cannot roll back created files');
+          }
+          await (files as DeletingMemoryFileTransaction).delete(entry.key);
+        } else {
+          await files.write(entry.key, previous[entry.key]!);
+        }
+      }
+    }
+    for (final name in deletedFiles) {
+      if (await _readIfExists(files, name) == null) {
+        await files.write(name, previous[name]!);
       }
     }
     await _finalize(files, record, 'failed', recovered: recovered);
@@ -257,32 +350,43 @@ class MemoryMutationCoordinator {
     final current = await files.read(auditFile);
     final alreadyWritten =
         record['terminalAuditWritten'] == true && record['status'] == status;
+    var auditDeferred = record['terminalAuditDeferred'] == true;
     if (!alreadyWritten &&
         !_containsAuditOperation(current, auditOperationId)) {
-      await files.write(
-        auditFile,
-        _append(current, <String, dynamic>{
-          'timestamp': _now().toUtc().toIso8601String(),
-          'event': record['event'],
-          'operationId': operationId,
-          'status': status,
-          'auditOperationId': auditOperationId,
-          'files': record['files'],
-          'createdFiles': record['createdFiles'],
-          'beforeHashes': record['beforeHashes'],
-          'afterHashes': record['afterHashes'],
-          if (record.containsKey('fileName')) 'fileName': record['fileName'],
-          if (record.containsKey('previousVersion'))
-            'previousVersion': record['previousVersion'],
-          if (record.containsKey('version')) 'version': record['version'],
-          if (recovered) 'recovered': true,
-        }),
+      final appended = _append(
+        current,
+        _terminalAuditEntry(
+          {...record, 'timestamp': _now().toUtc().toIso8601String()},
+          status,
+          recovered: recovered,
+        ),
       );
+      if (auditDeferred) {
+        _logger.log(
+          event: 'memory.audit_deferred',
+          operationId: operationId,
+          status: status,
+          level: AppLogLevel.warning,
+        );
+      } else if (utf8.encode(appended).length <= maxMemoryFileBytes) {
+        await files.write(auditFile, appended);
+      } else if (recovered) {
+        auditDeferred = true;
+        _logger.log(
+          event: 'memory.audit_deferred',
+          operationId: operationId,
+          status: status,
+          level: AppLogLevel.warning,
+        );
+      } else {
+        throw const MemoryAuditCapacityException();
+      }
     }
     await _journal.write(operationId, {
       ...record,
       'status': status,
-      'terminalAuditWritten': true,
+      'terminalAuditWritten': !auditDeferred,
+      if (auditDeferred) 'terminalAuditDeferred': true,
     });
   }
 
@@ -309,15 +413,39 @@ class MemoryMutationCoordinator {
     return value.cast<String, String>();
   }
 
-  static void _validate(Iterable<String> names) {
+  static void _validate(
+    Iterable<String> names, {
+    Set<String> additionallyAllowed = const {},
+  }) {
     if (names.isEmpty ||
-        names.any((name) => !MemoryRepository.templates.containsKey(name))) {
+        names.any(
+          (name) =>
+              !MemoryFiles.mutationFiles.contains(name) &&
+              !additionallyAllowed.contains(name),
+        )) {
       throw const FormatException('Memory mutation contains an unsafe file');
     }
   }
-}
 
-enum _RecoveryOutcome { committed, rolledBack }
+  static void _validateAuditCapacity(
+    String auditContent,
+    Map<String, dynamic> record,
+  ) {
+    final bytes = utf8.encode(auditContent).length;
+    if (bytes > maxMemoryFileBytes - terminalAuditUtf8Headroom) {
+      throw const MemoryAuditCapacityException();
+    }
+    for (final status in const ['committed', 'failed']) {
+      final appended = _append(
+        auditContent,
+        _terminalAuditEntry(record, status, recovered: true),
+      );
+      if (utf8.encode(appended).length > maxMemoryFileBytes) {
+        throw const MemoryAuditCapacityException();
+      }
+    }
+  }
+}
 
 final Expando<MemoryRecoveryJournal> _testJournals = Expando();
 
@@ -334,32 +462,14 @@ class MemoryMutationException implements Exception {
   final bool rollbackSucceeded;
 }
 
+class MemoryAuditCapacityException implements Exception {
+  const MemoryAuditCapacityException();
+
+  @override
+  String toString() =>
+      'memory.md has insufficient space for the required mutation audit. '
+      'Compact memory.md and retry; no content was written or truncated.';
+}
+
 String checksum(String content) =>
     sha256.convert(utf8.encode(content)).toString();
-
-String _append(String content, Map<String, dynamic> entry) {
-  final line = jsonEncode(entry);
-  if (content.isEmpty) return '$line\n';
-  return content.endsWith('\n') ? '$content$line\n' : '$content\n$line\n';
-}
-
-bool _containsAuditOperation(String content, String auditOperationId) {
-  for (final line in const LineSplitter().convert(content)) {
-    try {
-      final value = jsonDecode(line);
-      if (value is Map && value['auditOperationId'] == auditOperationId) {
-        return true;
-      }
-    } on FormatException {
-      // Markdown headings and user-authored lines are not audit records.
-    }
-  }
-  return false;
-}
-
-String _token() {
-  final random = Random.secure();
-  return base64UrlEncode(
-    List<int>.generate(24, (_) => random.nextInt(256)),
-  ).replaceAll('=', '');
-}

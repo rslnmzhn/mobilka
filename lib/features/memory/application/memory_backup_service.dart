@@ -1,5 +1,5 @@
 import '../data/memory_file_store.dart';
-import '../data/memory_repository.dart';
+import '../domain/memory_file_names.dart';
 import 'memory_backup_codec.dart';
 import 'memory_mutation_coordinator.dart';
 
@@ -20,13 +20,12 @@ class MemoryBackupService {
   final MemoryBackupCodec _codec;
   final DateTime Function() _now;
 
-  Future<String> createBackup() => _boundary.transaction((files) async {
-    final contents = <String, String>{};
-    for (final name in MemoryRepository.templates.keys) {
-      contents[name] = await files.read(name);
-    }
+  Future<String> createBackup() async {
+    final contents = await _mutations.readContextSnapshot(
+      MemoryFiles.backupFiles,
+    );
     return _codec.encode(contents, _now());
-  });
+  }
 
   MemoryRestorePayload decodeRestore(String document) {
     final files = _codec.decode(document);

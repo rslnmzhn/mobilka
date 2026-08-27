@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
-import '../data/memory_repository.dart';
+import '../domain/memory_file_names.dart';
 
 class MemoryBackupCodec {
   const MemoryBackupCodec();
@@ -15,7 +15,7 @@ class MemoryBackupCodec {
 
   String encode(Map<String, String> files, DateTime createdAt) {
     final manifest = <Map<String, Object>>[];
-    for (final name in MemoryRepository.templates.keys) {
+    for (final name in MemoryFiles.backupFiles) {
       final content = files[name];
       if (content == null) {
         throw const MemoryBackupFormatException('Missing required memory file');
@@ -45,7 +45,15 @@ class MemoryBackupCodec {
     }
     final decoded = _decodeDocument(document);
     final (:files, :manifest) = _readPayload(decoded);
-    final expected = MemoryRepository.templates.keys.toSet();
+    final actual = files.keys.toSet();
+    final supported = [MemoryFiles.coreBackupFiles, MemoryFiles.backupFiles];
+    final expected = supported.firstWhere(
+      (set) => actual.length == set.length && actual.containsAll(set),
+      orElse: () => const <String>{},
+    );
+    if (expected.isEmpty) {
+      throw const MemoryBackupFormatException('Unsafe or missing memory file');
+    }
     _validateFileNames(files, expected);
     final metadata = _readManifest(manifest, expected);
     return Map.unmodifiable(_readFiles(files, metadata, expected));

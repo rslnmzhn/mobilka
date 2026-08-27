@@ -237,24 +237,29 @@ class ChatController extends _$ChatController {
           .read(chatToolRuntimeRegistryProvider)
           .revalidateMemoryProposal(proposal);
 
-      var currentProposal = state.requireValue
+      final currentProposal = state.requireValue
           .conversationById(conversationId)
           ?.pendingMemoryProposal;
-      if (currentProposal == null || currentProposal.toolCallId != toolCallId) {
+      if (currentProposal == null ||
+          !proposal.hasSameIdentity(currentProposal)) {
         throw StateError('Memory proposal changed during confirmation');
       }
       final result = await updates.applyPersisted(
-        fileName: currentProposal.fileName,
-        proposedContent: currentProposal.proposedContent,
-        diff: currentProposal.diff,
-        confirmationToken: currentProposal.confirmationToken,
-        version: currentProposal.version,
-        createdAt: currentProposal.createdAt,
+        fileName: proposal.fileName,
+        proposedContent: proposal.proposedContent,
+        diff: proposal.diff,
+        confirmationToken: proposal.confirmationToken,
+        version: proposal.version,
+        createdAt: proposal.createdAt,
       );
-      currentProposal = state.requireValue
+      if (currentProposal.requiredToolPermission == 'delete_persona') {
+        await ref.read(personaRegistryProvider).refresh();
+      }
+      final proposalAfterApply = state.requireValue
           .conversationById(conversationId)
           ?.pendingMemoryProposal;
-      if (currentProposal == null || currentProposal.toolCallId != toolCallId) {
+      if (proposalAfterApply == null ||
+          !proposal.hasSameIdentity(proposalAfterApply)) {
         throw StateError('Memory proposal changed after apply');
       }
       await _continueAfterMemoryDecision(

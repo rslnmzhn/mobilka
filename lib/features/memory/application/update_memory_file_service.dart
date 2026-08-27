@@ -7,6 +7,7 @@ import '../../../core/logging/app_logger.dart';
 import '../../../core/storage/app_boxes.dart';
 import '../data/memory_file_store.dart';
 import '../data/memory_repository.dart';
+import '../domain/memory_file_names.dart';
 import 'memory_mutation_coordinator.dart';
 import 'memory_update_proposal_authority.dart';
 
@@ -46,12 +47,7 @@ class UpdateMemoryFileService {
 
   /// Owner-editable files (Memory screen). Model-facing rejection of
   /// soul.md happens in MemoryChatToolRuntime.prepareMemoryProposal.
-  static const approvedFileNames = {
-    'user.md',
-    'memory.md',
-    'soul.md',
-    'personas.yaml',
-  };
+  static const approvedFileNames = MemoryFiles.mutationFiles;
   final MemoryFileBoundary _boundary;
   final MemoryMutationCoordinator _mutations;
   final ConfirmationTokenFactory _tokenFactory;

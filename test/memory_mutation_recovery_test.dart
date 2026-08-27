@@ -7,6 +7,52 @@ import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'support/memory_delete_mixins.dart';
 
 void main() {
+  test(
+    'preflight reserves terminal audit space before journal or writes',
+    () async {
+      final audit =
+          'x' *
+          (maxMemoryFileBytes -
+              MemoryMutationCoordinator.terminalAuditUtf8Headroom +
+              1);
+      final boundary = _Boundary({'user.md': 'before', 'memory.md': audit});
+      final journal = _Journal()..audit = boundary;
+
+      await expectLater(
+        MemoryMutationCoordinator(
+          boundary,
+          journal: journal,
+        ).mutate(event: 'test', replacements: const {'user.md': 'after'}),
+        throwsA(isA<MemoryAuditCapacityException>()),
+      );
+
+      expect(boundary.files['user.md'], 'before');
+      expect(boundary.files['memory.md'], audit);
+      expect(journal.records, isEmpty);
+    },
+  );
+
+  test('replacement memory must leave terminal audit headroom', () async {
+    final boundary = _Boundary({'memory.md': 'before'});
+    final journal = _Journal()..audit = boundary;
+    final replacement =
+        'é' *
+        ((maxMemoryFileBytes -
+                MemoryMutationCoordinator.terminalAuditUtf8Headroom) ~/
+            2);
+
+    await MemoryMutationCoordinator(
+      boundary,
+      journal: journal,
+    ).mutate(event: 'test', replacements: {'memory.md': replacement});
+
+    expect(
+      utf8.encode(boundary.files['memory.md']!).length,
+      lessThanOrEqualTo(maxMemoryFileBytes),
+    );
+    expect(boundary.files['memory.md'], startsWith(replacement));
+  });
+
   test('recovery finalizes a fully applied journal exactly once', () async {
     final boundary = _Boundary({'user.md': 'after', 'memory.md': '# Log\n'});
     final journal = _Journal()..audit = boundary;
@@ -84,6 +130,93 @@ void main() {
     ]);
     expect(journal.records, isEmpty);
   });
+
+  test('recovery before create leaves the missing target absent', () async {
+    final boundary = _Boundary({'memory.md': '# Log\n'});
+    final journal = _Journal()..audit = boundary;
+    journal.records['operation'] = _createRecord();
+
+    await MemoryMutationCoordinator(boundary, journal: journal).recover();
+
+    expect(boundary.files.containsKey('user.md'), isFalse);
+    expect(_terminalRecords(boundary.files['memory.md']!), ['failed']);
+    expect(journal.records, isEmpty);
+  });
+
+  test('recovery after create finalizes the applied creation', () async {
+    final boundary = _Boundary({'user.md': 'created', 'memory.md': '# Log\n'});
+    final journal = _Journal()..audit = boundary;
+    journal.records['operation'] = _createRecord();
+
+    await MemoryMutationCoordinator(boundary, journal: journal).recover();
+
+    expect(boundary.files['user.md'], 'created');
+    expect(_terminalRecords(boundary.files['memory.md']!), ['committed']);
+    expect(journal.records, isEmpty);
+  });
+
+  test(
+    'mixed create and replace rollback deletes rather than empties create',
+    () async {
+      final boundary = _Boundary({
+        'user.md': 'created',
+        'soul.md': 'unrelated',
+        'memory.md': '# Log\n',
+      });
+      final journal = _Journal()..audit = boundary;
+      journal.records['operation'] = _createAndReplaceRecord();
+
+      await MemoryMutationCoordinator(boundary, journal: journal).recover();
+
+      expect(boundary.files.containsKey('user.md'), isFalse);
+      expect(boundary.files['soul.md'], 'unrelated');
+      expect(_terminalRecords(boundary.files['memory.md']!), ['failed']);
+    },
+  );
+
+  test('near-limit legacy recovery defers audit without truncation', () async {
+    final audit = 'x' * (maxMemoryFileBytes - 1);
+    final boundary = _Boundary({'user.md': 'after', 'memory.md': audit});
+    final journal = _Journal()..audit = boundary;
+    journal.records['operation'] = _singleRecord(
+      file: 'user.md',
+      before: 'before',
+      after: 'after',
+    );
+    final coordinator = MemoryMutationCoordinator(boundary, journal: journal);
+
+    await coordinator.recover();
+
+    expect(boundary.files['memory.md'], audit);
+    expect(journal.records, isEmpty);
+    await expectLater(
+      coordinator.mutate(
+        event: 'new mutation',
+        replacements: const {'user.md': 'next'},
+      ),
+      throwsA(isA<MemoryAuditCapacityException>()),
+    );
+    expect(boundary.files['user.md'], 'after');
+  });
+}
+
+Map<String, dynamic> _createRecord() {
+  final record = _singleRecord(file: 'user.md', before: '', after: 'created');
+  record['createdFiles'] = ['user.md'];
+  return record;
+}
+
+Map<String, dynamic> _createAndReplaceRecord() {
+  final record = _twoFileRecord(
+    file1: 'user.md',
+    before1: '',
+    after1: 'created',
+    file2: 'soul.md',
+    before2: 'before',
+    after2: 'after',
+  );
+  record['createdFiles'] = ['user.md'];
+  return record;
 }
 
 Map<String, dynamic> _singleRecord({
@@ -164,7 +297,10 @@ class _Journal implements MemoryRecoveryJournal {
 
 class _Boundary
     with MemoryBoundaryDelete
-    implements MemoryFileBoundary, MemoryFileTransaction {
+    implements
+        MemoryFileBoundary,
+        MemoryFileTransaction,
+        DeletingMemoryFileTransaction {
   _Boundary(this.files);
   final Map<String, String> files;
 
@@ -179,5 +315,10 @@ class _Boundary
   @override
   Future<void> write(String fileName, String content) async {
     files[fileName] = content;
+  }
+
+  @override
+  Future<void> delete(String fileName) async {
+    files.remove(fileName);
   }
 }

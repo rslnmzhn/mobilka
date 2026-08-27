@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/memory/application/memory_backup_service.dart';
 import 'package:mobilka/features/memory/application/memory_backup_codec.dart';
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
+import 'package:mobilka/features/memory/application/memory_recovery_journal.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
 import 'support/memory_delete_mixins.dart';
@@ -56,6 +57,51 @@ void main() {
     service.decodeRestore(document);
     expect(source.files, before);
   });
+
+  test(
+    'backup recovers pending mutations before taking its snapshot',
+    () async {
+      final journal = _RecoveryJournal();
+      final before = source.files['user.md']!;
+      const after = 'interrupted replacement';
+      source.files['user.md'] = after;
+      journal.records.add({
+        'timestamp': DateTime.utc(2026).toIso8601String(),
+        'event': 'interrupted',
+        'operationId': 'backup-recovery',
+        'status': 'pending',
+        'terminalAuditWritten': false,
+        'files': ['user.md'],
+        'createdFiles': <String>[],
+        'previous': {
+          'user.md': base64Encode(utf8.encode(before)),
+          'soul.md': base64Encode(utf8.encode(source.files['soul.md']!)),
+          'memory.md': base64Encode(utf8.encode(source.files['memory.md']!)),
+        },
+        'beforeHashes': {
+          'user.md': checksum(before),
+          'soul.md': checksum(source.files['soul.md']!),
+          'memory.md': checksum(source.files['memory.md']!),
+        },
+        'afterHashes': {
+          'user.md': checksum(after),
+          'soul.md': checksum('not applied'),
+        },
+      });
+      final recoveringService = MemoryBackupService(
+        source,
+        MemoryMutationCoordinator(source, journal: journal),
+      );
+
+      final backup = recoveringService.decodeRestore(
+        await recoveringService.createBackup(),
+      );
+
+      expect(backup.files['user.md'], before);
+      expect(backup.files['memory.md'], contains('"status":"failed"'));
+      expect(journal.records, isEmpty);
+    },
+  );
 
   test('rejects malformed and corrupted documents', () async {
     expect(
@@ -188,6 +234,25 @@ void main() {
       );
     },
   );
+}
+
+class _RecoveryJournal implements MemoryRecoveryJournal {
+  final List<Map<String, dynamic>> records = [];
+
+  @override
+  Future<List<Map<String, dynamic>>> readAll() async =>
+      records.map(Map<String, dynamic>.of).toList();
+
+  @override
+  Future<void> remove(String operationId) async {
+    records.removeWhere((record) => record['operationId'] == operationId);
+  }
+
+  @override
+  Future<void> write(String operationId, Map<String, dynamic> record) async {
+    records.removeWhere((item) => item['operationId'] == operationId);
+    records.add(Map.of(record));
+  }
 }
 
 class _MemoryBoundary

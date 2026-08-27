@@ -65,10 +65,6 @@ void main() {
           .read(chatControllerProvider)
           .requireValue
           .conversationById('conversation')!;
-      // ignore: avoid_print
-      print(
-        'FILES=$boundary TOOLMSG=${conversation.messages.where((m) => m.role == ChatRole.tool).length}',
-      );
       expect(boundary.files['user.md'], '# Created\n');
       expect(conversation.pendingMemoryProposal, isNull);
       expect(
@@ -156,12 +152,86 @@ void main() {
       isTrue,
     );
   });
+
+  test(
+    'proposal identity rejects changed fields with the same tool call id',
+    () {
+      final original = PendingMemoryProposal(
+        toolCallId: 'call',
+        assistantMessageId: 'assistant',
+        selectedAgentId: 'agent',
+        allowedTools: const {'update_memory_file'},
+        fileName: 'user.md',
+        proposedContent: 'safe',
+        diff: 'diff',
+        confirmationToken: 'token',
+        version: 'version',
+        createdAt: DateTime.utc(2026),
+      );
+      final changed = PendingMemoryProposal(
+        toolCallId: original.toolCallId,
+        assistantMessageId: original.assistantMessageId,
+        selectedAgentId: original.selectedAgentId,
+        allowedTools: original.allowedTools,
+        fileName: original.fileName,
+        proposedContent: 'changed after revalidation',
+        diff: original.diff,
+        confirmationToken: original.confirmationToken,
+        version: original.version,
+        createdAt: original.createdAt,
+      );
+
+      expect(original.hasSameIdentity(changed), isFalse);
+    },
+  );
+
+  test(
+    'proposal change during revalidation is rejected before apply',
+    () async {
+      final boundary = _Boundary();
+      final updates = UpdateMemoryFileService(
+        boundary,
+        MemoryMutationCoordinator(boundary),
+        tokenFactory: () => 'token',
+      );
+      final proposal = await _proposal(updates);
+      await ConversationStore().save(_conversation(proposal));
+      late ProviderContainer container;
+      var changed = false;
+      container = _container(
+        updates,
+        permitsTool: true,
+        agentById: (_) async {
+          if (!changed) {
+            changed = true;
+            await container
+                .read(chatControllerProvider.notifier)
+                .rejectPendingMemoryProposal();
+          }
+          return _agent();
+        },
+      );
+      addTearDown(container.dispose);
+      await container.read(chatControllerProvider.future);
+
+      await container
+          .read(chatControllerProvider.notifier)
+          .confirmPendingMemoryProposal();
+
+      expect(boundary.files['user.md'], isNull);
+      expect(
+        container.read(chatControllerProvider).requireValue.errorMessage,
+        isNotNull,
+      );
+    },
+  );
 }
 
 ProviderContainer _container(
   UpdateMemoryFileService? updates, {
   required bool permitsTool,
   AppLogger? logger,
+  Future<AgentCatalogEntry?> Function(String id)? agentById,
 }) => ProviderContainer(
   overrides: [
     updateMemoryFileProvider.overrideWithValue(updates),
@@ -169,7 +239,7 @@ ProviderContainer _container(
     chatCompletionStreamerProvider.overrideWithValue(_Streamer()),
     memoryChatToolRuntimeProvider.overrideWithValue(
       MemoryChatToolRuntime(
-        agentById: (_) async => permitsTool ? _agent() : null,
+        agentById: agentById ?? (_) async => permitsTool ? _agent() : null,
         memoryUpdates: () => updates,
         logger: logger,
       ),

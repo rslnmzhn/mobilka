@@ -71,7 +71,7 @@ void main() {
               index: 0,
               id: 'call-1',
               name: 'update_memory_file',
-              arguments: '{}',
+              arguments: '{"file_name":"user.md","content":"# User\\nnew\\n"}',
             ),
           ],
         ),
@@ -87,6 +87,12 @@ void main() {
 
     expect(runtime.executed, isFalse);
     expect(streamer.histories, hasLength(1));
+    expect(
+      fixture.persisted.where(
+        (snapshot) => snapshot.pendingMemoryProposal?.toolCallId == 'call-1',
+      ),
+      hasLength(1),
+    );
     expect(fixture.conversation.pendingMemoryProposal?.toolCallId, 'call-1');
     expect(fixture.conversation.pendingRequestMessageId, isNotNull);
   });
@@ -103,7 +109,8 @@ void main() {
                 index: 0,
                 id: 'call-memory',
                 name: 'update_memory_file',
-                arguments: '{}',
+                arguments:
+                    '{"file_name":"user.md","content":"# User\\nnew\\n"}',
               ),
               ChatToolCallDelta(
                 index: 1,
@@ -146,13 +153,13 @@ void main() {
               index: 0,
               id: 'call-1',
               name: 'update_memory_file',
-              arguments: '{}',
+              arguments: '{"file_name":"user.md","content":"# User\\none\\n"}',
             ),
             ChatToolCallDelta(
               index: 1,
               id: 'call-2',
               name: 'update_memory_file',
-              arguments: '{}',
+              arguments: '{"file_name":"user.md","content":"# User\\ntwo\\n"}',
             ),
           ],
         ),
