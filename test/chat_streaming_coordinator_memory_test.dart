@@ -1,11 +1,36 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive/hive.dart';
+import 'package:mobilka/features/chat/application/chat_tool_runtime.dart'
+    as chat_runtime;
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/chat_stream_event.dart';
+import 'package:mobilka/features/chat/domain/chat_tool.dart';
 import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
+import 'package:mobilka/features/memory/application/workspace_paths.dart';
+import 'package:mobilka/features/memory/data/memory_file_store.dart';
+import 'package:mobilka/features/memory/data/memory_repository.dart';
+import 'package:saf/saf.dart';
 
 import 'support/chat_streaming_coordinator_fakes.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late Directory root;
+
+  setUp(() async {
+    root = await Directory.systemTemp.createTemp('mobilka-binding');
+    Hive.init('${root.path}/hive');
+    await Hive.openBox<dynamic>('preferences');
+  });
+
+  tearDown(() async {
+    await Hive.deleteBoxFromDisk('preferences');
+    await Hive.close();
+    await root.delete(recursive: true);
+  });
+
   test(
     'fallback update_memory_file persists proposal without mutation',
     () async {
@@ -290,4 +315,178 @@ void main() {
     expect(fixture.conversation.pendingMemoryProposal?.toolCallId, 'call-1');
     expect(fixture.conversation.pendingRequestMessageId, isNotNull);
   });
+
+  for (final decision in ['confirmation', 'rejection']) {
+    test(
+      '$decision continuation generate_docx keeps original workspace binding',
+      () async {
+        final original = Directory('${root.path}/original')..createSync();
+        final changed = Directory('${root.path}/changed')..createSync();
+        final binding = await _bindingFor(original);
+        final runtime = _MemoryThenDocxRuntime();
+        final fixture = CoordinatorFixture(
+          streamer: _memoryThenDocxStreamer(),
+          toolRuntime: runtime,
+        );
+
+        await fixture.run(workspaceBinding: binding);
+        await Hive.box<dynamic>(
+          'preferences',
+        ).put('memoryLocation', changed.path);
+        final proposal = fixture.conversation.pendingMemoryProposal!;
+        await fixture.coordinator.continueAfterMemoryDecision(
+          conversation: fixture.conversation,
+          proposal: proposal,
+          toolResult: decision == 'confirmation'
+              ? '{"ok":true}'
+              : '{"ok":false,"rejected":true}',
+        );
+
+        expect(runtime.docxBindings, [same(binding)]);
+        expect(
+          fixture.coordinator.retainedWorkspaceBindingForRetry(
+            'conversation-1',
+            'user-1',
+          ),
+          isNull,
+        );
+      },
+    );
+  }
+
+  test(
+    'recreated coordinator fails safe instead of using current workspace',
+    () async {
+      final original = Directory('${root.path}/original')..createSync();
+      final changed = Directory('${root.path}/changed')..createSync();
+      final binding = await _bindingFor(original);
+      final first = CoordinatorFixture(
+        streamer: SequencedStreamer([_memoryProposalEvents]),
+        toolRuntime: _MemoryThenDocxRuntime(),
+      );
+      await first.run(workspaceBinding: binding);
+      await Hive.box<dynamic>(
+        'preferences',
+      ).put('memoryLocation', changed.path);
+
+      final runtime = _MemoryThenDocxRuntime();
+      final recreated = CoordinatorFixture(
+        streamer: SequencedStreamer([_docxEvents, _completeEvents]),
+        toolRuntime: runtime,
+      );
+      recreated.conversations['conversation-1'] = first.conversation;
+      final proposal = recreated.conversation.pendingMemoryProposal!;
+      await recreated.coordinator.continueAfterMemoryDecision(
+        conversation: recreated.conversation,
+        proposal: proposal,
+        toolResult: '{"ok":true}',
+      );
+
+      expect(runtime.docxBindings, [isNull]);
+      expect(runtime.docxResults, contains('{"workspace_saved":false}'));
+    },
+  );
+
+  test('conversation deletion removes retained workspace binding', () async {
+    final binding = await _bindingFor(
+      Directory('${root.path}/original')..createSync(),
+    );
+    final runtime = _MemoryThenDocxRuntime();
+    final fixture = CoordinatorFixture(
+      streamer: _memoryThenDocxStreamer(),
+      toolRuntime: runtime,
+    );
+    await fixture.run(workspaceBinding: binding);
+    fixture.coordinator.forgetConversation('conversation-1');
+    expect(
+      fixture.coordinator.retainedWorkspaceBindingForRetry(
+        'conversation-1',
+        'user-1',
+      ),
+      isNull,
+    );
+    final proposal = fixture.conversation.pendingMemoryProposal!;
+
+    await fixture.coordinator.continueAfterMemoryDecision(
+      conversation: fixture.conversation,
+      proposal: proposal,
+      toolResult: '{"ok":false,"rejected":true}',
+    );
+
+    expect(runtime.docxBindings, [isNull]);
+  });
+}
+
+const _memoryProposalEvents = [
+  ChatStreamEvent(
+    toolCallDeltas: [
+      ChatToolCallDelta(
+        index: 0,
+        id: 'call-memory',
+        name: 'update_memory_file',
+        arguments: '{"file_name":"user.md","content":"new"}',
+      ),
+    ],
+  ),
+  ChatStreamEvent(finishReason: 'tool_calls', isTerminal: true),
+];
+const _docxEvents = [
+  ChatStreamEvent(
+    toolCallDeltas: [
+      ChatToolCallDelta(
+        index: 0,
+        id: 'call-docx',
+        name: 'generate_docx',
+        arguments: '{"title":"Report","markdown":"body"}',
+      ),
+    ],
+  ),
+  ChatStreamEvent(finishReason: 'tool_calls', isTerminal: true),
+];
+const _completeEvents = [
+  ChatStreamEvent(finishReason: 'stop', isTerminal: true),
+];
+
+SequencedStreamer _memoryThenDocxStreamer() =>
+    SequencedStreamer([_memoryProposalEvents, _docxEvents, _completeEvents]);
+
+Future<WorkspaceBinding> _bindingFor(Directory directory) async {
+  final preferences = Hive.box<dynamic>('preferences');
+  await preferences.put('memoryLocation', directory.path);
+  await preferences.put('memoryLocationIsUri', false);
+  final repository = MemoryRepository(
+    Saf(),
+    boundaryFactory: (_) => PathMemoryFileStore(directory.path),
+  );
+  return WorkspaceStore(repository: repository).captureBinding()!;
+}
+
+class _MemoryThenDocxRuntime extends MemoryProposalRuntime {
+  final List<WorkspaceBinding?> docxBindings = [];
+  final List<String> docxResults = [];
+
+  @override
+  Future<List<ChatToolDefinition>> availableTools(
+    Set<String> allowedTools,
+  ) async => const [
+    ChatToolDefinition(
+      name: 'generate_docx',
+      description: 'generate',
+      parameters: {'type': 'object'},
+    ),
+  ];
+
+  @override
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    chat_runtime.ChatToolExecutionContext? context,
+  }) async {
+    docxBindings.add(context?.workspaceBinding);
+    final result = context?.workspaceBinding == null
+        ? '{"workspace_saved":false}'
+        : '{"workspace_saved":true}';
+    docxResults.add(result);
+    return result;
+  }
 }

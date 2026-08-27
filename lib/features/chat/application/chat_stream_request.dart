@@ -1,5 +1,6 @@
 import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
+import '../../memory/application/workspace_paths.dart';
 
 class ChatStreamRequest {
   ChatStreamRequest({
@@ -11,6 +12,7 @@ class ChatStreamRequest {
     required this.history,
     required this.selectedAgentId,
     required Set<String> allowedTools,
+    this.workspaceBinding,
     this.conversationTitle = 'mobilka',
   }) : allowedTools = Set.unmodifiable(allowedTools);
 
@@ -22,6 +24,7 @@ class ChatStreamRequest {
   final List<ChatMessage> history;
   final String? selectedAgentId;
   final Set<String> allowedTools;
+  final WorkspaceBinding? workspaceBinding;
 
   /// Shown on the Android foreground-service notification.
   final String conversationTitle;
@@ -33,6 +36,7 @@ prepareInterruptedRetry(
   DateTime now, {
   required String? selectedAgentId,
   required Set<String> allowedTools,
+  WorkspaceBinding? workspaceBinding,
 }) {
   final requestId = conversation.pendingRequestMessageId;
   if (requestId == null) return null;
@@ -65,6 +69,7 @@ prepareInterruptedRetry(
       assistantId,
       selectedAgentId: selectedAgentId,
       allowedTools: allowedTools,
+      workspaceBinding: workspaceBinding,
     ),
   );
 }
@@ -75,6 +80,7 @@ ChatStreamRequest buildChatStreamRequest(
   String assistantId, {
   required String? selectedAgentId,
   required Set<String> allowedTools,
+  WorkspaceBinding? workspaceBinding,
 }) => ChatStreamRequest(
   conversationId: conversation.id,
   sessionKey: conversation.sessionKey,
@@ -84,6 +90,7 @@ ChatStreamRequest buildChatStreamRequest(
   conversationTitle: conversation.title,
   selectedAgentId: selectedAgentId,
   allowedTools: allowedTools,
+  workspaceBinding: workspaceBinding,
   history: conversation.messages
       .where((message) => message.id != assistantId)
       .where(

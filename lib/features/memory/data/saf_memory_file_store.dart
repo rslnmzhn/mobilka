@@ -1,88 +1,14 @@
-import 'dart:typed_data';
-
-import 'package:saf/saf.dart';
 import 'package:synchronized/synchronized.dart';
 
 import 'memory_file_store_contracts.dart';
+import 'saf_binary_artifact_pair_writer.dart';
+import 'saf_memory_access.dart';
 
-abstract interface class SafMemoryAccess {
-  Future<List<SafMemoryDocument>> list(String directoryUri);
-  Future<Uint8List> read(String documentUri);
-  Future<void> delete(String documentUri);
-  Future<void> write(
-    String directoryUri,
-    String fileName,
-    Uint8List content, {
-    required bool overwrite,
-  });
-
-  /// Creates one direct child. The caller verifies it by re-listing the parent
-  /// because SAF providers do not consistently expose parent metadata.
-  Future<SafMemoryDocument> createDirectory(String directoryUri, String name);
-}
-
-class SafMemoryDocument {
-  const SafMemoryDocument({
-    required this.uri,
-    required this.name,
-    required this.isDirectory,
-  });
-
-  final String uri;
-  final String name;
-  final bool isDirectory;
-}
-
-class SafMemoryAccessAdapter implements SafMemoryAccess {
-  SafMemoryAccessAdapter(this._saf);
-  final Saf _saf;
-
-  @override
-  Future<List<SafMemoryDocument>> list(String directoryUri) async =>
-      (await _saf.list(directoryUri))
-          .map(
-            (document) => SafMemoryDocument(
-              uri: document.uri,
-              name: document.name,
-              isDirectory: document.isDir,
-            ),
-          )
-          .toList(growable: false);
-  @override
-  Future<Uint8List> read(String documentUri) => _saf.readFileBytes(documentUri);
-  @override
-  Future<void> delete(String documentUri) => _saf.delete(documentUri);
-  @override
-  Future<void> write(
-    String directoryUri,
-    String fileName,
-    Uint8List content, {
-    required bool overwrite,
-  }) async {
-    await _saf.writeFileBytes(
-      directoryUri,
-      fileName,
-      'text/markdown',
-      content,
-      overwrite: overwrite,
-    );
-  }
-
-  @override
-  Future<SafMemoryDocument> createDirectory(
-    String directoryUri,
-    String name,
-  ) async {
-    final created = await _saf.mkdirp(directoryUri, [name]);
-    return SafMemoryDocument(
-      uri: created.uri,
-      name: created.name,
-      isDirectory: created.isDir,
-    );
-  }
-}
-
-class SafMemoryFileStore implements MemoryFileStore, SubPathMemoryFileBoundary {
+class SafMemoryFileStore
+    implements
+        MemoryFileStore,
+        SubPathMemoryFileBoundary,
+        BinarySubPathMemoryFileBoundary {
   SafMemoryFileStore(this.directoryUri, this._access);
 
   final String directoryUri;
@@ -185,6 +111,20 @@ class SafMemoryFileStore implements MemoryFileStore, SubPathMemoryFileBoundary {
       );
       return true;
     });
+  }
+
+  @override
+  Future<WorkspacePairWriteResult> writeBinaryPair(
+    WorkspaceBinaryFile first,
+    WorkspaceBinaryFile second,
+  ) async {
+    return _lock.synchronized(
+      () => SafBinaryArtifactPairWriter(
+        access: _access,
+        resolveDirectories: _resolveOrCreateDirectories,
+        resolveChild: _resolveExactChild,
+      ).writePair(first, second),
+    );
   }
 
   @override

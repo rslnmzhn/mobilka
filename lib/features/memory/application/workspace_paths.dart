@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 import '../data/memory_file_store.dart';
 import '../data/memory_repository.dart';
@@ -18,6 +20,17 @@ class WorkspaceStore {
   WorkspaceStore({required this.repository});
 
   final MemoryRepository repository;
+
+  WorkspaceBinding? captureBinding() {
+    final location = repository.savedLocation();
+    if (location == null) return null;
+    final boundary = repository.boundaryFor(location);
+    if (boundary is! BinarySubPathMemoryFileBoundary) return null;
+    return WorkspaceBinding._(
+      location,
+      boundary as BinarySubPathMemoryFileBoundary,
+    );
+  }
 
   /// Returns the path-backed store for a configured location, or null when
   /// unconfigured or SAF-backed.
@@ -98,6 +111,35 @@ class WorkspaceStore {
   String sessionArtifact(String sessionKey, String fileName) =>
       '${sessionFolder(sessionKey)}/artifacts/$fileName';
 
+  /// Validates the configured location once, then uses that exact immutable
+  /// location/boundary for both sibling writes.
+  Future<WorkspacePairWriteResult> writeArtifactPair({
+    required WorkspaceBinding binding,
+    required String sessionKey,
+    required String artifactId,
+    required String markdown,
+    required List<int> docxBytes,
+  }) async {
+    await repository.validateSavedLocationAccess(binding._location);
+    final binaryBoundary = binding._boundary;
+    final basename = artifactId;
+    return binaryBoundary.writeBinaryPair(
+      WorkspaceBinaryFile(
+        relativePath: sessionArtifact(sessionKey, '$basename.md'),
+        bytes: Uint8List.fromList(utf8.encode(markdown)),
+        mimeType: 'text/markdown',
+        maxBytes: maxArtifactMarkdownBytes,
+      ),
+      WorkspaceBinaryFile(
+        relativePath: sessionArtifact(sessionKey, '$basename.docx'),
+        bytes: Uint8List.fromList(docxBytes),
+        mimeType:
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        maxBytes: maxArtifactDocxBytes,
+      ),
+    );
+  }
+
   /// `ГГГГ-ММ-ДД_название` — stable per conversation.
   static String sessionKey({
     required DateTime createdAt,
@@ -123,6 +165,28 @@ class WorkspaceStore {
     final suffix = id.length <= 10 ? id : id.substring(id.length - 10);
     return '${date}_${sanitized}_$suffix';
   }
+}
+
+/// Opaque, request-scoped authority for one workspace boundary. It is never
+/// serialized into conversation state or tool output.
+class WorkspaceBinding {
+  const WorkspaceBinding._(this._location, this._boundary);
+
+  /// Creates an opaque identity-only binding for coordinator lifecycle tests.
+  @visibleForTesting
+  const WorkspaceBinding.fakeForTest()
+    : _location = const MemoryLocation(value: '', isContentUri: false),
+      _boundary = const _UnavailableBinaryBoundary();
+
+  final MemoryLocation _location;
+  final BinarySubPathMemoryFileBoundary _boundary;
+}
+
+class _UnavailableBinaryBoundary implements BinarySubPathMemoryFileBoundary {
+  const _UnavailableBinaryBoundary();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class WorkspaceStorageException implements Exception {

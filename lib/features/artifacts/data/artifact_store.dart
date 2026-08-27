@@ -23,4 +23,6 @@ class ArtifactStore {
       artifactsBox.put(artifact.id, artifact.toJson());
 
   Future<void> delete(String id) => artifactsBox.delete(id);
+
+  bool contains(String id) => artifactsBox.containsKey(id);
 }

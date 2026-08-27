@@ -1,6 +1,7 @@
 import '../domain/chat_message.dart';
 import '../domain/chat_tool.dart';
 import '../domain/pending_memory_proposal.dart';
+import '../../memory/application/workspace_paths.dart';
 
 abstract interface class ChatToolRuntime {
   Future<List<ChatToolDefinition>> availableTools(Set<String> allowedTools);
@@ -16,10 +17,12 @@ class ChatToolExecutionContext {
   const ChatToolExecutionContext({
     required this.conversationId,
     required this.sessionKey,
+    this.workspaceBinding,
   });
 
   final String conversationId;
   final String? sessionKey;
+  final WorkspaceBinding? workspaceBinding;
 }
 
 abstract interface class MemoryProposalRuntime {

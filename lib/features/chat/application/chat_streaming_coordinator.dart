@@ -7,8 +7,10 @@ import 'chat_stream_support.dart';
 import 'chat_tool_executor.dart';
 import 'chat_tool_runtime.dart';
 import 'fallback_tool_call_parser.dart';
+import 'pending_workspace_binding_store.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
+import '../../../features/memory/application/workspace_paths.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
@@ -27,6 +29,7 @@ class ChatStreamingCoordinator {
     PersonaRegistryAdapter? personaRegistry,
     void Function(String event)? onTransientRetry,
     AppLogger? logger,
+    PendingWorkspaceBindingStore? workspaceBindings,
   }) : _streamer = streamer,
        _conversationById = conversationById,
        _persistAndPublish = persistAndPublish,
@@ -36,7 +39,9 @@ class ChatStreamingCoordinator {
        _instantMemoryWriter = instantMemoryWriter,
        _personaRegistry = personaRegistry,
        _onTransientRetry = onTransientRetry,
-       _logger = logger;
+       _logger = logger,
+       _workspaceBindings = workspaceBindings ?? PendingWorkspaceBindingStore(),
+       _ownsWorkspaceBindings = workspaceBindings == null;
 
   final ChatCompletionStreamer _streamer;
   final Conversation? Function(String id) _conversationById;
@@ -48,7 +53,8 @@ class ChatStreamingCoordinator {
   final BackgroundTaskBridge _backgroundTasks;
   final void Function(String event)? _onTransientRetry;
   final AppLogger? _logger;
-  ChatToolExecutor? get _toolExecutor => _toolRuntime == null
+  ChatToolExecutor? _toolExecutorFor(ChatStreamRequest request) =>
+      _toolRuntime == null
       ? null
       : ChatToolExecutor(
           runtime: _toolRuntime,
@@ -57,6 +63,12 @@ class ChatStreamingCoordinator {
           instantMemoryWriter: _instantMemoryWriter,
           personaRegistry: _personaRegistry,
           logger: _logger,
+          onPendingMemoryProposal: (proposal) {
+            final binding = request.workspaceBinding;
+            if (binding != null) {
+              _workspaceBindings.retain(request, proposal, binding);
+            }
+          },
         );
 
   static const maxTransientRetries = 1;
@@ -65,6 +77,8 @@ class ChatStreamingCoordinator {
   CancelToken? _cancelToken;
   Future<void>? _running;
   final Set<String> _memoryDecisions = {};
+  final PendingWorkspaceBindingStore _workspaceBindings;
+  final bool _ownsWorkspaceBindings;
   Future<void> run(ChatStreamRequest request) {
     if (_running != null) {
       throw StateError('A chat request is already running');
@@ -79,8 +93,10 @@ class ChatStreamingCoordinator {
     required PendingMemoryProposal proposal,
     required String toolResult,
   }) async {
+    final requestMessageId = conversation.pendingRequestMessageId;
+    if (requestMessageId == null) return;
     final decisionId =
-        '${conversation.id}:${proposal.assistantMessageId}:'
+        '${conversation.id}:$requestMessageId:${proposal.assistantMessageId}:'
         '${proposal.toolCallId}:${proposal.callOccurrence}';
     if (!_memoryDecisions.add(decisionId)) return;
     final currentProposal = _conversationById(
@@ -138,16 +154,27 @@ class ChatStreamingCoordinator {
         ),
       ],
     );
-    await _persistAndPublish(updated);
-    await run(
-      buildChatStreamRequest(
-        updated,
-        updated.pendingRequestMessageId!,
-        assistantId,
-        selectedAgentId: proposal.selectedAgentId,
-        allowedTools: proposal.allowedTools,
-      ),
+    final retainedBinding = _workspaceBindings.resolveForDecision(
+      conversationId: conversation.id,
+      requestMessageId: requestMessageId,
+      proposal: proposal,
     );
+    try {
+      await _persistAndPublish(updated);
+      await run(
+        buildChatStreamRequest(
+          updated,
+          updated.pendingRequestMessageId!,
+          assistantId,
+          selectedAgentId: proposal.selectedAgentId,
+          allowedTools: proposal.allowedTools,
+          workspaceBinding: retainedBinding,
+        ),
+      );
+    } on Object {
+      _memoryDecisions.remove(decisionId);
+      rethrow;
+    }
   }
 
   void cancel(String conversationId) {
@@ -157,9 +184,29 @@ class ChatStreamingCoordinator {
   }
 
   Future<void> cancelAndWait(String conversationId) async {
-    if (_activeRequest?.conversationId != conversationId) return;
-    _cancelToken?.cancel('Conversation deleted');
-    await _running;
+    if (_activeRequest?.conversationId == conversationId) {
+      _cancelToken?.cancel('Conversation deleted');
+      await _running;
+    }
+    forgetConversation(conversationId);
+  }
+
+  void forgetConversation(String conversationId) {
+    _workspaceBindings.forgetConversation(conversationId);
+    _memoryDecisions.removeWhere(
+      (decision) => decision.startsWith('$conversationId:'),
+    );
+  }
+
+  WorkspaceBinding? retainedWorkspaceBindingForRetry(
+    String conversationId,
+    String requestMessageId,
+  ) => _workspaceBindings.resolveForRetry(conversationId, requestMessageId);
+
+  void dispose() {
+    _cancelToken?.cancel('Coordinator disposed');
+    if (_ownsWorkspaceBindings) _workspaceBindings.reset();
+    _memoryDecisions.clear();
   }
 
   Future<void> _run(ChatStreamRequest request) async {
@@ -346,6 +393,13 @@ class ChatStreamingCoordinator {
         'The request failed unexpectedly. Please retry.',
       );
     } finally {
+      final latest = _conversationById(request.conversationId);
+      if (latest == null || latest.pendingRequestMessageId == null) {
+        _workspaceBindings.cleanupTerminal(
+          request.conversationId,
+          request.requestMessageId,
+        );
+      }
       if (identical(_activeRequest, request)) {
         _activeRequest = null;
         _cancelToken = null;
@@ -364,7 +418,7 @@ class ChatStreamingCoordinator {
     String assistantId,
     List<ChatToolCall> calls,
   ) async {
-    final executor = _toolExecutor;
+    final executor = _toolExecutorFor(request);
     if (executor == null || calls.isEmpty) {
       throw const FormatException('Tool call response has no executable calls');
     }

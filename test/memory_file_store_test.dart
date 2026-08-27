@@ -8,6 +8,30 @@ import 'package:saf/saf.dart';
 import 'support/memory_delete_mixins.dart';
 
 void main() {
+  test('binary workspace pair enforces explicit byte limits', () async {
+    final root = await Directory.systemTemp.createTemp('binary-limits-');
+    addTearDown(() => root.delete(recursive: true));
+    final store = PathMemoryFileStore(root.path);
+
+    expect(
+      () => store.writeBinaryPair(
+        WorkspaceBinaryFile(
+          relativePath: 'sessions/key/artifacts/id.md',
+          bytes: Uint8List(maxArtifactMarkdownBytes + 1),
+          mimeType: 'text/markdown',
+          maxBytes: maxArtifactMarkdownBytes,
+        ),
+        WorkspaceBinaryFile(
+          relativePath: 'sessions/key/artifacts/id.docx',
+          bytes: Uint8List(1),
+          mimeType: 'application/octet-stream',
+          maxBytes: maxArtifactDocxBytes,
+        ),
+      ),
+      throwsFormatException,
+    );
+    expect(root.listSync(recursive: true), isEmpty);
+  });
   late Directory directory;
   late PathMemoryFileStore store;
 
@@ -277,6 +301,144 @@ void main() {
     expect(access.writes, isEmpty);
   });
 
+  test(
+    'SAF binary create with wrong returned identity is indeterminate',
+    () async {
+      final access = _BinarySafAccess()..returnWrongIdentity = true;
+      final result = await _writeSafPair(access);
+
+      expect(result.firstStatus, WorkspaceSiblingWriteStatus.indeterminate);
+      expect(
+        result.secondStatus,
+        WorkspaceSiblingWriteStatus.definitelyNotWritten,
+      );
+    },
+  );
+
+  test('SAF relist duplicate after create is indeterminate', () async {
+    final access = _BinarySafAccess()..duplicateAfterCreate = true;
+    final result = await _writeSafPair(access);
+
+    expect(result.firstStatus, WorkspaceSiblingWriteStatus.indeterminate);
+    expect(result.complete, false);
+  });
+
+  test(
+    'SAF create side effect followed by relist failure is indeterminate',
+    () async {
+      final access = _BinarySafAccess()..throwOnRelistAfterCreate = true;
+      final result = await _writeSafPair(access);
+
+      expect(result.firstStatus, WorkspaceSiblingWriteStatus.indeterminate);
+      expect(access.bytesByUri.keys.single, endsWith('id.md'));
+    },
+  );
+
+  test(
+    'SAF create side effect temporarily absent from relist is indeterminate',
+    () async {
+      final access = _BinarySafAccess()..hideOnRelistAfterCreate = true;
+      final result = await _writeSafPair(access);
+
+      expect(result.firstStatus, WorkspaceSiblingWriteStatus.indeterminate);
+      expect(access.bytesByUri.keys.single, endsWith('id.md'));
+    },
+  );
+
+  test(
+    'SAF existing pair collides before configured post-write relist failure',
+    () async {
+      final access = _BinarySafAccess();
+      expect((await _writeSafPair(access)).complete, true);
+      access.throwOnRelistAfterWrite = true;
+
+      final result = await _writeSafPair(access, markdownBytes: const [9]);
+
+      expect(result.firstStatus, WorkspaceSiblingWriteStatus.collision);
+      expect(
+        access.bytesByUri.entries
+            .firstWhere((entry) => entry.key.endsWith('.md'))
+            .value,
+        [1],
+      );
+    },
+  );
+
+  test(
+    'SAF existing pair collides before configured post-write disappearance',
+    () async {
+      final access = _BinarySafAccess();
+      expect((await _writeSafPair(access)).complete, true);
+      access.hideOnRelistAfterWrite = true;
+
+      final result = await _writeSafPair(access, markdownBytes: const [9]);
+
+      expect(result.firstStatus, WorkspaceSiblingWriteStatus.collision);
+    },
+  );
+
+  test('SAF relist wrong MIME after create is indeterminate', () async {
+    final access = _BinarySafAccess()..wrongMimeAfterCreate = true;
+    final result = await _writeSafPair(access);
+
+    expect(result.firstStatus, WorkspaceSiblingWriteStatus.indeterminate);
+  });
+
+  test('SAF second sibling side effect can be indeterminate', () async {
+    final access = _BinarySafAccess()..failSecondVerification = true;
+    final result = await _writeSafPair(access);
+
+    expect(result.firstStatus, WorkspaceSiblingWriteStatus.verifiedWritten);
+    expect(result.secondStatus, WorkspaceSiblingWriteStatus.indeterminate);
+    expect(result.complete, false);
+    expect(result.hasIndeterminate, true);
+  });
+
+  test(
+    'SAF silent Markdown truncation after create is indeterminate',
+    () async {
+      final access = _BinarySafAccess()..truncateCreateNumber = 1;
+      final result = await _writeSafPair(access);
+
+      expect(result.firstStatus, WorkspaceSiblingWriteStatus.indeterminate);
+      expect(
+        result.secondStatus,
+        WorkspaceSiblingWriteStatus.definitelyNotWritten,
+      );
+    },
+  );
+
+  test(
+    'SAF existing Markdown collides without invoking ignored overwrite',
+    () async {
+      final access = _BinarySafAccess();
+      expect((await _writeSafPair(access)).complete, true);
+      access.ignoreOverwriteForSuffix = '.md';
+
+      final result = await _writeSafPair(
+        access,
+        markdownBytes: const [3, 4],
+        docxBytes: const [5, 6],
+      );
+
+      expect(result.firstStatus, WorkspaceSiblingWriteStatus.collision);
+      expect(
+        access.bytesByUri.entries
+            .singleWhere((entry) => entry.key.endsWith('.md'))
+            .value,
+        [1],
+      );
+    },
+  );
+
+  test('SAF unreadable DOCX after write is indeterminate', () async {
+    final access = _BinarySafAccess()..unreadableSuffix = '.docx';
+    final result = await _writeSafPair(access);
+
+    expect(result.firstStatus, WorkspaceSiblingWriteStatus.verifiedWritten);
+    expect(result.secondStatus, WorkspaceSiblingWriteStatus.indeterminate);
+  });
+
   for (final operation in ['read', 'list']) {
     for (final position in ['intermediate', 'leaf']) {
       test(
@@ -399,6 +561,26 @@ void main() {
     },
   );
 }
+
+Future<WorkspacePairWriteResult> _writeSafPair(
+  _BinarySafAccess access, {
+  List<int> markdownBytes = const [1],
+  List<int> docxBytes = const [2],
+}) => SafMemoryFileStore('content://memory', access).writeBinaryPair(
+  WorkspaceBinaryFile(
+    relativePath: 'sessions/key/artifacts/id.md',
+    bytes: Uint8List.fromList(markdownBytes),
+    mimeType: 'text/markdown',
+    maxBytes: maxArtifactMarkdownBytes,
+  ),
+  WorkspaceBinaryFile(
+    relativePath: 'sessions/key/artifacts/id.docx',
+    bytes: Uint8List.fromList(docxBytes),
+    mimeType:
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    maxBytes: maxArtifactDocxBytes,
+  ),
+);
 
 _AdversarialSafAccess _adversarialNestedTree({
   required String position,
@@ -582,4 +764,123 @@ class _AdversarialSafAccess
     Uint8List content, {
     required bool overwrite,
   }) async => writes.add('$directoryUri/$fileName');
+}
+
+class _BinarySafAccess
+    with SafAccessDeleteMixin
+    implements SafMemoryAccess, SafMemoryBinaryAccess {
+  final Map<String, List<SafMemoryDocument>> tree = {'content://memory': []};
+  bool returnWrongIdentity = false;
+  bool duplicateAfterCreate = false;
+  bool wrongMimeAfterCreate = false;
+  bool failSecondVerification = false;
+  bool throwOnRelistAfterCreate = false;
+  bool hideOnRelistAfterCreate = false;
+  bool throwOnRelistAfterWrite = false;
+  bool hideOnRelistAfterWrite = false;
+  int? truncateCreateNumber;
+  String? ignoreOverwriteForSuffix;
+  String? unreadableSuffix;
+  int creates = 0;
+  int writes = 0;
+  final Map<String, Uint8List> bytesByUri = {};
+
+  @override
+  Future<List<SafMemoryDocument>> list(String directoryUri) async {
+    if ((creates > 0 && throwOnRelistAfterCreate) ||
+        (writes > 0 && throwOnRelistAfterWrite)) {
+      throw StateError('simulated relist failure');
+    }
+    final children = List<SafMemoryDocument>.of(tree[directoryUri] ?? const []);
+    if ((creates > 0 && hideOnRelistAfterCreate) ||
+        (writes > 0 && hideOnRelistAfterWrite)) {
+      children.removeWhere((document) => !document.isDirectory);
+    }
+    return children;
+  }
+
+  @override
+  Future<SafMemoryDocument> createDirectory(
+    String directoryUri,
+    String name,
+  ) async {
+    final document = SafMemoryDocument(
+      uri: '$directoryUri/$name',
+      name: name,
+      isDirectory: true,
+    );
+    tree.putIfAbsent(directoryUri, () => []).add(document);
+    tree.putIfAbsent(document.uri, () => []);
+    return document;
+  }
+
+  @override
+  Future<SafMemoryDocument> createBinary(
+    String directoryUri,
+    String fileName,
+    Uint8List content, {
+    required String mimeType,
+    required bool overwrite,
+  }) async {
+    creates++;
+    final stored = SafMemoryDocument(
+      uri: '$directoryUri/$fileName',
+      name: fileName,
+      isDirectory: false,
+      mimeType: wrongMimeAfterCreate || (failSecondVerification && creates == 2)
+          ? 'application/octet-stream'
+          : mimeType,
+    );
+    bytesByUri[stored.uri] = Uint8List.fromList(
+      truncateCreateNumber == creates && content.isNotEmpty
+          ? content.sublist(0, content.length - 1)
+          : content,
+    );
+    tree.putIfAbsent(directoryUri, () => []).add(stored);
+    if (duplicateAfterCreate) {
+      tree[directoryUri]!.add(
+        SafMemoryDocument(
+          uri: '$directoryUri/duplicate-$fileName',
+          name: fileName,
+          isDirectory: false,
+          mimeType: mimeType,
+        ),
+      );
+    }
+    if (returnWrongIdentity) {
+      return SafMemoryDocument(
+        uri: 'content://outside/$fileName',
+        name: fileName,
+        isDirectory: false,
+        mimeType: mimeType,
+      );
+    }
+    return stored;
+  }
+
+  @override
+  Future<void> writeBinaryDocument(
+    String documentUri,
+    Uint8List content,
+  ) async {
+    writes++;
+    if (documentUri.endsWith(ignoreOverwriteForSuffix ?? '\u0000')) return;
+    bytesByUri[documentUri] = Uint8List.fromList(content);
+  }
+
+  @override
+  Future<Uint8List> read(String documentUri) async {
+    if (documentUri.endsWith(unreadableSuffix ?? '\u0000')) {
+      throw StateError('simulated unreadable document');
+    }
+    return Uint8List.fromList(bytesByUri[documentUri]!);
+  }
+
+  @override
+  Future<void> write(
+    String directoryUri,
+    String fileName,
+    Uint8List content, {
+    required bool overwrite,
+  }) async {}
 }
