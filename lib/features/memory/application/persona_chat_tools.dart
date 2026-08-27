@@ -91,7 +91,11 @@ class PersonaChatTools implements ChatToolRuntime {
   ];
 
   @override
-  Future<String> executeTool(ChatToolCall call, Set<String> allowedTools) {
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) {
     if (!allowedTools.contains(call.name)) {
       throw StateError('${call.name} is not allowed for this agent');
     }

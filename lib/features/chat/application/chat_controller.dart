@@ -10,6 +10,8 @@ import '../../models/application/models_controller.dart';
 import '../../models/domain/model_capabilities.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
+import '../../../features/memory/application/workspace_paths.dart';
+import '../../../features/memory/data/memory_repository.dart';
 import 'background_task_bridge.dart';
 import 'chat_tool_runtime_registry.dart';
 import '../data/chat_repository.dart';
@@ -30,6 +32,7 @@ final chatCompletionStreamerProvider = Provider<ChatCompletionStreamer>(
 @Riverpod(keepAlive: true)
 class ChatController extends _$ChatController {
   ChatStreamingCoordinator? _streamingCoordinator;
+  int? _coordinatorMemoryRevision;
 
   @override
   Future<ChatState> build() async {
@@ -42,8 +45,12 @@ class ChatController extends _$ChatController {
     );
   }
 
-  ChatStreamingCoordinator get _coordinator =>
-      _streamingCoordinator ??= ChatStreamingCoordinator(
+  ChatStreamingCoordinator get _coordinator {
+    final revision = ref.read(memoryLocationRevisionProvider);
+    if (_streamingCoordinator == null ||
+        _coordinatorMemoryRevision != revision) {
+      _coordinatorMemoryRevision = revision;
+      _streamingCoordinator = ChatStreamingCoordinator(
         streamer: ref.read(chatCompletionStreamerProvider),
         conversationById: (id) => state.requireValue.conversationById(id),
         persistAndPublish: _persistAndPublish,
@@ -54,7 +61,11 @@ class ChatController extends _$ChatController {
         backgroundTasks: ref.read(backgroundTaskBridgeProvider),
         instantMemoryWriter: ref.read(instantMemoryWriterProvider),
         personaRegistry: ref.read(personaRegistryAdapterProvider),
+        logger: ref.read(appLoggerProvider),
       );
+    }
+    return _streamingCoordinator!;
+  }
 
   Future<void> createConversation(String modelId) async {
     final current = state.requireValue;
@@ -66,6 +77,11 @@ class ChatController extends _$ChatController {
       createdAt: now,
       updatedAt: now,
       messages: const [],
+      sessionKey: WorkspaceStore.sessionKey(
+        createdAt: now,
+        title: 'New conversation',
+        conversationId: now.microsecondsSinceEpoch.toString(),
+      ),
     );
     await ref.read(conversationStoreProvider).save(conversation);
     state = AsyncData(
@@ -253,7 +269,7 @@ class ChatController extends _$ChatController {
         createdAt: proposal.createdAt,
       );
       if (currentProposal.requiredToolPermission == 'delete_persona') {
-        await ref.read(personaRegistryProvider).refresh();
+        await ref.read(personaRegistryStateProvider.notifier).refresh();
       }
       final proposalAfterApply = state.requireValue
           .conversationById(conversationId)

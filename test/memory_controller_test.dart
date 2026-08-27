@@ -7,6 +7,7 @@ import 'package:mobilka/features/memory/application/update_memory_file_service.d
 import 'package:mobilka/features/memory/application/memory_update_proposal_authority.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
+import 'package:mobilka/features/memory/application/persona_registry.dart';
 import 'package:saf/saf.dart';
 import 'support/memory_delete_mixins.dart';
 
@@ -130,6 +131,93 @@ void main() {
       expect(coordinatorBuilds, 2);
     },
   );
+
+  test(
+    'configured folder ensure creates only a missing persona template',
+    () async {
+      final boundary = _MemoryStoreBoundary({
+        'user.md': 'user',
+        'soul.md': 'soul',
+        'memory.md': 'memory',
+      });
+      final repository = _MemoryRepository(original, boundary, choice: null);
+
+      await repository.ensureCurrentTemplatesAt(original);
+
+      expect(boundary.files['personas.yaml'], 'personas: {}\n');
+      expect(
+        boundary.files.keys,
+        unorderedEquals(MemoryRepository.templates.keys),
+      );
+      expect(
+        boundary.files.keys.any((name) => name.contains('profile')),
+        isFalse,
+      );
+    },
+  );
+
+  test('configured folder ensure preserves personas bytes', () async {
+    const custom = 'personas:\r\n  reviewer: "exact"\r\n';
+    final boundary = _MemoryStoreBoundary({
+      ...MemoryRepository.templates,
+      'personas.yaml': custom,
+    });
+    final repository = _MemoryRepository(original, boundary, choice: null);
+
+    await repository.ensureCurrentTemplatesAt(original);
+
+    expect(boundary.files['personas.yaml'], custom);
+  });
+
+  test('retry succeeds after a transient template ensure failure', () async {
+    final boundary = _MemoryStoreBoundary(Map.of(MemoryRepository.templates))
+      ..failCreateOnce = true;
+    final repository = _MemoryRepository(original, boundary, choice: null);
+    final container = ProviderContainer(
+      overrides: [
+        memoryRepositoryProvider.overrideWithValue(repository),
+        memoryMutationCoordinatorProvider.overrideWithValue(null),
+        updateMemoryFileProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+    final subscription = container.listen(memoryControllerProvider, (_, _) {});
+    addTearDown(subscription.close);
+
+    await expectLater(
+      container.read(memoryControllerProvider.future),
+      throwsStateError,
+    );
+    await container
+        .read(memoryControllerProvider.notifier)
+        .retryCurrentFolder();
+
+    expect(container.read(memoryControllerProvider).requireValue, original);
+  });
+
+  test(
+    'registry created before selection rebuilds after location revision',
+    () async {
+      final boundary = _MemoryStoreBoundary({
+        ...MemoryRepository.templates,
+        'personas.yaml': 'personas:\n  reviewer: Review carefully.\n',
+      });
+      final repository = _MemoryRepository(null, boundary, choice: replacement);
+      final container = ProviderContainer(
+        overrides: [memoryRepositoryProvider.overrideWithValue(repository)],
+      );
+      addTearDown(container.dispose);
+
+      final before = container.read(personaRegistryProvider);
+      expect(await before.refresh(), isEmpty);
+      await container.read(memoryControllerProvider.future);
+      await container.read(memoryControllerProvider.notifier).chooseFolder();
+      final after = container.read(personaRegistryProvider);
+
+      expect(after, isNot(same(before)));
+      expect((await after.refresh()).single.name, 'reviewer');
+    },
+  );
 }
 
 class _MemoryRepository extends MemoryRepository {
@@ -151,6 +239,15 @@ class _MemoryRepository extends MemoryRepository {
 
   @override
   MemoryFileBoundary boundaryFor(MemoryLocation location) => boundary;
+
+  @override
+  Future<void> ensureCurrentTemplatesAt(MemoryLocation location) async {
+    if (boundary case final MemoryFileStore store) {
+      for (final entry in MemoryRepository.templates.entries) {
+        await store.createIfMissing(entry.key, entry.value);
+      }
+    }
+  }
 }
 
 class _MemoryBoundary
@@ -171,5 +268,20 @@ class _MemoryBoundary
   @override
   Future<void> write(String fileName, String content) async {
     files[fileName] = content;
+  }
+}
+
+class _MemoryStoreBoundary extends _MemoryBoundary implements MemoryFileStore {
+  _MemoryStoreBoundary(super.files);
+
+  bool failCreateOnce = false;
+
+  @override
+  Future<void> createIfMissing(String fileName, String content) async {
+    if (failCreateOnce) {
+      failCreateOnce = false;
+      throw StateError('temporary ensure/list/write failure');
+    }
+    files.putIfAbsent(fileName, () => content);
   }
 }

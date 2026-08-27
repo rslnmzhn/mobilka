@@ -1,7 +1,5 @@
 import 'dart:convert';
 
-import 'dart:io';
-
 import '../../chat/application/chat_tool_runtime.dart';
 import '../../chat/domain/chat_message.dart';
 import '../../chat/domain/chat_tool.dart';
@@ -69,7 +67,11 @@ class SkillsChatTools implements ChatToolRuntime {
   ];
 
   @override
-  Future<String> executeTool(ChatToolCall call, Set<String> allowedTools) {
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) {
     if (!allowedTools.contains(call.name)) {
       throw StateError('${call.name} is not allowed for this agent');
     }
@@ -110,19 +112,7 @@ class SkillsChatTools implements ChatToolRuntime {
           }
           return jsonEncode({'ok': true, 'name': name, 'content': text});
         case 'list_skills':
-          final root = await workspace.rootPath();
-          final dir = root == null
-              ? null
-              : Directory('$root${Platform.pathSeparator}$skillsFolder');
-          final names =
-              dir == null || !await dir.exists()
-                    ? const <String>[]
-                    : (await dir.list().toList())
-                          .whereType<File>()
-                          .map((f) => f.uri.pathSegments.last)
-                          .where((n) => n.endsWith('.md'))
-                          .toList()
-                ..sort();
+          final names = await workspace.listTextFiles(skillsFolder);
           return jsonEncode({'ok': true, 'skills': names});
         default:
           throw StateError('Unknown skill tool: ${call.name}');

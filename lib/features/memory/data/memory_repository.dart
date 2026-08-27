@@ -14,6 +14,8 @@ import 'memory_file_store.dart';
 
 part 'memory_repository.g.dart';
 
+final memoryLocationRevisionProvider = StateProvider<int>((ref) => 0);
+
 @Riverpod(keepAlive: true)
 MemoryRepository memoryRepository(Ref ref) => MemoryRepository(
   Saf(),
@@ -76,12 +78,8 @@ class MemoryRepository {
     MemoryLocation location,
   ) async {
     await validateSavedLocationAccess(location);
+    await ensureCurrentTemplatesAt(location);
     final boundary = boundaryFor(location);
-    if (boundary case final MemoryFileStore store) {
-      for (final entry in templates.entries) {
-        await store.createIfMissing(entry.key, entry.value);
-      }
-    }
     final conflicts = <LegacyMemoryMigrationConflict>[];
     final coordinator =
         _coordinatorFactory?.call(location, boundary) ??
@@ -126,6 +124,15 @@ class MemoryRepository {
       );
     }
     return List.unmodifiable(conflicts);
+  }
+
+  Future<void> ensureCurrentTemplatesAt(MemoryLocation location) async {
+    await validateSavedLocationAccess(location);
+    final boundary = boundaryFor(location);
+    if (boundary is! MemoryFileStore) return;
+    for (final entry in templates.entries) {
+      await boundary.createIfMissing(entry.key, entry.value);
+    }
   }
 
   Future<String?> _readIfExists(MemoryFileBoundary boundary, String fileName) =>

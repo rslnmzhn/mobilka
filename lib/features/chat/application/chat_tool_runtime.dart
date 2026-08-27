@@ -5,7 +5,21 @@ import '../domain/pending_memory_proposal.dart';
 abstract interface class ChatToolRuntime {
   Future<List<ChatToolDefinition>> availableTools(Set<String> allowedTools);
 
-  Future<String> executeTool(ChatToolCall call, Set<String> allowedTools);
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  });
+}
+
+class ChatToolExecutionContext {
+  const ChatToolExecutionContext({
+    required this.conversationId,
+    required this.sessionKey,
+  });
+
+  final String conversationId;
+  final String? sessionKey;
 }
 
 abstract interface class MemoryProposalRuntime {

@@ -15,6 +15,7 @@ class Conversation {
     this.contextLimitTokens = 32768,
     this.usage,
     this.pendingMemoryProposal,
+    this.sessionKey,
   });
 
   final String id;
@@ -28,6 +29,7 @@ class Conversation {
   final int contextLimitTokens;
   final ConversationUsage? usage;
   final PendingMemoryProposal? pendingMemoryProposal;
+  final String? sessionKey;
 
   Conversation copyWith({
     String? title,
@@ -57,6 +59,7 @@ class Conversation {
     pendingMemoryProposal: clearPendingMemoryProposal
         ? null
         : (pendingMemoryProposal ?? this.pendingMemoryProposal),
+    sessionKey: sessionKey,
   );
 
   Map<String, dynamic> toJson() => {
@@ -70,29 +73,60 @@ class Conversation {
     'contextLimitTokens': contextLimitTokens,
     'usage': usage?.toJson(),
     'pendingMemoryProposal': pendingMemoryProposal?.toJson(),
+    'sessionKey': sessionKey,
     'messages': messages.map((message) => message.toStorageJson()).toList(),
   };
 
-  factory Conversation.fromJson(Map<dynamic, dynamic> json) => Conversation(
-    id: json['id'].toString(),
-    title: json['title']?.toString() ?? 'New conversation',
-    modelId: json['modelId']?.toString() ?? '',
-    createdAt: DateTime.parse(json['createdAt'].toString()),
-    updatedAt: DateTime.parse(json['updatedAt'].toString()),
-    isArchived: json['isArchived'] as bool? ?? false,
-    pendingRequestMessageId: json['pendingRequestMessageId']?.toString(),
-    contextLimitTokens: json['contextLimitTokens'] as int? ?? 32768,
-    usage: json['usage'] is Map
-        ? ConversationUsage.fromJson(json['usage'] as Map)
-        : null,
-    pendingMemoryProposal: json['pendingMemoryProposal'] is Map
-        ? PendingMemoryProposal.fromJson(json['pendingMemoryProposal'] as Map)
-        : null,
-    messages: (json['messages'] as List? ?? const [])
-        .whereType<Map>()
-        .map(ChatMessage.fromStorageJson)
-        .toList(),
-  );
+  factory Conversation.fromJson(Map<dynamic, dynamic> json) {
+    final id = json['id'].toString();
+    final title = json['title']?.toString() ?? 'New conversation';
+    final createdAt = DateTime.parse(json['createdAt'].toString());
+    return Conversation(
+      id: id,
+      title: title,
+      modelId: json['modelId']?.toString() ?? '',
+      createdAt: createdAt,
+      updatedAt: DateTime.parse(json['updatedAt'].toString()),
+      isArchived: json['isArchived'] as bool? ?? false,
+      pendingRequestMessageId: json['pendingRequestMessageId']?.toString(),
+      contextLimitTokens: json['contextLimitTokens'] as int? ?? 32768,
+      usage: json['usage'] is Map
+          ? ConversationUsage.fromJson(json['usage'] as Map)
+          : null,
+      pendingMemoryProposal: json['pendingMemoryProposal'] is Map
+          ? PendingMemoryProposal.fromJson(json['pendingMemoryProposal'] as Map)
+          : null,
+      messages: (json['messages'] as List? ?? const [])
+          .whereType<Map>()
+          .map(ChatMessage.fromStorageJson)
+          .toList(),
+      sessionKey:
+          json['sessionKey']?.toString() ??
+          _legacySessionKey(createdAt, title, id),
+    );
+  }
+}
+
+String _legacySessionKey(DateTime createdAt, String title, String id) {
+  final date =
+      '${createdAt.year.toString().padLeft(4, '0')}-'
+      '${createdAt.month.toString().padLeft(2, '0')}-'
+      '${createdAt.day.toString().padLeft(2, '0')}';
+  var safe = title
+      .replaceAll(RegExp(r'[^\sa-zа-яё0-9]', caseSensitive: false), '_')
+      .replaceAll(RegExp(r'[\s_]+'), '_')
+      .replaceAll(RegExp(r'^_+|_+$'), '');
+  if (safe.length > 40) safe = safe.substring(0, 40);
+  if (safe.isEmpty) safe = 'chat';
+  final cleanId = id
+      .replaceAll(RegExp(r'[^a-z0-9]', caseSensitive: false), '')
+      .toLowerCase();
+  final suffix = cleanId.isEmpty
+      ? 'legacy'
+      : (cleanId.length <= 10
+            ? cleanId
+            : cleanId.substring(cleanId.length - 10));
+  return '${date}_${safe}_$suffix';
 }
 
 class ConversationUsage {

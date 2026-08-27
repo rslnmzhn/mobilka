@@ -70,7 +70,11 @@ class ArtifactsChatToolRuntime implements ChatToolRuntime {
   }
 
   @override
-  Future<String> executeTool(ChatToolCall call, Set<String> allowedTools) {
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) {
     if (!allowedTools.contains(generateDocx.name)) {
       throw ArtifactsToolPermissionException(
         'generate_docx is not allowed for this agent',

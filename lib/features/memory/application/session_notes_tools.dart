@@ -10,13 +10,9 @@ import '../application/workspace_paths.dart';
 /// The model writes a short summary of decisions/context so a later session —
 /// possibly with a different model — can pick up where this one stopped.
 class SessionNotesTools implements ChatToolRuntime {
-  SessionNotesTools({required this.workspace, required this.sessionKey});
+  SessionNotesTools({required this.workspace});
 
   final WorkspaceStore workspace;
-
-  /// Stable key for the active conversation
-  /// (`yyyy-MM-DD_title`, see WorkspaceStore.sessionKey).
-  final String? Function() sessionKey;
 
   static const writeSessionNotes = ChatToolDefinition(
     name: 'write_session_notes',
@@ -53,18 +49,25 @@ class SessionNotesTools implements ChatToolRuntime {
   ];
 
   @override
-  Future<String> executeTool(ChatToolCall call, Set<String> allowedTools) {
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) {
     if (!allowedTools.contains(call.name)) {
       throw StateError('${call.name} is not allowed for this agent');
     }
-    return _execute(call);
+    return _execute(call, context);
   }
 
-  Future<String> _execute(ChatToolCall call) async {
+  Future<String> _execute(
+    ChatToolCall call,
+    ChatToolExecutionContext? context,
+  ) async {
     try {
-      final key = sessionKey();
-      if (key == null) {
-        return jsonEncode({'ok': false, 'error': 'no active session'});
+      final key = context?.sessionKey;
+      if (context == null || key == null || key.isEmpty) {
+        return jsonEncode({'ok': false, 'error': 'invalid session context'});
       }
       switch (call.name) {
         case 'write_session_notes':
@@ -76,15 +79,29 @@ class SessionNotesTools implements ChatToolRuntime {
             workspace.sessionNotes(key),
             content,
           );
-          return jsonEncode({'ok': written, 'file': 'session.md'});
+          return jsonEncode({
+            'ok': written,
+            if (!written) 'error': 'session path was rejected',
+            'file': 'session.md',
+          });
         case 'read_session_notes':
           final text = await workspace.readText(workspace.sessionNotes(key));
-          return jsonEncode({'ok': text != null, 'content': text ?? ''});
+          return jsonEncode({
+            'ok': text != null,
+            if (text == null) 'error': 'session notes file not found',
+            'content': text ?? '',
+          });
         default:
           throw StateError('Unknown session tool: ${call.name}');
       }
     } on FormatException catch (error) {
       return jsonEncode({'ok': false, 'error': error.message});
+    } on StateError catch (error) {
+      return jsonEncode({'ok': false, 'error': error.message});
+    } on WorkspaceStorageException catch (error) {
+      return jsonEncode({'ok': false, 'error': error.message});
+    } on Object {
+      return jsonEncode({'ok': false, 'error': 'session notes I/O failed'});
     }
   }
 

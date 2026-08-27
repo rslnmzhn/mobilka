@@ -13,6 +13,18 @@ class PersonaEntry {
   final String text;
 }
 
+class PersonaRegistryState {
+  const PersonaRegistryState({
+    required this.entries,
+    required this.activeName,
+    required this.error,
+  });
+
+  final List<PersonaEntry> entries;
+  final String? activeName;
+  final String? error;
+}
+
 /// Registry of named personality overlays stored in personas.yaml next to the
 /// memory files.
 ///
@@ -138,6 +150,7 @@ class PersonaRegistry {
 }
 
 final personaRegistryProvider = Provider<PersonaRegistry>((ref) {
+  ref.watch(memoryLocationRevisionProvider);
   final repository = ref.watch(memoryRepositoryProvider);
   final location = repository.savedLocation();
   if (location == null) {
@@ -217,9 +230,7 @@ class PersonaRegistryAdapterImpl implements PersonaRegistryAdapter {
     }
     final entries = await _registry.refresh();
     if (_registry.lastError != null) {
-      throw FormatException(
-        'Cannot modify malformed personas.yaml: ${_registry.lastError}',
-      );
+      throw FormatException('Cannot modify malformed personas.yaml');
     }
     final map = {for (final e in entries) e.name: e.text};
     if (operation == 'save_persona') {
@@ -261,6 +272,75 @@ void _rejectUnsupportedControls(String value, {required String field}) {
   }
 }
 
+class PersonaRegistryNotifier extends AsyncNotifier<PersonaRegistryState> {
+  PersonaRegistry get _registry => ref.read(personaRegistryProvider);
+
+  @override
+  Future<PersonaRegistryState> build() async {
+    ref.watch(memoryLocationRevisionProvider);
+    final registry = ref.watch(personaRegistryProvider);
+    final entries = await registry.refresh();
+    return _snapshot(registry, entries);
+  }
+
+  Future<List<PersonaEntry>> refresh() async {
+    final registry = _registry;
+    final entries = await registry.refresh();
+    state = AsyncData(_snapshot(registry, entries));
+    return entries;
+  }
+
+  Future<String> switchTo(String? name) async {
+    final registry = _registry;
+    final result = await registry.switchTo(name);
+    final entries = await registry.refresh();
+    state = AsyncData(_snapshot(registry, entries));
+    return result;
+  }
+
+  PersonaRegistryState _snapshot(
+    PersonaRegistry registry,
+    List<PersonaEntry> entries,
+  ) => PersonaRegistryState(
+    entries: List.unmodifiable(entries),
+    activeName: registry.activeName,
+    error: registry.lastError,
+  );
+}
+
+final personaRegistryStateProvider =
+    AsyncNotifierProvider<PersonaRegistryNotifier, PersonaRegistryState>(
+      PersonaRegistryNotifier.new,
+    );
+
+class ReactivePersonaRegistryAdapter implements PersonaRegistryAdapter {
+  ReactivePersonaRegistryAdapter(this.ref);
+
+  final Ref ref;
+
+  PersonaRegistry get _registry => ref.read(personaRegistryProvider);
+
+  @override
+  String? get activeName => _registry.activeName;
+
+  @override
+  Future<List<PersonaEntry>> refresh() =>
+      ref.read(personaRegistryStateProvider.notifier).refresh();
+
+  @override
+  Future<String> switchTo(String? name) =>
+      ref.read(personaRegistryStateProvider.notifier).switchTo(name);
+
+  @override
+  Future<String> yamlAfter({
+    required String operation,
+    required String name,
+    required String text,
+  }) => PersonaRegistryAdapterImpl(
+    _registry,
+  ).yamlAfter(operation: operation, name: name, text: text);
+}
+
 final personaRegistryAdapterProvider = Provider<PersonaRegistryAdapter>(
-  (ref) => PersonaRegistryAdapterImpl(ref.watch(personaRegistryProvider)),
+  ReactivePersonaRegistryAdapter.new,
 );

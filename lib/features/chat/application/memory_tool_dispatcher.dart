@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../../core/logging/app_logger.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
 import '../../../features/memory/domain/memory_file_names.dart';
@@ -15,10 +16,20 @@ class MemoryToolDispatchResult {
 }
 
 class MemoryToolDispatcher {
-  const MemoryToolDispatcher({this.instantMemoryWriter, this.personaRegistry});
+  const MemoryToolDispatcher({
+    this.instantMemoryWriter,
+    this.personaRegistry,
+    this.logger,
+  });
 
   final InstantMemoryWriter? instantMemoryWriter;
   final PersonaRegistryAdapter? personaRegistry;
+  final AppLogger? logger;
+
+  static const _configurationError = _SafeToolError(
+    code: 'memory_unavailable',
+    message: 'Memory storage is not configured.',
+  );
 
   bool handles(ChatToolCall call) => const {
     'update_memory_file',
@@ -40,11 +51,7 @@ class MemoryToolDispatcher {
       final registry = personaRegistry;
       if (registry == null) {
         return MemoryToolDispatchResult(
-          result: _error(
-            call,
-            'Memory storage is not configured.',
-            resultIndex,
-          ),
+          result: _error(call, _configurationError, resultIndex),
         );
       }
       try {
@@ -64,9 +71,20 @@ class MemoryToolDispatcher {
             'content': yaml,
           }),
         );
-      } on Object catch (error) {
+      } on FormatException catch (error) {
+        final safe = _personaValidationError(error);
+        _logFailure(call, safe, error);
         return MemoryToolDispatchResult(
-          result: _error(call, error.toString(), resultIndex),
+          result: _error(call, safe, resultIndex),
+        );
+      } on Object catch (error) {
+        const safe = _SafeToolError(
+          code: 'persona_processing_failed',
+          message: 'Persona data could not be processed.',
+        );
+        _logFailure(call, safe, error);
+        return MemoryToolDispatchResult(
+          result: _error(call, safe, resultIndex),
         );
       }
     }
@@ -74,9 +92,20 @@ class MemoryToolDispatcher {
     if (effectiveCall.name == 'update_memory_file') {
       try {
         memoryArguments = _MemoryToolArguments.decode(effectiveCall.arguments);
-      } on Object catch (error) {
+      } on FormatException catch (error) {
+        final safe = _validationError(error);
+        _logFailure(effectiveCall, safe, error);
         return MemoryToolDispatchResult(
-          result: _error(effectiveCall, error.toString(), resultIndex),
+          result: _error(effectiveCall, safe, resultIndex),
+        );
+      } on Object catch (error) {
+        const safe = _SafeToolError(
+          code: 'invalid_arguments',
+          message: 'Memory tool arguments are invalid.',
+        );
+        _logFailure(effectiveCall, safe, error);
+        return MemoryToolDispatchResult(
+          result: _error(effectiveCall, safe, resultIndex),
         );
       }
     }
@@ -84,11 +113,7 @@ class MemoryToolDispatcher {
       final writer = instantMemoryWriter;
       if (writer == null) {
         return MemoryToolDispatchResult(
-          result: _error(
-            call,
-            'Memory storage is not configured.',
-            resultIndex,
-          ),
+          result: _error(call, _configurationError, resultIndex),
         );
       }
       try {
@@ -113,8 +138,18 @@ class MemoryToolDispatcher {
           ),
         );
       } on Object catch (error) {
+        final safe = error is StateError
+            ? const _SafeToolError(
+                code: 'permission_denied',
+                message: 'Memory tool permission was denied.',
+              )
+            : const _SafeToolError(
+                code: 'memory_write_failed',
+                message: 'Memory could not be updated.',
+              );
+        _logFailure(call, safe, error);
         return MemoryToolDispatchResult(
-          result: _error(call, error.toString(), resultIndex),
+          result: _error(call, safe, resultIndex),
         );
       }
     }
@@ -135,14 +170,60 @@ class MemoryToolDispatcher {
       }
       return MemoryToolDispatchResult(proposal: proposal);
     } on Object catch (error) {
+      const safe = _SafeToolError(
+        code: 'proposal_failed',
+        message: 'Memory proposal could not be prepared.',
+      );
+      _logFailure(effectiveCall, safe, error);
       return MemoryToolDispatchResult(
-        result: _error(effectiveCall, error.toString(), resultIndex),
+        result: _error(effectiveCall, safe, resultIndex),
       );
     }
   }
 
-  ChatMessage _error(ChatToolCall call, String error, int index) =>
-      _result(call, jsonEncode({'ok': false, 'error': error}), index);
+  _SafeToolError _validationError(FormatException error) {
+    final message = error.message;
+    final bounded = message.length <= 256
+        ? message
+        : '${message.substring(0, 253)}...';
+    return _SafeToolError(code: 'validation_error', message: bounded);
+  }
+
+  _SafeToolError _personaValidationError(FormatException error) {
+    const approved = {
+      'Persona name must not be empty',
+      'Cannot modify malformed personas.yaml',
+      'Generated personas.yaml failed validation',
+    };
+    if (!approved.contains(error.message)) {
+      return const _SafeToolError(
+        code: 'persona_processing_failed',
+        message: 'Persona data could not be processed.',
+      );
+    }
+    return _validationError(error);
+  }
+
+  void _logFailure(ChatToolCall call, _SafeToolError safe, Object error) {
+    logger?.log(
+      event: 'memory.tool_dispatch',
+      level: AppLogLevel.error,
+      toolCallId: call.id,
+      status: safe.code,
+      error: error,
+    );
+  }
+
+  ChatMessage _error(ChatToolCall call, _SafeToolError error, int index) =>
+      _result(
+        call,
+        jsonEncode({
+          'ok': false,
+          'error_code': error.code,
+          'error': error.message,
+        }),
+        index,
+      );
 
   ChatMessage _result(ChatToolCall call, String content, int index) {
     final now = DateTime.now();
@@ -154,6 +235,13 @@ class MemoryToolDispatcher {
       toolCallId: call.id,
     );
   }
+}
+
+class _SafeToolError {
+  const _SafeToolError({required this.code, required this.message});
+
+  final String code;
+  final String message;
 }
 
 class _MemoryToolArguments {

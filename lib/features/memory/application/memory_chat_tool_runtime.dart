@@ -83,8 +83,9 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
   @override
   Future<String> executeTool(
     ChatToolCall call,
-    Set<String> allowedTools,
-  ) async {
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) async {
     _requireAllowed(call.name, allowedTools);
     throw FormatException('Unknown executable tool: ${call.name}');
   }

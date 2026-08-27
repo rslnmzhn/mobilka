@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobilka/core/logging/app_logger.dart';
 import 'package:mobilka/features/chat/application/chat_tool_runtime.dart';
 import 'package:mobilka/features/chat/application/memory_tool_dispatcher.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
@@ -8,6 +10,7 @@ import 'package:mobilka/features/chat/domain/chat_tool.dart';
 import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
 import 'package:mobilka/features/memory/application/instant_memory_writer.dart';
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
+import 'package:mobilka/features/memory/application/persona_registry.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 
 void main() {
@@ -79,6 +82,96 @@ void main() {
       expect(runtime.revalidationCalls, 0);
     });
   }
+
+  test(
+    'persona YAML validation exposes only approved format message',
+    () async {
+      final dispatcher = MemoryToolDispatcher(
+        personaRegistry: _ThrowingPersonaRegistry(
+          const FormatException('Persona name must not be empty'),
+        ),
+      );
+      final result = await dispatcher.dispatch(
+        runtime: _PermissionRuntime(),
+        call: const ChatToolCall(
+          id: 'persona-1',
+          name: 'save_persona',
+          arguments: '{"name":"","text":"x"}',
+        ),
+        assistantId: 'assistant-1',
+        selectedAgentId: 'agent-1',
+        allowedTools: const {'save_persona'},
+        occurrence: 0,
+        resultIndex: 0,
+      );
+
+      expect(
+        result.result!.content,
+        contains('Persona name must not be empty'),
+      );
+    },
+  );
+
+  test('permission failure redacts secret path and URI', () async {
+    final result = await _dispatch(
+      dispatcher,
+      _PermissionRuntime(
+        failure: StateError(
+          r'denied C:\secret\memory.md content://private/tree',
+        ),
+      ),
+      const {'update_memory_file'},
+    );
+
+    _expectRedacted(result.result!.content);
+    expect(result.result!.content, contains('permission_denied'));
+  });
+
+  test(
+    'instant writer filesystem failure is generic and safely logged',
+    () async {
+      final entries = <AppLogEntry>[];
+      final failing = _Boundary({'memory.md': '# Memory\n'})
+        ..writeFailure = const FileSystemException(
+          'failed',
+          r'C:\secret\memory.md',
+        );
+      final dispatcher = MemoryToolDispatcher(
+        instantMemoryWriter: InstantMemoryWriter(
+          MemoryMutationCoordinator(failing),
+        ),
+        logger: AppLogger(sink: entries.add),
+      );
+
+      final result = await _dispatch(dispatcher, _PermissionRuntime(), const {
+        'update_memory_file',
+      });
+
+      _expectRedacted(result.result!.content);
+      expect(result.result!.content, contains('memory_write_failed'));
+      expect(entries.single.toString(), isNot(contains('secret')));
+    },
+  );
+
+  test('proposal exception is generic and redacts URI', () async {
+    final result = await _dispatch(
+      dispatcher,
+      _PermissionRuntime(
+        proposalFailure: Exception('content://private/tree/secret'),
+      ),
+      const {'update_memory_file'},
+      arguments: '{"file_name":"user.md","content":"updated"}',
+    );
+
+    _expectRedacted(result.result!.content);
+    expect(result.result!.content, contains('proposal_failed'));
+  });
+}
+
+void _expectRedacted(String content) {
+  expect(content, isNot(contains('secret')));
+  expect(content, isNot(contains('content://')));
+  expect(content, isNot(contains(r'C:\')));
 }
 
 Future<MemoryToolDispatchResult> _dispatch(
@@ -101,9 +194,15 @@ Future<MemoryToolDispatchResult> _dispatch(
 );
 
 class _PermissionRuntime implements ChatToolRuntime, MemoryProposalRuntime {
-  _PermissionRuntime({this.currentlyAllowed = true});
+  _PermissionRuntime({
+    this.currentlyAllowed = true,
+    this.failure,
+    this.proposalFailure,
+  });
 
   final bool currentlyAllowed;
+  final Object? failure;
+  final Object? proposalFailure;
   int revalidationCalls = 0;
 
   @override
@@ -113,6 +212,7 @@ class _PermissionRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     required Set<String> allowedTools,
   }) async {
     revalidationCalls++;
+    if (failure case final error?) throw error;
     if (!allowedTools.contains(toolName)) throw StateError('snapshot denied');
     if (!currentlyAllowed) throw StateError('current agent denied');
   }
@@ -125,8 +225,9 @@ class _PermissionRuntime implements ChatToolRuntime, MemoryProposalRuntime {
   @override
   Future<String> executeTool(
     ChatToolCall call,
-    Set<String> allowedTools,
-  ) async => '{}';
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) async => '{}';
 
   @override
   Future<PendingMemoryProposal?> prepareMemoryProposal(
@@ -135,7 +236,10 @@ class _PermissionRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     String? selectedAgentId,
     Set<String> allowedTools, [
     int callOccurrence = 0,
-  ]) async => null;
+  ]) async {
+    if (proposalFailure case final error?) throw error;
+    return null;
+  }
 
   @override
   Future<void> revalidateMemoryProposal(PendingMemoryProposal proposal) async {}
@@ -146,6 +250,7 @@ class _Boundary implements MemoryFileBoundary, MemoryFileTransaction {
 
   final Map<String, String> files;
   int writeCalls = 0;
+  Object? writeFailure;
 
   @override
   Future<T> transaction<T>(Future<T> Function(MemoryFileTransaction) action) =>
@@ -156,6 +261,7 @@ class _Boundary implements MemoryFileBoundary, MemoryFileTransaction {
 
   @override
   Future<void> write(String fileName, String content) async {
+    if (writeFailure case final error?) throw error;
     writeCalls++;
     files[fileName] = content;
   }
@@ -164,4 +270,23 @@ class _Boundary implements MemoryFileBoundary, MemoryFileTransaction {
   Future<void> delete(String fileName) async {
     files.remove(fileName);
   }
+}
+
+class _ThrowingPersonaRegistry implements PersonaRegistryAdapter {
+  _ThrowingPersonaRegistry(this.failure);
+
+  final Object failure;
+
+  @override
+  String? get activeName => null;
+  @override
+  Future<List<PersonaEntry>> refresh() async => const [];
+  @override
+  Future<String> switchTo(String? name) async => '';
+  @override
+  Future<String> yamlAfter({
+    required String operation,
+    required String name,
+    required String text,
+  }) async => throw failure;
 }

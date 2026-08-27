@@ -1,15 +1,14 @@
-import 'dart:convert';
-
 import 'package:dio/dio.dart';
+import '../../../core/logging/app_logger.dart';
 export 'chat_stream_request.dart';
 import 'background_task_bridge.dart';
 import 'chat_stream_request.dart';
 import 'chat_stream_support.dart';
+import 'chat_tool_executor.dart';
 import 'chat_tool_runtime.dart';
 import 'fallback_tool_call_parser.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
-import 'memory_tool_dispatcher.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
@@ -27,6 +26,7 @@ class ChatStreamingCoordinator {
     InstantMemoryWriter? instantMemoryWriter,
     PersonaRegistryAdapter? personaRegistry,
     void Function(String event)? onTransientRetry,
+    AppLogger? logger,
   }) : _streamer = streamer,
        _conversationById = conversationById,
        _persistAndPublish = persistAndPublish,
@@ -35,7 +35,8 @@ class ChatStreamingCoordinator {
        _backgroundTasks = backgroundTasks,
        _instantMemoryWriter = instantMemoryWriter,
        _personaRegistry = personaRegistry,
-       _onTransientRetry = onTransientRetry;
+       _onTransientRetry = onTransientRetry,
+       _logger = logger;
 
   final ChatCompletionStreamer _streamer;
   final Conversation? Function(String id) _conversationById;
@@ -46,10 +47,17 @@ class ChatStreamingCoordinator {
   final PersonaRegistryAdapter? _personaRegistry;
   final BackgroundTaskBridge _backgroundTasks;
   final void Function(String event)? _onTransientRetry;
-  MemoryToolDispatcher get _memoryDispatcher => MemoryToolDispatcher(
-    instantMemoryWriter: _instantMemoryWriter,
-    personaRegistry: _personaRegistry,
-  );
+  final AppLogger? _logger;
+  ChatToolExecutor? get _toolExecutor => _toolRuntime == null
+      ? null
+      : ChatToolExecutor(
+          runtime: _toolRuntime,
+          conversationById: _conversationById,
+          persistAndPublish: _persistAndPublish,
+          instantMemoryWriter: _instantMemoryWriter,
+          personaRegistry: _personaRegistry,
+          logger: _logger,
+        );
 
   static const maxTransientRetries = 1;
 
@@ -326,7 +334,17 @@ class ChatStreamingCoordinator {
     } on FormatException catch (error) {
       await _interruptWithError(request, error.message);
     } on Object catch (error) {
-      await _interruptWithError(request, error.toString());
+      _logger?.log(
+        event: 'chat.streaming',
+        level: AppLogLevel.error,
+        conversationId: request.conversationId,
+        status: 'failed',
+        error: error,
+      );
+      await _interruptWithError(
+        request,
+        'The request failed unexpectedly. Please retry.',
+      );
     } finally {
       if (identical(_activeRequest, request)) {
         _activeRequest = null;
@@ -346,105 +364,12 @@ class ChatStreamingCoordinator {
     String assistantId,
     List<ChatToolCall> calls,
   ) async {
-    final runtime = _toolRuntime;
-    if (runtime == null || calls.isEmpty) {
+    final executor = _toolExecutor;
+    if (executor == null || calls.isEmpty) {
       throw const FormatException('Tool call response has no executable calls');
     }
-    var conversation = _conversationById(request.conversationId)!;
-    conversation = conversation.copyWith(
-      updatedAt: DateTime.now(),
-      messages: conversation.messages
-          .map(
-            (message) => message.id == assistantId
-                ? message.copyWith(
-                    status: ChatMessageStatus.streaming,
-                    toolCalls: calls,
-                  )
-                : message,
-          )
-          .toList(),
-    );
-    await _persistAndPublish(conversation);
-    PendingMemoryProposal? pendingProposal;
-    final results = <ChatMessage>[];
-    for (final indexedCall in calls.indexed) {
-      final call = indexedCall.$2;
-      final occurrence = calls
-          .take(indexedCall.$1)
-          .where((candidate) => candidate.id == call.id)
-          .length;
-      if (_memoryDispatcher.handles(call)) {
-        if (pendingProposal != null) {
-          results.add(
-            _toolErrorResult(
-              call,
-              'Only one memory proposal can be active per response.',
-              results.length,
-            ),
-          );
-          continue;
-        }
-        final dispatched = await _memoryDispatcher.dispatch(
-          runtime: runtime,
-          call: call,
-          assistantId: assistantId,
-          selectedAgentId: request.selectedAgentId,
-          allowedTools: request.allowedTools,
-          occurrence: occurrence,
-          resultIndex: results.length,
-        );
-        pendingProposal = dispatched.proposal;
-        if (dispatched.result != null) results.add(dispatched.result!);
-        continue;
-      }
-      if (pendingProposal != null) {
-        results.add(
-          _toolErrorResult(
-            call,
-            'Tool call was not executed while a memory proposal awaits confirmation.',
-            results.length,
-          ),
-        );
-        continue;
-      }
-      try {
-        final output = await runtime.executeTool(call, request.allowedTools);
-        results.add(_toolResult(call, output, results.length));
-      } on Object catch (error) {
-        results.add(_toolErrorResult(call, error.toString(), results.length));
-      }
-    }
-    conversation = _conversationById(request.conversationId)!;
-    await _persistAndPublish(
-      conversation.copyWith(
-        updatedAt: DateTime.now(),
-        messages: [
-          ...conversation.messages.map(
-            (message) => message.id == assistantId
-                ? message.copyWith(status: ChatMessageStatus.complete)
-                : message,
-          ),
-          ...results,
-        ],
-        pendingMemoryProposal: pendingProposal,
-      ),
-    );
-    return pendingProposal == null;
+    return executor.execute(request, assistantId, calls);
   }
-
-  ChatMessage _toolResult(ChatToolCall call, String content, int index) {
-    final now = DateTime.now();
-    return ChatMessage(
-      id: '${now.microsecondsSinceEpoch}-tool-$index',
-      role: ChatRole.tool,
-      content: content,
-      createdAt: now,
-      toolCallId: call.id,
-    );
-  }
-
-  ChatMessage _toolErrorResult(ChatToolCall call, String error, int index) =>
-      _toolResult(call, jsonEncode({'ok': false, 'error': error}), index);
 
   Future<void> _appendPendingAssistant(
     ChatStreamRequest request,
