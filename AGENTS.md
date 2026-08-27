@@ -79,11 +79,12 @@ format: dart format .
 - Strict separation of core services, state providers, and UI presentation widgets.
 - Async HTTP/SSE streaming (`stream: true`) for real-time model outputs.
 - After every implemented feature, fix, or architecture change, immediately update `roadmap.md`: mark only implemented and verified items complete, add newly discovered work as unchecked items, and never count metadata-only maintenance as product roadmap progress.
-- Git workflow: Develop each roadmap milestone on its own `milestone/<number>-<slug>` branch created from `main`.
-- Give each completed and verified roadmap item within a milestone its own focused commit; never mark environment-blocked items complete.
-- After every item in a milestone is complete and verified, push the milestone branch, merge it into `main` without rewriting history, and push `main` before starting the next milestone.
+- Git workflow: Develop work on its feature branch or, for roadmap milestones, a `milestone/<number>-<slug>` branch created from `main`.
+- After every completed and verified feature or fix, create a focused commit on its feature/milestone branch; never mark environment-blocked or manually unverified items complete.
+- When remote operations are authorized, push that feature/milestone branch, merge it into `main` without rewriting history, and push `main` after each completed feature or fix; this is the expected sequence and does not require the user to repeat it for each item.
 - Never commit secrets, generated output, or local artifacts; inspect and stage only intended files.
-- Remote Git operations require a configured remote and explicit user authorization under the current agent policy.
+- Remote Git operations require a configured remote and explicit user authorization under the current agent policy; the user's current request authorizes the current remote sequence only, not future remote sequences.
+- Report automated verification separately from manual device checks, and never claim a manual device check is complete unless it was actually performed.
 - Release signing secrets are named `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `WINDOWS_CERTIFICATE_BASE64`, `WINDOWS_CERTIFICATE_PASSWORD`, and `UPDATE_MANIFEST_PRIVATE_KEY`; never store or print their values.
 - Release workflow tooling uses `.github/scripts/resolve_release_version.sh`, `apply_release_version.sh`, `verify_android_release.sh`, `package_linux_appimage.sh`, `package_windows_msi.ps1`, `generate_release_manifest.sh`, and `sign_release_manifest.sh`; local MSI validation runs `flutter build windows --release`, `dotnet tool install --global wix --version 5.0.2`, then `.github/scripts/package_windows_msi.ps1 -Version <version>`.
 
