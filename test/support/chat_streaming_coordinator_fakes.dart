@@ -192,6 +192,13 @@ class MemoryProposalRuntime
 
   @override
   Future<void> revalidateMemoryProposal(PendingMemoryProposal proposal) async {}
+
+  @override
+  Future<void> revalidateMemoryToolPermission({
+    required String toolName,
+    required String? selectedAgentId,
+    required Set<String> allowedTools,
+  }) async {}
 }
 
 Conversation conversationWithId(String id, {bool pending = false}) {

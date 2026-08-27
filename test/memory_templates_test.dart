@@ -5,7 +5,8 @@ void main() {
   test('memory templates contain all source-of-truth files', () {
     expect(
       MemoryRepository.templates.keys,
-      containsAll(['user.md', 'soul.md', 'memory.md']),
+      containsAll(['user.md', 'soul.md', 'memory.md', 'personas.yaml']),
     );
+    expect(MemoryRepository.templates['personas.yaml'], 'personas: {}\n');
   });
 }

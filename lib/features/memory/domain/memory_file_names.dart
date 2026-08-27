@@ -14,18 +14,39 @@ abstract final class MemoryFiles {
   static const memory = 'memory.md';
   static const personas = 'personas.yaml';
 
+  /// Authoritative role sets. Keep context selection independent from files
+  /// that are initialized, edited, mutated, or backed up.
+  static const contextFiles = {soul, user};
+  static const initializedFiles = {user, soul, memory, personas};
+  static const ownerEditableFiles = initializedFiles;
+  static const mutationFiles = initializedFiles;
+  static const coreBackupFiles = {user, soul, memory};
+  static const backupFiles = initializedFiles;
+
   /// Model-writable targets, in confirmation-policy order.
   static const confirmTargets = {user};
   static const instantTargets = {memory};
   static const modelTargets = {...confirmTargets, ...instantTargets};
 
-  /// Legacy -> modern renames applied idempotently at startup.
-  /// project_context.md is deliberately dropped (owner decision).
-  static const legacyRenames = {
-    'user_profile.md': user,
-    'system_instructions.md': soul,
-    'memory_log.md': memory,
+  /// Versioned historical aliases. New aliases are appended as a new version,
+  /// never rewritten, so installations can migrate after skipping releases.
+  /// project_context.md is intentionally not an alias.
+  static const historicalAliases = <int, Map<String, String>>{
+    1: {
+      'user_profile.md': user,
+      'system_instructions.md': soul,
+      'memory_log.md': memory,
+    },
   };
+
+  /// Flattened in version order from the sole alias authority above.
+  static List<MapEntry<String, String>> get flattenedHistoricalAliases {
+    final versions = historicalAliases.entries.toList(growable: false)
+      ..sort((left, right) => left.key.compareTo(right.key));
+    return List.unmodifiable(
+      versions.expand((version) => version.value.entries),
+    );
+  }
 
   /// Built-in personality used while soul.md is missing or empty.
   static const defaultSoul =

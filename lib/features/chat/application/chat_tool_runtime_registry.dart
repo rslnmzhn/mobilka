@@ -130,4 +130,21 @@ class CompositeChatToolRuntime
     }
     return runtime.revalidateMemoryProposal(proposal);
   }
+
+  @override
+  Future<void> revalidateMemoryToolPermission({
+    required String toolName,
+    required String? selectedAgentId,
+    required Set<String> allowedTools,
+  }) {
+    final runtime = _proposalRuntime;
+    if (runtime == null) {
+      throw StateError('Memory permission runtime is unavailable.');
+    }
+    return runtime.revalidateMemoryToolPermission(
+      toolName: toolName,
+      selectedAgentId: selectedAgentId,
+      allowedTools: allowedTools,
+    );
+  }
 }

@@ -18,4 +18,10 @@ abstract interface class MemoryProposalRuntime {
   ]);
 
   Future<void> revalidateMemoryProposal(PendingMemoryProposal proposal);
+
+  Future<void> revalidateMemoryToolPermission({
+    required String toolName,
+    required String? selectedAgentId,
+    required Set<String> allowedTools,
+  });
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router/app_router.dart';
+import 'core/logging/app_logger.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'features/chat/application/chat_controller.dart';
@@ -25,9 +26,28 @@ class _MobilkaAppState extends ConsumerState<MobilkaApp>
     Future<void>.microtask(() async {
       // Memory 2.0: rename legacy files before anything reads them.
       try {
-        await ref.read(memoryRepositoryProvider).migrateLegacyFiles();
-      } on Object {
-        // Migration is best-effort; missing folder is the common no-op path.
+        final conflicts = await ref
+            .read(memoryRepositoryProvider)
+            .migrateLegacyFiles();
+        for (final conflict in conflicts) {
+          ref
+              .read(appLoggerProvider)
+              .log(
+                event: 'memory.legacy_migration',
+                status: 'conflict',
+                error: '${conflict.oldName} -> ${conflict.newName}',
+              );
+        }
+      } on Object catch (error) {
+        // Keep startup available without clearing the saved location. The
+        // actionable access/migration failure remains visible in diagnostics.
+        ref
+            .read(appLoggerProvider)
+            .log(
+              event: 'memory.legacy_migration',
+              status: 'failed',
+              error: error,
+            );
       }
       await ref.read(updateControllerProvider.notifier).check();
     });

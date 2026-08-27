@@ -154,4 +154,13 @@ class _ProposalCapableRuntime extends _StubRuntime
   Future<void> revalidateMemoryProposal(PendingMemoryProposal proposal) async {
     revalidated = true;
   }
+
+  @override
+  Future<void> revalidateMemoryToolPermission({
+    required String toolName,
+    required String? selectedAgentId,
+    required Set<String> allowedTools,
+  }) async {
+    revalidated = true;
+  }
 }

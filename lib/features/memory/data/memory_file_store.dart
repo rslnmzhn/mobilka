@@ -24,6 +24,10 @@ abstract interface class MissingAwareMemoryFileTransaction {
   Future<String?> readIfExists(String fileName);
 }
 
+abstract interface class DeletingMemoryFileTransaction {
+  Future<void> delete(String fileName);
+}
+
 abstract interface class MemoryFileStore implements MemoryFileBoundary {
   Future<void> createIfMissing(String fileName, String content);
 }
@@ -137,7 +141,10 @@ class PathMemoryFileStore
 }
 
 class _PathMemoryFileTransaction
-    implements MemoryFileTransaction, MissingAwareMemoryFileTransaction {
+    implements
+        MemoryFileTransaction,
+        MissingAwareMemoryFileTransaction,
+        DeletingMemoryFileTransaction {
   const _PathMemoryFileTransaction(this.directoryPath);
 
   final String directoryPath;
@@ -190,6 +197,17 @@ class _PathMemoryFileTransaction
     } finally {
       if (await temporary.exists()) await temporary.delete();
     }
+  }
+
+  @override
+  Future<void> delete(String fileName) async {
+    final file = target(fileName);
+    final type = await FileSystemEntity.type(file.path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) return;
+    if (type != FileSystemEntityType.file) {
+      throw const FileSystemException('Unsafe memory file target');
+    }
+    await file.delete();
   }
 }
 
@@ -327,7 +345,10 @@ class SafMemoryFileStore implements MemoryFileStore {
 }
 
 class _SafMemoryFileTransaction
-    implements MemoryFileTransaction, MissingAwareMemoryFileTransaction {
+    implements
+        MemoryFileTransaction,
+        MissingAwareMemoryFileTransaction,
+        DeletingMemoryFileTransaction {
   _SafMemoryFileTransaction(this.directoryUri, this.access, this.documents);
 
   final String directoryUri;
@@ -367,6 +388,20 @@ class _SafMemoryFileTransaction
       overwrite: true,
     );
   }
+
+  @override
+  Future<void> delete(String fileName) async {
+    _validateFileName(fileName);
+    final matches = documents
+        .where((document) => document.name == fileName)
+        .toList();
+    if (matches.isEmpty) return;
+    if (matches.length != 1 || matches.single.isDirectory) {
+      throw StateError('Memory file is ambiguous or unsafe: $fileName');
+    }
+    await access.delete(matches.single.uri);
+    documents.remove(matches.single);
+  }
 }
 
 Uint8List _encodeMemoryFile(String content) {
@@ -385,7 +420,7 @@ String _decodeMemoryFile(List<int> bytes) {
 }
 
 bool _isSafeMarkdownName(String fileName) =>
-    RegExp(r'^[a-z0-9][a-z0-9_-]*\.(md|yaml)$').hasMatch(fileName) &&
+    RegExp(r'^[a-z0-9][a-z0-9_.-]*\.(md|yaml|bak)$').hasMatch(fileName) &&
     !fileName.contains('..');
 
 void _validateFileName(String fileName) {

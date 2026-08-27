@@ -1,19 +1,17 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-
 export 'chat_stream_request.dart';
-
 import 'background_task_bridge.dart';
 import 'chat_stream_request.dart';
+import 'chat_stream_support.dart';
 import 'chat_tool_runtime.dart';
 import 'fallback_tool_call_parser.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
-import '../../../features/memory/domain/memory_file_names.dart';
+import 'memory_tool_dispatcher.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_message.dart';
-import '../domain/chat_stream_event.dart';
 import '../domain/conversation.dart';
 import '../domain/chat_tool.dart';
 import '../domain/pending_memory_proposal.dart';
@@ -48,17 +46,17 @@ class ChatStreamingCoordinator {
   final PersonaRegistryAdapter? _personaRegistry;
   final BackgroundTaskBridge _backgroundTasks;
   final void Function(String event)? _onTransientRetry;
+  MemoryToolDispatcher get _memoryDispatcher => MemoryToolDispatcher(
+    instantMemoryWriter: _instantMemoryWriter,
+    personaRegistry: _personaRegistry,
+  );
 
-  /// One automatic retry per request for connection-level failures that occur
-  /// before any token arrives (roadmap item 48); anything after streaming
-  /// started stays interrupted to avoid duplicated partial output.
   static const maxTransientRetries = 1;
 
   ChatStreamRequest? _activeRequest;
   CancelToken? _cancelToken;
   Future<void>? _running;
   final Set<String> _memoryDecisions = {};
-
   Future<void> run(ChatStreamRequest request) {
     if (_running != null) {
       throw StateError('A chat request is already running');
@@ -161,8 +159,6 @@ class ChatStreamingCoordinator {
     _activeRequest = request;
     _cancelToken = cancelToken;
     try {
-      // Foreground service (roadmap item 46): keep streaming alive when the
-      // app is backgrounded on Android; no-op elsewhere.
       await _backgroundTasks.start(title: request.conversationTitle);
       var history = request.history;
       var assistantId = request.assistantMessageId;
@@ -175,7 +171,7 @@ class ChatStreamingCoordinator {
         var terminalSeen = false;
         String? finishReason;
         var receivedAnyToken = false;
-        final buffers = <int, _ToolCallBuffer>{};
+        final buffers = <int, ToolCallBuffer>{};
         try {
           await for (final event in _streamer.streamCompletion(
             model: request.modelId,
@@ -195,7 +191,7 @@ class ChatStreamingCoordinator {
             }
             for (final delta in event.toolCallDeltas) {
               buffers
-                  .putIfAbsent(delta.index, _ToolCallBuffer.new)
+                  .putIfAbsent(delta.index, ToolCallBuffer.new)
                   .append(delta);
             }
             terminalSeen = terminalSeen || event.isTerminal;
@@ -296,7 +292,7 @@ class ChatStreamingCoordinator {
           }
         } on DioException catch (error) {
           final retryable =
-              _isTransient(error) &&
+              isTransientChatError(error) &&
               !receivedAnyToken &&
               !terminalSeen &&
               buffers.isEmpty &&
@@ -325,7 +321,7 @@ class ChatStreamingCoordinator {
       if (CancelToken.isCancel(error)) {
         await _finish(request, ChatMessageStatus.interrupted);
       } else {
-        await _interruptWithError(request, _friendlyError(error));
+        await _interruptWithError(request, friendlyChatError(error));
       }
     } on FormatException catch (error) {
       await _interruptWithError(request, error.message);
@@ -340,7 +336,7 @@ class ChatStreamingCoordinator {
       try {
         await _backgroundTasks.stop();
       } on Object {
-        // Stopping the foreground service must never mask the request result.
+        // Background cleanup is best-effort after request state is finalized.
       }
     }
   }
@@ -377,74 +373,7 @@ class ChatStreamingCoordinator {
           .take(indexedCall.$1)
           .where((candidate) => candidate.id == call.id)
           .length;
-      // Persona save/delete are transformed into whole-file replacement
-      // proposals for personas.yaml so the owner confirms an exact diff.
-      var effectiveCall = call;
-      if (call.name == 'save_persona' || call.name == 'delete_persona') {
-        final registry = _personaRegistry;
-        if (registry == null) {
-          results.add(
-            _toolErrorResult(
-              call,
-              'Memory storage is not configured.',
-              results.length,
-            ),
-          );
-          continue;
-        }
-        try {
-          final args = call.arguments.trim().isEmpty
-              ? const <String, Object?>{}
-              : jsonDecode(call.arguments) as Map;
-          final newYaml = await registry.yamlAfter(
-            operation: call.name,
-            name: args['name']?.toString() ?? '',
-            text: args['text']?.toString() ?? '',
-          );
-          effectiveCall = ChatToolCall(
-            id: call.id,
-            name: 'update_memory_file',
-            arguments: jsonEncode({
-              'file_name': MemoryFiles.personas,
-              'content': newYaml,
-            }),
-          );
-        } on Object catch (error) {
-          results.add(_toolErrorResult(call, error.toString(), results.length));
-          continue;
-        }
-      }
-      if (effectiveCall.name == 'update_memory_file') {
-        // memory.md is the agent's instant notebook: applied without a
-        // confirmation proposal (roadmap Memory 2.0).
-        if (_isMemoryNotebook(call)) {
-          final writer = _instantMemoryWriter;
-          if (writer == null) {
-            results.add(
-              _toolErrorResult(
-                call,
-                'Memory storage is not configured.',
-                results.length,
-              ),
-            );
-            continue;
-          }
-          try {
-            final note = await writer.write(_memoryContentOf(effectiveCall));
-            results.add(
-              _toolResult(
-                call,
-                jsonEncode({'ok': true, 'file': 'memory.md', 'status': note}),
-                results.length,
-              ),
-            );
-          } on Object catch (error) {
-            results.add(
-              _toolErrorResult(call, error.toString(), results.length),
-            );
-          }
-          continue;
-        }
+      if (_memoryDispatcher.handles(call)) {
         if (pendingProposal != null) {
           results.add(
             _toolErrorResult(
@@ -455,26 +384,17 @@ class ChatStreamingCoordinator {
           );
           continue;
         }
-        try {
-          if (runtime is! MemoryProposalRuntime) {
-            throw StateError('Memory proposal runtime is unavailable.');
-          }
-          pendingProposal = await (runtime as MemoryProposalRuntime)
-              .prepareMemoryProposal(
-                effectiveCall,
-                assistantId,
-                request.selectedAgentId,
-                request.allowedTools,
-                occurrence,
-              );
-          if (pendingProposal == null) {
-            throw StateError('The memory proposal could not be prepared.');
-          }
-        } on Object catch (error) {
-          results.add(
-            _toolErrorResult(effectiveCall, error.toString(), results.length),
-          );
-        }
+        final dispatched = await _memoryDispatcher.dispatch(
+          runtime: runtime,
+          call: call,
+          assistantId: assistantId,
+          selectedAgentId: request.selectedAgentId,
+          allowedTools: request.allowedTools,
+          occurrence: occurrence,
+          resultIndex: results.length,
+        );
+        pendingProposal = dispatched.proposal;
+        if (dispatched.result != null) results.add(dispatched.result!);
         continue;
       }
       if (pendingProposal != null) {
@@ -577,58 +497,5 @@ class ChatStreamingCoordinator {
           .toList(),
     );
     await _persistAndPublish(updated);
-  }
-
-  bool _isMemoryNotebook(ChatToolCall call) {
-    try {
-      final args = jsonDecode(call.arguments);
-      return args is Map && args['file_name'] == MemoryFiles.memory;
-    } on Object {
-      return false;
-    }
-  }
-
-  String _memoryContentOf(ChatToolCall call) {
-    final args = jsonDecode(call.arguments);
-    return args is Map ? args['content']?.toString() ?? '' : '';
-  }
-
-  static bool _isTransient(DioException error) => switch (error.type) {
-    DioExceptionType.connectionTimeout ||
-    DioExceptionType.sendTimeout ||
-    DioExceptionType.receiveTimeout ||
-    DioExceptionType.connectionError => true,
-    _ => false,
-  };
-
-  static String _friendlyError(DioException error) => switch (error.type) {
-    DioExceptionType.connectionTimeout ||
-    DioExceptionType.sendTimeout ||
-    DioExceptionType.receiveTimeout =>
-      'The endpoint timed out. Check the address and try again.',
-    DioExceptionType.connectionError =>
-      'Could not connect to the endpoint. Check the network and address.',
-    DioExceptionType.badResponse =>
-      'Endpoint returned HTTP ${error.response?.statusCode}. Check the model and API key.',
-    _ => 'The request failed. You can retry the interrupted response.',
-  };
-}
-
-class _ToolCallBuffer {
-  String id = '';
-  String name = '';
-  final StringBuffer arguments = StringBuffer();
-
-  void append(ChatToolCallDelta delta) {
-    if (delta.id.isNotEmpty) id = delta.id;
-    if (delta.name.isNotEmpty) name = delta.name;
-    arguments.write(delta.arguments);
-  }
-
-  ChatToolCall build() {
-    if (id.isEmpty || name.isEmpty) {
-      throw const FormatException('Incomplete tool call');
-    }
-    return ChatToolCall(id: id, name: name, arguments: arguments.toString());
   }
 }

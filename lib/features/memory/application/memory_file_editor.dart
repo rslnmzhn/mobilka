@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/memory_file_store.dart';
 import '../data/memory_repository.dart';
+import '../domain/memory_file_names.dart';
 import 'memory_mutation_coordinator.dart';
 
 final memoryFileEditorProvider = Provider<MemoryFileEditor?>((ref) {
@@ -38,7 +39,7 @@ class MemoryFileEditor {
   }
 
   static void _validate(String fileName) {
-    if (!MemoryRepository.templates.containsKey(fileName)) {
+    if (!MemoryFiles.ownerEditableFiles.contains(fileName)) {
       throw FormatException('Memory file is not approved: $fileName');
     }
   }

@@ -41,8 +41,24 @@ class PersonaRegistry {
 
   /// Re-reads personas.yaml and returns the parsed entries.
   Future<List<PersonaEntry>> refresh() async {
-    final content = await _readYaml();
-    _cached = _parse(content ?? '');
+    String? content;
+    try {
+      content = await _readYaml();
+    } on Object catch (error) {
+      lastError = error.toString();
+      return _cached;
+    }
+    if (content == null) {
+      lastError = 'personas.yaml could not be read';
+      return _cached;
+    }
+    _cached = _parse(content);
+    if (lastError == null) {
+      final active = activeName;
+      if (active != null && !_cached.any((entry) => entry.name == active)) {
+        _writeActive(null);
+      }
+    }
     return _cached;
   }
 
@@ -77,24 +93,47 @@ class PersonaRegistry {
   }
 
   List<PersonaEntry> _parse(String yamlContent) {
-    if (yamlContent.trim().isEmpty) return const [];
+    if (yamlContent.trim().isEmpty) {
+      lastError = null;
+      return const [];
+    }
     try {
       final doc = loadYaml(yamlContent);
       final root = doc is Map ? doc['personas'] : null;
       if (root is! Map) {
         throw const FormatException('personas.yaml: missing "personas" map');
       }
-      return [
-        for (final entry in root.entries)
-          PersonaEntry(
-            name: entry.key.toString(),
-            text: entry.value?.toString() ?? '',
-          ),
-      ];
+      final result = _strictEntries(root);
+      lastError = null;
+      return result;
     } on Object catch (error) {
       lastError = error.toString();
       return const [];
     }
+  }
+
+  List<PersonaEntry> _strictEntries(Map<dynamic, dynamic> root) {
+    final result = <PersonaEntry>[];
+    final names = <String>{};
+    for (final entry in root.entries) {
+      if (entry.key is! String || entry.value is! String) {
+        throw const FormatException(
+          'personas.yaml: persona names and values must be string scalars',
+        );
+      }
+      final name = entry.key as String;
+      final text = entry.value as String;
+      if (name.trim().isEmpty) {
+        throw const FormatException('personas.yaml: empty persona name');
+      }
+      _rejectUnsupportedControls(name, field: 'name');
+      _rejectUnsupportedControls(text, field: 'value');
+      if (!names.add(name)) {
+        throw FormatException('personas.yaml: duplicate persona name: $name');
+      }
+      result.add(PersonaEntry(name: name, text: text));
+    }
+    return result;
   }
 }
 
@@ -170,27 +209,55 @@ class PersonaRegistryAdapterImpl implements PersonaRegistryAdapter {
     required String name,
     required String text,
   }) async {
+    if (name.trim().isEmpty) {
+      throw const FormatException('Persona name must not be empty');
+    }
+    if (operation != 'save_persona' && operation != 'delete_persona') {
+      throw FormatException('Unknown persona operation: $operation');
+    }
     final entries = await _registry.refresh();
+    if (_registry.lastError != null) {
+      throw FormatException(
+        'Cannot modify malformed personas.yaml: ${_registry.lastError}',
+      );
+    }
     final map = {for (final e in entries) e.name: e.text};
     if (operation == 'save_persona') {
       map[name] = text;
-    } else {
+    } else if (operation == 'delete_persona') {
       map.remove(name);
     }
+    if (map.isEmpty) return _validateGenerated('personas: {}\n', map);
     final buf = StringBuffer('personas:\n');
-    map.forEach((key, value) {
-      final lines = value.split('\n');
-      for (var i = 0; i < lines.length; i++) {
-        final line = lines[i].trimRight();
-        if (line.isEmpty && i == lines.length - 1) continue;
-        buf.write(i == 0 ? '  : >-' : '      ');
-        buf.write('\n');
-      }
-      if (lines.length == 1) {
-        // single-line block scalar already written above with >-
-      }
-    });
-    return buf.toString();
+    final names = map.keys.toList()..sort();
+    for (final key in names) {
+      buf.writeln('  ${_yamlQuote(key)}: ${_yamlQuote(map[key]!)}');
+    }
+    return _validateGenerated(buf.toString(), map);
+  }
+
+  String _validateGenerated(String yaml, Map<String, String> expected) {
+    final parsed = _registry._parse(yaml);
+    if (_registry.lastError != null ||
+        parsed.length != expected.length ||
+        parsed.any((entry) => expected[entry.name] != entry.text)) {
+      throw const FormatException('Generated personas.yaml failed validation');
+    }
+    return yaml;
+  }
+
+  String _yamlQuote(String value) =>
+      '"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('\n', '\\n').replaceAll('\r', '\\r')}"';
+}
+
+void _rejectUnsupportedControls(String value, {required String field}) {
+  for (final rune in value.runes) {
+    if ((rune < 0x20 && rune != 0x09 && rune != 0x0a && rune != 0x0d) ||
+        rune == 0x7f) {
+      throw FormatException(
+        'personas.yaml: unsupported control character in persona $field',
+      );
+    }
   }
 }
 

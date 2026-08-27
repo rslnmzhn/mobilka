@@ -53,7 +53,7 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
       'properties': {
         'file_name': {
           'type': 'string',
-          'enum': ['user.md', 'memory.md', 'soul.md', 'personas.yaml'],
+          'enum': ['user.md', 'memory.md'],
         },
         'content': {
           'type': 'string',
@@ -97,7 +97,11 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     Set<String> allowedTools, [
     int callOccurrence = 0,
   ]) async {
-    if (call.name != updateMemoryFile.name) return null;
+    const personaMutations = {'save_persona', 'delete_persona'};
+    if (call.name != updateMemoryFile.name &&
+        !personaMutations.contains(call.name)) {
+      return null;
+    }
     _requireAllowed(call.name, allowedTools);
     if (selectedAgentId == null) {
       throw MemoryToolPermissionException('No agent is bound to request');
@@ -111,15 +115,8 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     );
     if (updates == null) throw StateError('Memory storage is not configured');
     final arguments = _decodeArguments(call.arguments);
-    var fileName = arguments['file_name'] as String;
-    // memory.md never reaches this path (instant fast-path). soul.md and
-    // personas.yaml go through the same confirmation flow as user.md.
-    const confirmable = {MemoryFiles.user, MemoryFiles.soul};
-    final known =
-        confirmable.contains(fileName) ||
-        fileName == MemoryFiles.personas ||
-        fileName == MemoryFiles.memory;
-    if (!known) fileName = MemoryFiles.user;
+    final fileName = arguments['file_name'] as String;
+    _validateProposalTarget(call.name, fileName);
     final proposedContent = arguments['content'] as String;
     final stopwatch = Stopwatch()..start();
     _logger.log(
@@ -162,6 +159,7 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
       confirmationToken: preview.confirmationToken,
       version: preview.version,
       createdAt: preview.createdAt,
+      requiredToolPermission: call.name,
     );
   }
 
@@ -174,14 +172,15 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
       status: 'started',
     );
     try {
-      _requireAllowed(updateMemoryFile.name, proposal.allowedTools);
-      final agent = await _agentById(proposal.selectedAgentId);
-      if (agent == null ||
-          !agent.definition.tools.contains(updateMemoryFile.name)) {
-        throw MemoryToolPermissionException(
-          'Agent memory permission changed; request a new update',
-        );
-      }
+      validateMemoryProposalPermissionBinding(
+        proposal.requiredToolPermission,
+        proposal.fileName,
+      );
+      await revalidateMemoryToolPermission(
+        toolName: proposal.requiredToolPermission,
+        selectedAgentId: proposal.selectedAgentId,
+        allowedTools: proposal.allowedTools,
+      );
       _logger.log(
         event: 'memory.agent_revalidation',
         toolCallId: proposal.toolCallId,
@@ -201,11 +200,48 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
     }
   }
 
+  @override
+  Future<void> revalidateMemoryToolPermission({
+    required String toolName,
+    required String? selectedAgentId,
+    required Set<String> allowedTools,
+  }) async {
+    _requireAllowed(toolName, allowedTools);
+    if (selectedAgentId == null) {
+      throw MemoryToolPermissionException('No agent is bound to request');
+    }
+    final agent = await _agentById(selectedAgentId);
+    if (agent == null || !agent.definition.tools.contains(toolName)) {
+      throw MemoryToolPermissionException(
+        'Agent memory permission changed; request a new update',
+      );
+    }
+  }
+
   void _requireAllowed(String toolName, Set<String> allowedTools) {
     if (!allowedTools.contains(toolName)) {
       throw MemoryToolPermissionException(
         'Tool was not allowed for this request: $toolName',
       );
+    }
+  }
+
+  void _validateProposalTarget(String toolName, String fileName) {
+    if (toolName == updateMemoryFile.name) {
+      if (fileName == MemoryFiles.memory) {
+        throw const FormatException(
+          'memory.md must use the instant memory write path',
+        );
+      }
+      if (!MemoryFiles.confirmTargets.contains(fileName)) {
+        throw FormatException(
+          'update_memory_file cannot target model-protected file: $fileName',
+        );
+      }
+      return;
+    }
+    if (fileName != MemoryFiles.personas) {
+      throw FormatException('$toolName may only target personas.yaml');
     }
   }
 
