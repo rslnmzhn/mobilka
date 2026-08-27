@@ -13,7 +13,10 @@ class PathMemoryFileStoreHooks {
 }
 
 class PathMemoryFileStore
-    implements MemoryFileStore, SubPathMemoryFileBoundary {
+    implements
+        MemoryFileStore,
+        SubPathMemoryFileBoundary,
+        BinarySubPathMemoryFileBoundary {
   PathMemoryFileStore(this.directoryPath, {PathMemoryFileStoreHooks? hooks})
     : _hooks = hooks;
 
@@ -79,6 +82,95 @@ class PathMemoryFileStore
   }
 
   @override
+  Future<WorkspacePairWriteResult> writeBinaryPair(
+    WorkspaceBinaryFile first,
+    WorkspaceBinaryFile second,
+  ) async {
+    first.validate();
+    second.validate();
+    final firstParts = MemoryFileValidation.subPath(first.relativePath)!;
+    final secondParts = MemoryFileValidation.subPath(second.relativePath)!;
+    return _withCanonicalRoot((guard) async {
+      var firstStatus = WorkspaceSiblingWriteStatus.definitelyNotWritten;
+      var writeAttempted = false;
+      try {
+        final firstParent = await guard.parent(firstParts, create: true);
+        final secondParent = await guard.parent(secondParts, create: true);
+        if (firstParent == null ||
+            secondParent == null ||
+            !_samePath(firstParent.path, secondParent.path)) {
+          throw _unsafeParent();
+        }
+        await guard.revalidateParent(firstParts, firstParent.path);
+        for (final parts in [firstParts, secondParts]) {
+          final type = await FileSystemEntity.type(
+            _join(firstParent.path, parts.last),
+            followLinks: false,
+          );
+          if (type == FileSystemEntityType.file) {
+            return const WorkspacePairWriteResult(
+              firstStatus: WorkspaceSiblingWriteStatus.collision,
+              secondStatus: WorkspaceSiblingWriteStatus.collision,
+            );
+          }
+          if (type != FileSystemEntityType.notFound) throw _unsafeFile();
+        }
+        await guard.revalidateParent(firstParts, firstParent.path);
+        for (final entry in [(firstParts, first), (secondParts, second)]) {
+          final parts = entry.$1;
+          final payload = entry.$2;
+          final parent = await guard.parent(parts, create: true);
+          if (parent == null) {
+            return WorkspacePairWriteResult(
+              firstStatus: firstStatus,
+              secondStatus: WorkspaceSiblingWriteStatus.definitelyNotWritten,
+            );
+          }
+          writeAttempted = true;
+          await _atomicWrite(
+            guard: guard,
+            parentParts: parts,
+            canonicalParent: parent.path,
+            destination: File(_join(parent.path, parts.last)),
+            bytes: payload.bytes,
+            overwrite: false,
+          );
+          if (firstStatus != WorkspaceSiblingWriteStatus.verifiedWritten) {
+            firstStatus = WorkspaceSiblingWriteStatus.verifiedWritten;
+            writeAttempted = false;
+          } else {
+            return const WorkspacePairWriteResult(
+              firstStatus: WorkspaceSiblingWriteStatus.verifiedWritten,
+              secondStatus: WorkspaceSiblingWriteStatus.verifiedWritten,
+            );
+          }
+        }
+      } catch (_) {
+        if (writeAttempted) {
+          return WorkspacePairWriteResult(
+            firstStatus:
+                firstStatus == WorkspaceSiblingWriteStatus.verifiedWritten
+                ? firstStatus
+                : WorkspaceSiblingWriteStatus.indeterminate,
+            secondStatus:
+                firstStatus == WorkspaceSiblingWriteStatus.verifiedWritten
+                ? WorkspaceSiblingWriteStatus.indeterminate
+                : WorkspaceSiblingWriteStatus.definitelyNotWritten,
+          );
+        }
+        return WorkspacePairWriteResult(
+          firstStatus: WorkspaceSiblingWriteStatus.indeterminate,
+          secondStatus: WorkspaceSiblingWriteStatus.indeterminate,
+        );
+      }
+      return WorkspacePairWriteResult(
+        firstStatus: firstStatus,
+        secondStatus: WorkspaceSiblingWriteStatus.definitelyNotWritten,
+      );
+    });
+  }
+
+  @override
   Future<List<String>> listSubPath(String relativeDirectory) async {
     final parts = MemoryFileValidation.listSubPath(relativeDirectory);
     if (parts == null) return const [];
@@ -139,6 +231,7 @@ class PathMemoryFileStore
     required String canonicalParent,
     required File destination,
     required List<int> bytes,
+    bool overwrite = true,
   }) async {
     final temporary = File(
       _join(
@@ -171,7 +264,12 @@ class PathMemoryFileStore
         throw _unsafeFile();
       }
       await guard.revalidateParent(parentParts, canonicalParent);
-      await temporary.rename(destination.path);
+      if (overwrite) {
+        await temporary.rename(destination.path);
+      } else {
+        await destination.create(exclusive: true);
+        await destination.writeAsBytes(bytes, flush: true);
+      }
     } finally {
       if (await temporary.exists()) await temporary.delete();
     }

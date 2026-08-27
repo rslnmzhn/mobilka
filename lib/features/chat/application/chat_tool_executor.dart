@@ -18,18 +18,21 @@ class ChatToolExecutor {
     InstantMemoryWriter? instantMemoryWriter,
     PersonaRegistryAdapter? personaRegistry,
     AppLogger? logger,
+    void Function(PendingMemoryProposal proposal)? onPendingMemoryProposal,
   }) : _memoryDispatcher = MemoryToolDispatcher(
          instantMemoryWriter: instantMemoryWriter,
          personaRegistry: personaRegistry,
          logger: logger,
        ),
-       _logger = logger;
+       _logger = logger,
+       _onPendingMemoryProposal = onPendingMemoryProposal;
 
   final ChatToolRuntime runtime;
   final Conversation? Function(String id) conversationById;
   final Future<void> Function(Conversation conversation) persistAndPublish;
   final MemoryToolDispatcher _memoryDispatcher;
   final AppLogger? _logger;
+  final void Function(PendingMemoryProposal proposal)? _onPendingMemoryProposal;
 
   static const unexpectedToolError = 'Tool execution failed unexpectedly';
 
@@ -58,6 +61,7 @@ class ChatToolExecutor {
     final executionContext = ChatToolExecutionContext(
       conversationId: request.conversationId,
       sessionKey: request.sessionKey,
+      workspaceBinding: request.workspaceBinding,
     );
     for (final indexedCall in calls.indexed) {
       final call = indexedCall.$2;
@@ -137,6 +141,9 @@ class ChatToolExecutor {
         pendingMemoryProposal: pendingProposal,
       ),
     );
+    if (pendingProposal != null) {
+      _onPendingMemoryProposal?.call(pendingProposal);
+    }
     return pendingProposal == null;
   }
 

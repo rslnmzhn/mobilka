@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:easy_localization/easy_localization.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -19,7 +17,10 @@ import '../data/conversation_store.dart';
 import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
 import 'chat_state.dart';
+import 'chat_memory_decision_service.dart';
+import 'chat_lifecycle_service.dart';
 import 'chat_streaming_coordinator.dart';
+import 'pending_workspace_binding_store.dart';
 
 export 'chat_state.dart';
 
@@ -31,40 +32,48 @@ final chatCompletionStreamerProvider = Provider<ChatCompletionStreamer>(
 
 @Riverpod(keepAlive: true)
 class ChatController extends _$ChatController {
-  ChatStreamingCoordinator? _streamingCoordinator;
-  int? _coordinatorMemoryRevision;
+  late final ChatLifecycleService _lifecycle;
 
   @override
   Future<ChatState> build() async {
     final store = ref.watch(conversationStoreProvider);
     await store.recoverInterrupted();
     final conversations = store.loadAll();
+    _lifecycle = ChatLifecycleService(
+      persistAndPublish: _persistAndPublish,
+      generationFactory: _buildLifecycleGeneration,
+    );
+    ref.onDispose(_lifecycle.dispose);
     return ChatState(
       conversations: conversations,
       activeConversationId: conversations.firstOrNull?.id,
     );
   }
 
-  ChatStreamingCoordinator get _coordinator {
-    final revision = ref.read(memoryLocationRevisionProvider);
-    if (_streamingCoordinator == null ||
-        _coordinatorMemoryRevision != revision) {
-      _coordinatorMemoryRevision = revision;
-      _streamingCoordinator = ChatStreamingCoordinator(
+  ChatLifecycleGeneration _buildLifecycleGeneration(
+    int revision,
+    PendingWorkspaceBindingStore workspaceBindings,
+    Future<void> Function(Conversation conversation) persistAndPublish,
+  ) {
+    final runtime = ref.read(chatToolRuntimeRegistryProvider);
+    return ChatLifecycleGeneration(
+      memoryRuntime: runtime,
+      memoryUpdates: ref.read(updateMemoryFileProvider),
+      coordinator: ChatStreamingCoordinator(
         streamer: ref.read(chatCompletionStreamerProvider),
         conversationById: (id) => state.requireValue.conversationById(id),
-        persistAndPublish: _persistAndPublish,
+        persistAndPublish: persistAndPublish,
         publishError: (message) {
           state = AsyncData(state.requireValue.copyWith(errorMessage: message));
         },
-        toolRuntime: ref.read(chatToolRuntimeRegistryProvider),
+        toolRuntime: runtime,
         backgroundTasks: ref.read(backgroundTaskBridgeProvider),
         instantMemoryWriter: ref.read(instantMemoryWriterProvider),
         personaRegistry: ref.read(personaRegistryAdapterProvider),
         logger: ref.read(appLoggerProvider),
-      );
-    }
-    return _streamingCoordinator!;
+        workspaceBindings: workspaceBindings,
+      ),
+    );
   }
 
   Future<void> createConversation(String modelId) async {
@@ -142,7 +151,7 @@ class ChatController extends _$ChatController {
       _updateConversation(id, (item) => item.copyWith(isArchived: false));
 
   Future<void> delete(String id) async {
-    await _coordinator.cancelAndWait(id);
+    await _lifecycle.cancelAndWait(id);
     final current = state.requireValue;
     await ref.read(conversationStoreProvider).delete(id);
     final conversations = current.conversations
@@ -168,8 +177,10 @@ class ChatController extends _$ChatController {
     if (text.isEmpty || state.requireValue.hasInFlightRequest) return;
     final conversation = await _ensureConversation();
     if (conversation == null) return;
+    final revision = ref.read(memoryLocationRevisionProvider);
+    _lifecycle.coordinatorForRequest(revision);
     final request = await _prepareNewRequest(conversation, text, attachments);
-    await _coordinator.run(request);
+    await _lifecycle.run(request, locationRevision: revision);
   }
 
   Future<void> retryInterrupted(String conversationId) async {
@@ -177,145 +188,49 @@ class ChatController extends _$ChatController {
     if (current.hasInFlightRequest) return;
     final conversation = current.conversationById(conversationId);
     if (conversation == null) return;
+    final revision = ref.read(memoryLocationRevisionProvider);
+    final coordinator = _lifecycle.coordinatorForRetry(revision);
     final policy = await _selectedToolPolicy();
     final retry = prepareInterruptedRetry(
       conversation,
       DateTime.now(),
       selectedAgentId: policy.agentId,
       allowedTools: policy.allowedTools,
+      workspaceBinding: _retryWorkspaceBinding(conversation, coordinator),
     );
     if (retry == null) return;
     await _persistAndPublish(retry.conversation, clearError: true);
-    await _coordinator.run(retry.request);
+    await _lifecycle.run(retry.request, locationRevision: revision);
+  }
+
+  void cancel() {
+    final id = state.requireValue.activeConversationId;
+    if (id != null) _lifecycle.cancel(id);
   }
 
   Future<void> confirmPendingMemoryProposal() async {
     final conversation = state.requireValue.activeConversation;
     final proposal = conversation?.pendingMemoryProposal;
-    final logger = ref.read(appLoggerProvider);
-    if (conversation == null || proposal == null) {
-      logger.log(
-        event: 'memory.confirm_click',
-        level: AppLogLevel.warning,
-        status: 'unavailable',
-      );
+    if (proposal != null) {
       state = AsyncData(
         state.requireValue.copyWith(
-          errorMessage: 'chat.memoryConfirmGone'.tr(),
+          confirmingMemoryToolCallId: proposal.toolCallId,
+          clearError: true,
         ),
       );
-      return;
     }
-    final conversationId = conversation.id;
-    final toolCallId = proposal.toolCallId;
-    final stopwatch = Stopwatch()..start();
-    logger.log(
-      event: 'memory.confirm_click',
-      conversationId: conversationId,
-      toolCallId: toolCallId,
-      fileName: proposal.fileName,
-      status: 'started',
-    );
-    state = AsyncData(
-      state.requireValue.copyWith(
-        confirmingMemoryToolCallId: toolCallId,
-        clearError: true,
-      ),
-    );
     try {
-      final updates = ref.read(updateMemoryFileProvider);
-      logger.log(
-        event: 'memory.provider_availability',
-        conversationId: conversationId,
-        toolCallId: toolCallId,
-        status: updates == null ? 'unavailable' : 'available',
-        level: updates == null ? AppLogLevel.warning : AppLogLevel.debug,
-      );
-      if (updates == null) {
-        logger.log(
-          event: 'memory.confirm',
-          level: AppLogLevel.warning,
-          conversationId: conversationId,
-          toolCallId: toolCallId,
-          fileName: proposal.fileName,
-          status: 'unavailable',
-          duration: stopwatch.elapsed,
-        );
-        state = AsyncData(
-          state.requireValue.copyWith(
-            errorMessage: 'chat.memoryUnavailable'.tr(),
-            clearConfirmingMemory: true,
-          ),
-        );
-        return;
-      }
-      await ref
-          .read(chatToolRuntimeRegistryProvider)
-          .revalidateMemoryProposal(proposal);
-
-      final currentProposal = state.requireValue
-          .conversationById(conversationId)
-          ?.pendingMemoryProposal;
-      if (currentProposal == null ||
-          !proposal.hasSameIdentity(currentProposal)) {
-        throw StateError('Memory proposal changed during confirmation');
-      }
-      final result = await updates.applyPersisted(
-        fileName: proposal.fileName,
-        proposedContent: proposal.proposedContent,
-        diff: proposal.diff,
-        confirmationToken: proposal.confirmationToken,
-        version: proposal.version,
-        createdAt: proposal.createdAt,
-      );
-      if (currentProposal.requiredToolPermission == 'delete_persona') {
-        await ref.read(personaRegistryStateProvider.notifier).refresh();
-      }
-      final proposalAfterApply = state.requireValue
-          .conversationById(conversationId)
-          ?.pendingMemoryProposal;
-      if (proposalAfterApply == null ||
-          !proposal.hasSameIdentity(proposalAfterApply)) {
-        throw StateError('Memory proposal changed after apply');
-      }
-      await _continueAfterMemoryDecision(
-        conversationId,
-        toolCallId,
-        jsonEncode({
-          'ok': true,
-          'file_name': result.fileName,
-          'previous_version': result.previousVersion,
-          'version': result.version,
-        }),
-      );
-      logger.log(
-        event: 'memory.confirm',
-        conversationId: conversationId,
-        toolCallId: toolCallId,
-        fileName: proposal.fileName,
-        status: 'succeeded',
-        duration: stopwatch.elapsed,
-      );
-    } on Object catch (error) {
-      logger.log(
-        event: 'memory.confirm',
-        level: AppLogLevel.error,
-        conversationId: conversationId,
-        toolCallId: toolCallId,
-        fileName: proposal.fileName,
-        status: 'failed',
-        error: error,
-        duration: stopwatch.elapsed,
-      );
-      state = AsyncData(
-        state.requireValue.copyWith(
-          errorMessage: 'chat.memoryConfirmError'.tr(),
-          clearConfirmingMemory: true,
+      _applyMemoryDecisionAction(
+        await _memoryDecisionService.confirm(
+          conversation: conversation,
+          proposal: proposal,
         ),
       );
     } finally {
-      if (state.hasValue &&
-          state.requireValue.confirmingMemoryToolCallId == toolCallId) {
+      if (proposal != null &&
+          state.hasValue &&
+          state.requireValue.confirmingMemoryToolCallId ==
+              proposal.toolCallId) {
         state = AsyncData(
           state.requireValue.copyWith(clearConfirmingMemory: true),
         );
@@ -327,61 +242,33 @@ class ChatController extends _$ChatController {
     final conversation = state.requireValue.activeConversation;
     final proposal = conversation?.pendingMemoryProposal;
     if (conversation == null || proposal == null) return;
-    await _continueAfterMemoryDecision(
-      conversation.id,
-      proposal.toolCallId,
-      jsonEncode({'ok': false, 'rejected': true, 'reason': 'User rejected'}),
-    );
-    await ref
-        .read(updateMemoryFileProvider)
-        ?.revokeProposal(proposal.confirmationToken);
-  }
-
-  Future<void> _continueAfterMemoryDecision(
-    String conversationId,
-    String toolCallId,
-    String result,
-  ) async {
-    final logger = ref.read(appLoggerProvider);
-    final conversation = state.requireValue.conversationById(conversationId);
-    final proposal = conversation?.pendingMemoryProposal;
-    if (conversation == null || proposal?.toolCallId != toolCallId) {
-      throw StateError('Pending memory proposal is no longer available');
-    }
-    logger.log(
-      event: 'memory.follow_up',
-      conversationId: conversationId,
-      toolCallId: toolCallId,
-      status: 'started',
-    );
-    try {
-      await _coordinator.continueAfterMemoryDecision(
+    _applyMemoryDecisionAction(
+      await _memoryDecisionService.reject(
         conversation: conversation,
-        proposal: proposal!,
-        toolResult: result,
-      );
-      logger.log(
-        event: 'memory.tool_result_persistence',
-        conversationId: conversationId,
-        toolCallId: toolCallId,
-        status: 'succeeded',
-      );
-    } on Object catch (error) {
-      logger.log(
-        event: 'memory.follow_up',
-        level: AppLogLevel.error,
-        conversationId: conversationId,
-        toolCallId: toolCallId,
-        status: 'failed',
-        error: error,
-      );
-      rethrow;
-    }
+        proposal: proposal,
+      ),
+    );
   }
 
-  void cancel() {
-    final id = state.requireValue.activeConversationId;
-    if (id != null) _coordinator.cancel(id);
+  ChatMemoryDecisionService get _memoryDecisionService =>
+      ChatMemoryDecisionService(
+        logger: ref.read(appLoggerProvider),
+        servicesForDecision: (conversationId, proposal) =>
+            _lifecycle.servicesForDecision(
+              conversationId,
+              proposal,
+              locationRevision: ref.read(memoryLocationRevisionProvider),
+            ),
+        conversationById: (id) => state.requireValue.conversationById(id),
+        completeDecision: _lifecycle.completeDecision,
+        refreshPersonas: () =>
+            ref.read(personaRegistryStateProvider.notifier).refresh(),
+      );
+
+  void _applyMemoryDecisionAction(ChatMemoryDecisionAction action) {
+    if (action.errorMessage == null) return;
+    final current = state.requireValue;
+    state = AsyncData(current.copyWith(errorMessage: action.errorMessage));
   }
 
   Future<Conversation?> _ensureConversation() async {
@@ -447,7 +334,40 @@ class ChatController extends _$ChatController {
       assistantId,
       selectedAgentId: policy.agentId,
       allowedTools: policy.allowedTools,
+      workspaceBinding: _captureWorkspaceBinding(),
     );
+  }
+
+  WorkspaceBinding? _captureWorkspaceBinding() => WorkspaceStore(
+    repository: ref.read(memoryRepositoryProvider),
+  ).captureBinding();
+
+  WorkspaceBinding? _retryWorkspaceBinding(
+    Conversation conversation,
+    ChatStreamingCoordinator coordinator,
+  ) {
+    final requestMessageId = conversation.pendingRequestMessageId!;
+    final retained = coordinator.retainedWorkspaceBindingForRetry(
+      conversation.id,
+      requestMessageId,
+    );
+    if (retained != null) return retained;
+    final requestIndex = conversation.messages.indexWhere(
+      (message) => message.id == requestMessageId,
+    );
+    final followedMemoryDecision = conversation.messages
+        .skip(
+          requestIndex < 0 ? conversation.messages.length : requestIndex + 1,
+        )
+        .any(
+          (message) => message.toolCalls.any(
+            (call) =>
+                call.name == 'update_memory_file' ||
+                call.name == 'save_persona' ||
+                call.name == 'delete_persona',
+          ),
+        );
+    return followedMemoryDecision ? null : _captureWorkspaceBinding();
   }
 
   Future<({String? agentId, Set<String> allowedTools})>

@@ -162,6 +162,32 @@ void main() {
     expect(await file.exists(), isFalse);
   });
 
+  test(
+    'concurrent creations with the same clock reserve distinct IDs',
+    () async {
+      final fixedNow = DateTime.utc(2026, 8, 27);
+      final container = ProviderContainer(
+        overrides: [
+          ...overrides(files(), (_, {mimeType}) async {}),
+          artifactsControllerProvider.overrideWith(
+            () => ArtifactsController(clock: () => fixedNow),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(artifactsControllerProvider.notifier);
+
+      final created = await Future.wait([
+        controller.create(title: 'First', content: 'one'),
+        controller.create(title: 'Second', content: 'two'),
+      ]);
+
+      expect(created.map((artifact) => artifact.id).toSet(), hasLength(2));
+      expect(container.read(artifactsControllerProvider), hasLength(2));
+      expect(filesDir.listSync().whereType<File>(), hasLength(2));
+    },
+  );
+
   test('policy rejections leave no hive or disk residue', () async {
     final container = ProviderContainer(
       overrides: overrides(files(), (_, {mimeType}) async {}),

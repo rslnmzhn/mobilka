@@ -17,6 +17,7 @@ class MemoryToolPermissionException extends StateError {
 }
 
 final memoryChatToolRuntimeProvider = Provider<MemoryChatToolRuntime>((ref) {
+  final updates = ref.watch(updateMemoryFileProvider);
   return MemoryChatToolRuntime(
     agentById: (id) async {
       final catalog = await ref.read(agentsControllerProvider.future);
@@ -24,7 +25,7 @@ final memoryChatToolRuntimeProvider = Provider<MemoryChatToolRuntime>((ref) {
           .where((agent) => agent.definition.id == id)
           .firstOrNull;
     },
-    memoryUpdates: () => ref.read(updateMemoryFileProvider),
+    memoryUpdates: () => updates,
     logger: ref.read(appLoggerProvider),
   );
 });

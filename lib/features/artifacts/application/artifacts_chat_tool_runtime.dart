@@ -6,6 +6,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../chat/application/chat_tool_runtime.dart';
 import '../../chat/domain/chat_message.dart';
 import '../../chat/domain/chat_tool.dart';
+import '../../memory/application/workspace_paths.dart';
+import '../../memory/data/memory_repository.dart';
 import 'artifacts_controller.dart';
 import 'artifact_policy.dart';
 
@@ -20,6 +22,7 @@ final artifactsChatToolRuntimeProvider = Provider<ArtifactsChatToolRuntime>((
     controller: () => ref.read(artifactsControllerProvider.notifier),
     storedContents: () =>
         ref.read(artifactsControllerProvider).map((item) => item.content),
+    workspace: WorkspaceStore(repository: ref.read(memoryRepositoryProvider)),
   );
 });
 
@@ -30,8 +33,10 @@ class ArtifactsChatToolRuntime implements ChatToolRuntime {
   ArtifactsChatToolRuntime({
     required ArtifactsController Function() controller,
     required Iterable<String> Function() storedContents,
+    required WorkspaceStore workspace,
   }) : _controller = controller,
-       _storedContents = storedContents;
+       _storedContents = storedContents,
+       _workspace = workspace;
 
   static const generateDocx = ChatToolDefinition(
     name: 'generate_docx',
@@ -58,6 +63,7 @@ class ArtifactsChatToolRuntime implements ChatToolRuntime {
 
   final ArtifactsController Function() _controller;
   final Iterable<String> Function() _storedContents;
+  final WorkspaceStore _workspace;
 
   @override
   Future<List<ChatToolDefinition>> availableTools(
@@ -80,10 +86,13 @@ class ArtifactsChatToolRuntime implements ChatToolRuntime {
         'generate_docx is not allowed for this agent',
       );
     }
-    return _execute(call);
+    return _execute(call, context);
   }
 
-  Future<String> _execute(ChatToolCall call) async {
+  Future<String> _execute(
+    ChatToolCall call,
+    ChatToolExecutionContext? context,
+  ) async {
     try {
       final arguments = jsonDecode(call.arguments);
       if (arguments is! Map) {
@@ -107,14 +116,47 @@ class ArtifactsChatToolRuntime implements ChatToolRuntime {
             ArtifactPolicy.bytesOf(markdown),
       );
 
-      final artifact = await controller.createDocxArtifact(
+      final generated = await controller.createDocxArtifact(
         title: title,
         markdown: markdown,
       );
+      var workspaceSaved = false;
+      String? workspaceStatus;
+      final sessionKey = context?.sessionKey;
+      final binding = context?.workspaceBinding;
+      if (sessionKey == null || sessionKey.isEmpty || binding == null) {
+        workspaceStatus =
+            'Workspace mirror skipped: session context unavailable.';
+      } else {
+        try {
+          final mirrored = await _workspace.writeArtifactPair(
+            binding: binding,
+            sessionKey: sessionKey,
+            artifactId: generated.artifact.id,
+            markdown: markdown,
+            docxBytes: generated.docxBytes,
+          );
+          workspaceSaved = mirrored.complete;
+          if (!workspaceSaved) {
+            workspaceStatus = mirrored.hasCollision
+                ? 'Workspace mirror collision: existing artifact siblings were preserved.'
+                : mirrored.hasIndeterminate
+                ? 'Workspace mirror outcome is indeterminate; app artifact remains available.'
+                : mirrored.firstWritten
+                ? 'Workspace mirror incomplete: Markdown saved but DOCX was not saved.'
+                : 'Workspace mirror was not saved; app artifact remains available.';
+          }
+        } catch (_) {
+          workspaceStatus =
+              'Workspace mirror unavailable; app artifact remains available.';
+        }
+      }
       return jsonEncode({
         'ok': true,
-        'artifact_id': artifact.id,
-        'file_name': '${artifact.id}.docx',
+        'artifact_id': generated.artifact.id,
+        'file_name': '${generated.artifact.id}.docx',
+        'workspace_saved': workspaceSaved,
+        'workspace_status': ?workspaceStatus,
       });
     } on ArtifactPolicyException catch (error) {
       return jsonEncode({'ok': false, 'error': error.messageKey});

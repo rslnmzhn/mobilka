@@ -80,4 +80,9 @@ class LocalArtifactFiles {
       }
     }
   }
+
+  Future<bool> exists(String artifactId, {required String extension}) async {
+    final target = await fileFor(artifactId, extension: extension);
+    return target.exists();
+  }
 }

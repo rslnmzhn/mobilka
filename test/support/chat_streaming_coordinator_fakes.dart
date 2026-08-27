@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:mobilka/features/chat/application/background_task_bridge.dart';
 import 'package:mobilka/features/chat/application/chat_streaming_coordinator.dart';
+import 'package:mobilka/features/chat/application/pending_workspace_binding_store.dart';
 import 'package:mobilka/features/chat/application/chat_tool_runtime.dart'
     as runtime;
 import 'package:mobilka/features/chat/data/chat_repository.dart';
@@ -11,6 +12,7 @@ import 'package:mobilka/features/chat/domain/chat_stream_event.dart';
 import 'package:mobilka/features/chat/domain/chat_tool.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
+import 'package:mobilka/features/memory/application/workspace_paths.dart';
 
 class CoordinatorFixture {
   CoordinatorFixture({
@@ -19,6 +21,7 @@ class CoordinatorFixture {
     runtime.ChatToolRuntime? toolRuntime,
     BackgroundTaskBridge? backgroundTasks,
     List<Object>? streamerErrors,
+    PendingWorkspaceBindingStore? workspaceBindings,
   }) {
     conversations['conversation-1'] = conversationWithId(
       'conversation-1',
@@ -36,6 +39,7 @@ class CoordinatorFixture {
       publishError: errors.add,
       toolRuntime: toolRuntime,
       backgroundTasks: backgroundTasks ?? const NoopBackgroundTaskBridge(),
+      workspaceBindings: workspaceBindings,
     );
   }
 
@@ -46,7 +50,7 @@ class CoordinatorFixture {
   Conversation get conversation => conversations['conversation-1']!;
   ChatMessage get assistant => conversation.messages.last;
 
-  Future<void> run() => coordinator.run(
+  Future<void> run({WorkspaceBinding? workspaceBinding}) => coordinator.run(
     ChatStreamRequest(
       conversationId: 'conversation-1',
       sessionKey: conversation.sessionKey,
@@ -56,6 +60,7 @@ class CoordinatorFixture {
       history: [conversation.messages.first],
       selectedAgentId: 'agent-1',
       allowedTools: const {'update_memory_file'},
+      workspaceBinding: workspaceBinding,
     ),
   );
 }

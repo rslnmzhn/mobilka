@@ -35,6 +35,70 @@ abstract interface class SubPathMemoryFileBoundary {
   Future<List<String>> listSubPath(String relativeDirectory);
 }
 
+const maxArtifactMarkdownBytes = 2 * 1024 * 1024;
+const maxArtifactDocxBytes = 10 * 1024 * 1024;
+
+final class WorkspaceBinaryFile {
+  const WorkspaceBinaryFile({
+    required this.relativePath,
+    required this.bytes,
+    required this.mimeType,
+    required this.maxBytes,
+  });
+
+  final String relativePath;
+  final Uint8List bytes;
+  final String mimeType;
+  final int maxBytes;
+
+  void validate() {
+    if (MemoryFileValidation.subPath(relativePath) == null) {
+      throw const FormatException('Invalid workspace artifact path');
+    }
+    if (bytes.length > maxBytes) {
+      throw const FormatException('Workspace artifact exceeds the size limit');
+    }
+  }
+}
+
+enum WorkspaceSiblingWriteStatus {
+  verifiedWritten,
+  definitelyNotWritten,
+  collision,
+  indeterminate,
+}
+
+final class WorkspacePairWriteResult {
+  const WorkspacePairWriteResult({
+    required this.firstStatus,
+    required this.secondStatus,
+  });
+
+  final WorkspaceSiblingWriteStatus firstStatus;
+  final WorkspaceSiblingWriteStatus secondStatus;
+
+  bool get firstWritten =>
+      firstStatus == WorkspaceSiblingWriteStatus.verifiedWritten;
+  bool get secondWritten =>
+      secondStatus == WorkspaceSiblingWriteStatus.verifiedWritten;
+  bool get complete => firstWritten && secondWritten;
+  bool get hasCollision =>
+      firstStatus == WorkspaceSiblingWriteStatus.collision ||
+      secondStatus == WorkspaceSiblingWriteStatus.collision;
+  bool get hasIndeterminate =>
+      firstStatus == WorkspaceSiblingWriteStatus.indeterminate ||
+      secondStatus == WorkspaceSiblingWriteStatus.indeterminate;
+}
+
+/// Bounded binary pair capability. The pair is serialized by one store/root
+/// lock, but is not claimed to be atomic across two filesystem or SAF writes.
+abstract interface class BinarySubPathMemoryFileBoundary {
+  Future<WorkspacePairWriteResult> writeBinaryPair(
+    WorkspaceBinaryFile first,
+    WorkspaceBinaryFile second,
+  );
+}
+
 const maxMemoryFileBytes = 1024 * 1024;
 
 final class MemoryFileCodec {
