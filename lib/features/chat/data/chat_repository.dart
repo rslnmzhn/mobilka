@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -13,6 +15,7 @@ import '../../models/domain/model_capabilities.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_stream_event.dart';
 import '../domain/chat_tool.dart';
+import '../application/automatic_title_parser.dart';
 import 'chat_api_client.dart';
 
 part 'chat_repository.g.dart';
@@ -84,6 +87,54 @@ class ChatRepository
       messages: injectedMessages,
     );
   }
+
+  Future<String> createAutomaticTitle({
+    required String model,
+    required String firstUserText,
+    required String assistantText,
+  }) async {
+    final settings = await _settingsRepository.load();
+    final apiKey = await _settingsRepository.readApiKey();
+    final token = CancelToken();
+    final timer = Timer(
+      const Duration(seconds: 10),
+      () => token.cancel('title timeout'),
+    );
+    try {
+      final completion = await _apiClient.createCompletion(
+        baseUrl: settings.baseUrl,
+        apiKey: apiKey,
+        model: model,
+        cancelToken: token,
+        messages: [
+          ChatMessage(
+            id: 'title-system',
+            role: ChatRole.system,
+            content:
+                'Return only one concise title in the conversation language. '
+                'Maximum 6 words and 48 characters. No prefix, quotes, or Markdown.',
+            createdAt: DateTime.now(),
+          ),
+          ChatMessage(
+            id: 'title-user',
+            role: ChatRole.user,
+            content:
+                'User: ${_clip(firstUserText)}\n'
+                'Assistant: ${_clip(assistantText)}',
+            createdAt: DateTime.now(),
+          ),
+        ],
+      );
+      final parsed = parseAutomaticConversationTitle(completion.content);
+      if (parsed == null) throw const FormatException('Invalid title');
+      return parsed;
+    } finally {
+      timer.cancel();
+    }
+  }
+
+  static String _clip(String value) =>
+      value.length <= 500 ? value : value.substring(0, 500);
 
   @override
   Stream<ChatStreamEvent> streamCompletion({

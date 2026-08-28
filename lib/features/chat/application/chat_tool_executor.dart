@@ -9,12 +9,13 @@ import '../domain/pending_memory_proposal.dart';
 import 'chat_stream_request.dart';
 import 'chat_tool_runtime.dart';
 import 'memory_tool_dispatcher.dart';
+import 'conversation_mutation.dart';
 
 class ChatToolExecutor {
   ChatToolExecutor({
     required this.runtime,
     required this.conversationById,
-    required this.persistAndPublish,
+    required this.persistMutation,
     InstantMemoryWriter? instantMemoryWriter,
     PersonaRegistryAdapter? personaRegistry,
     AppLogger? logger,
@@ -29,7 +30,7 @@ class ChatToolExecutor {
 
   final ChatToolRuntime runtime;
   final Conversation? Function(String id) conversationById;
-  final Future<void> Function(Conversation conversation) persistAndPublish;
+  final PersistConversationMutation persistMutation;
   final MemoryToolDispatcher _memoryDispatcher;
   final AppLogger? _logger;
   final void Function(PendingMemoryProposal proposal)? _onPendingMemoryProposal;
@@ -41,21 +42,28 @@ class ChatToolExecutor {
     String assistantId,
     List<ChatToolCall> calls,
   ) async {
-    var conversation = conversationById(request.conversationId)!;
-    conversation = conversation.copyWith(
-      updatedAt: DateTime.now(),
-      messages: conversation.messages
-          .map(
-            (message) => message.id == assistantId
-                ? message.copyWith(
-                    status: ChatMessageStatus.streaming,
-                    toolCalls: calls,
-                  )
-                : message,
-          )
-          .toList(),
-    );
-    await persistAndPublish(conversation);
+    final prepared = await persistMutation(request.conversationId, (latest) {
+      if (latest.pendingRequestMessageId != request.requestMessageId) {
+        return null;
+      }
+      return latest.copyWith(
+        updatedAt: DateTime.now(),
+        messages: latest.messages
+            .map(
+              (message) => message.id == assistantId
+                  ? message.copyWith(
+                      status: ChatMessageStatus.streaming,
+                      toolCalls: calls,
+                    )
+                  : message,
+            )
+            .toList(),
+      );
+    });
+    if (prepared == null ||
+        prepared.pendingRequestMessageId != request.requestMessageId) {
+      return false;
+    }
     PendingMemoryProposal? pendingProposal;
     final results = <ChatMessage>[];
     final executionContext = ChatToolExecutionContext(
@@ -126,12 +134,14 @@ class ChatToolExecutor {
         );
       }
     }
-    conversation = conversationById(request.conversationId)!;
-    await persistAndPublish(
-      conversation.copyWith(
+    final persisted = await persistMutation(request.conversationId, (latest) {
+      if (latest.pendingRequestMessageId != request.requestMessageId) {
+        return null;
+      }
+      return latest.copyWith(
         updatedAt: DateTime.now(),
         messages: [
-          ...conversation.messages.map(
+          ...latest.messages.map(
             (message) => message.id == assistantId
                 ? message.copyWith(status: ChatMessageStatus.complete)
                 : message,
@@ -139,8 +149,12 @@ class ChatToolExecutor {
           ...results,
         ],
         pendingMemoryProposal: pendingProposal,
-      ),
-    );
+      );
+    });
+    if (persisted == null ||
+        persisted.pendingRequestMessageId != request.requestMessageId) {
+      return false;
+    }
     if (pendingProposal != null) {
       _onPendingMemoryProposal?.call(pendingProposal);
     }

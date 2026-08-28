@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:mobilka/features/chat/application/background_task_bridge.dart';
 import 'package:mobilka/features/chat/application/chat_stream_request.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
@@ -12,13 +13,17 @@ class RecordingBridge implements BackgroundTaskBridge {
   Object? startError;
 
   @override
-  Future<void> start({required String title}) async {
+  Future<BackgroundTaskStartResult> start({
+    required String ownerId,
+    required String title,
+  }) async {
     if (startError != null) throw startError!;
     starts.add(title);
+    return BackgroundTaskStartResult.started;
   }
 
   @override
-  Future<void> stop() async => stopped++;
+  Future<void> stop({required String ownerId}) async => stopped++;
 }
 
 void main() {
@@ -57,5 +62,53 @@ void main() {
     );
 
     expect(request.conversationTitle, 'Trip planning');
+  });
+
+  test('returned start failure is unavailable and owns no lease', () async {
+    var running = false;
+    var stops = 0;
+    final bridge = AndroidForegroundTaskBridge(
+      isRunning: () async => running,
+      startService: (_) async => ServiceRequestFailure(error: StateError('x')),
+      stopService: () async {
+        stops++;
+        return const ServiceRequestSuccess();
+      },
+    );
+
+    expect(
+      await bridge.start(ownerId: 'one', title: 'title'),
+      BackgroundTaskStartResult.unavailable,
+    );
+    await bridge.stop(ownerId: 'one');
+    expect(stops, 0);
+  });
+
+  test('leases serialize overlapping stop and start', () async {
+    var running = false;
+    var starts = 0;
+    var stops = 0;
+    final bridge = AndroidForegroundTaskBridge(
+      isRunning: () async => running,
+      startService: (_) async {
+        starts++;
+        running = true;
+        return const ServiceRequestSuccess();
+      },
+      stopService: () async {
+        stops++;
+        running = false;
+        return const ServiceRequestSuccess();
+      },
+    );
+
+    await bridge.start(ownerId: 'old', title: 'old');
+    await bridge.start(ownerId: 'new', title: 'new');
+    await bridge.stop(ownerId: 'old');
+    expect(running, isTrue);
+    expect(stops, 0);
+    await bridge.stop(ownerId: 'new');
+    expect(starts, 1);
+    expect(stops, 1);
   });
 }

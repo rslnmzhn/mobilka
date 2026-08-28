@@ -273,6 +273,164 @@ void main() {
     },
   );
 
+  test(
+    'changed proposal and request before queued decision mutation do not continue',
+    () async {
+      final streamer = SequencedStreamer(const [
+        [ChatStreamEvent(delta: 'must not run', isTerminal: true)],
+      ]);
+      late CoordinatorFixture fixture;
+      var mutateBeforePersist = false;
+      fixture = CoordinatorFixture(
+        streamer: streamer,
+        beforePersistMutation: (_) {
+          if (!mutateBeforePersist) return;
+          mutateBeforePersist = false;
+          final latest = fixture.conversation;
+          fixture.conversations['conversation-1'] = latest.copyWith(
+            pendingRequestMessageId: 'user-2',
+            pendingMemoryProposal: PendingMemoryProposal(
+              toolCallId: 'call-new',
+              assistantMessageId: 'assistant-new',
+              selectedAgentId: 'agent-1',
+              allowedTools: const {'update_memory_file'},
+              fileName: 'user.md',
+              proposedContent: '# Changed\n',
+              diff: '+Changed',
+              confirmationToken: 'new-token',
+              version: 'new-version',
+              createdAt: DateTime.utc(2026, 1, 2),
+            ),
+          );
+        },
+      );
+      final proposal = PendingMemoryProposal(
+        toolCallId: 'call-1',
+        assistantMessageId: 'assistant-1',
+        selectedAgentId: 'agent-1',
+        allowedTools: const {'update_memory_file'},
+        fileName: 'user.md',
+        proposedContent: '# User\nFact\n',
+        diff: '+Fact',
+        confirmationToken: 'token',
+        version: 'version',
+        createdAt: DateTime.utc(2026),
+      );
+      fixture.conversations['conversation-1'] = fixture.conversation.copyWith(
+        pendingMemoryProposal: proposal,
+      );
+      final staleSnapshot = fixture.conversation;
+      final originalMessageIds = staleSnapshot.messages
+          .map((message) => message.id)
+          .toList();
+      mutateBeforePersist = true;
+
+      await fixture.coordinator.continueAfterMemoryDecision(
+        conversation: staleSnapshot,
+        proposal: proposal,
+        toolResult: '{"ok":true}',
+      );
+
+      expect(streamer.histories, isEmpty);
+      expect(fixture.conversation.pendingRequestMessageId, 'user-2');
+      expect(
+        fixture.conversation.pendingMemoryProposal?.toolCallId,
+        'call-new',
+      );
+      expect(
+        fixture.conversation.messages.map((message) => message.id),
+        originalMessageIds,
+      );
+      expect(
+        fixture.conversation.messages.where(
+          (message) => message.role == ChatRole.tool,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'security-bound proposal replacement before queued decision does not continue',
+    () async {
+      final streamer = SequencedStreamer(const [
+        [ChatStreamEvent(delta: 'must not run', isTerminal: true)],
+      ]);
+      late CoordinatorFixture fixture;
+      var replaceBeforePersist = false;
+      final proposal = PendingMemoryProposal(
+        toolCallId: 'call-1',
+        assistantMessageId: 'assistant-1',
+        callOccurrence: 0,
+        selectedAgentId: 'agent-1',
+        allowedTools: const {'update_memory_file'},
+        fileName: 'user.md',
+        proposedContent: '# User\nFact\n',
+        diff: '+Fact',
+        confirmationToken: 'token',
+        version: 'version',
+        createdAt: DateTime.utc(2026),
+      );
+      fixture = CoordinatorFixture(
+        streamer: streamer,
+        beforePersistMutation: (_) {
+          if (!replaceBeforePersist) return;
+          replaceBeforePersist = false;
+          final latest = fixture.conversation;
+          fixture.conversations['conversation-1'] = latest.copyWith(
+            pendingMemoryProposal: PendingMemoryProposal(
+              toolCallId: proposal.toolCallId,
+              assistantMessageId: proposal.assistantMessageId,
+              callOccurrence: proposal.callOccurrence,
+              selectedAgentId: proposal.selectedAgentId,
+              allowedTools: proposal.allowedTools,
+              fileName: proposal.fileName,
+              proposedContent: '# User\nReplacement\n',
+              diff: '+Replacement',
+              confirmationToken: 'replacement-token',
+              version: 'replacement-version',
+              createdAt: proposal.createdAt,
+            ),
+          );
+        },
+      );
+      fixture.conversations['conversation-1'] = fixture.conversation.copyWith(
+        pendingMemoryProposal: proposal,
+      );
+      final staleSnapshot = fixture.conversation;
+      final originalMessageIds = staleSnapshot.messages
+          .map((message) => message.id)
+          .toList();
+      replaceBeforePersist = true;
+
+      await fixture.coordinator.continueAfterMemoryDecision(
+        conversation: staleSnapshot,
+        proposal: proposal,
+        toolResult: '{"ok":true}',
+      );
+
+      final replacement = fixture.conversation.pendingMemoryProposal!;
+      expect(streamer.histories, isEmpty);
+      expect(fixture.conversation.pendingRequestMessageId, 'user-1');
+      expect(replacement.toolCallId, proposal.toolCallId);
+      expect(replacement.assistantMessageId, proposal.assistantMessageId);
+      expect(replacement.callOccurrence, proposal.callOccurrence);
+      expect(replacement.confirmationToken, 'replacement-token');
+      expect(replacement.version, 'replacement-version');
+      expect(replacement.proposedContent, contains('Replacement'));
+      expect(
+        fixture.conversation.messages.map((message) => message.id),
+        originalMessageIds,
+      );
+      expect(
+        fixture.conversation.messages.where(
+          (message) => message.role == ChatRole.tool,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
   test('persists a fragmented memory call pending confirmation', () async {
     final streamer = SequencedStreamer([
       const [

@@ -146,6 +146,7 @@ class ChatApiClient {
     required String? apiKey,
     required String model,
     required List<ChatMessage> messages,
+    CancelToken? cancelToken,
   }) async {
     if (model.trim().isEmpty) {
       throw const FormatException('A model is required');
@@ -166,6 +167,7 @@ class ChatApiClient {
         'messages': messages.map((message) => message.toJson()).toList(),
         'stream': false,
       },
+      cancelToken: cancelToken,
       options: Options(
         headers: headers,
         followRedirects: endpointRequestMayFollowRedirects(headers),

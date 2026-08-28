@@ -41,11 +41,37 @@ void main() {
     expect(restored.messages.single.status, ChatMessageStatus.complete);
     expect(restored.contextLimitTokens, 32768);
     expect(restored.pendingMemoryProposal?.toolCallId, 'call-1');
+    expect(restored.titleState, ConversationTitleState.manual);
     expect(
       restored.pendingMemoryProposal?.proposedContent,
       contains('New fact'),
     );
   });
+
+  test(
+    'automatic title state persists and legacy titles default to manual',
+    () {
+      final now = DateTime.utc(2026);
+      final pending = Conversation(
+        id: 'new',
+        title: 'question',
+        modelId: 'model',
+        createdAt: now,
+        updatedAt: now,
+        messages: const [],
+        titleState: ConversationTitleState.pendingAutomatic,
+      );
+      expect(
+        Conversation.fromJson(pending.toJson()).titleState,
+        ConversationTitleState.pendingAutomatic,
+      );
+      final legacy = pending.toJson()..remove('titleState');
+      expect(
+        Conversation.fromJson(legacy).titleState,
+        ConversationTitleState.manual,
+      );
+    },
+  );
 
   test('tool protocol messages round trip through storage', () {
     final assistant = ChatMessage(

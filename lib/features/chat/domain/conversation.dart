@@ -2,6 +2,8 @@ import 'chat_message.dart';
 import 'chat_stream_event.dart';
 import 'pending_memory_proposal.dart';
 
+enum ConversationTitleState { pendingAutomatic, generated, fallback, manual }
+
 class Conversation {
   const Conversation({
     required this.id,
@@ -16,6 +18,7 @@ class Conversation {
     this.usage,
     this.pendingMemoryProposal,
     this.sessionKey,
+    this.titleState = ConversationTitleState.manual,
   });
 
   final String id;
@@ -30,6 +33,7 @@ class Conversation {
   final ConversationUsage? usage;
   final PendingMemoryProposal? pendingMemoryProposal;
   final String? sessionKey;
+  final ConversationTitleState titleState;
 
   Conversation copyWith({
     String? title,
@@ -43,6 +47,7 @@ class Conversation {
     ConversationUsage? usage,
     PendingMemoryProposal? pendingMemoryProposal,
     bool clearPendingMemoryProposal = false,
+    ConversationTitleState? titleState,
   }) => Conversation(
     id: id,
     title: title ?? this.title,
@@ -60,6 +65,7 @@ class Conversation {
         ? null
         : (pendingMemoryProposal ?? this.pendingMemoryProposal),
     sessionKey: sessionKey,
+    titleState: titleState ?? this.titleState,
   );
 
   Map<String, dynamic> toJson() => {
@@ -74,6 +80,7 @@ class Conversation {
     'usage': usage?.toJson(),
     'pendingMemoryProposal': pendingMemoryProposal?.toJson(),
     'sessionKey': sessionKey,
+    'titleState': titleState.name,
     'messages': messages.map((message) => message.toStorageJson()).toList(),
   };
 
@@ -103,6 +110,9 @@ class Conversation {
       sessionKey:
           json['sessionKey']?.toString() ??
           _legacySessionKey(createdAt, title, id),
+      titleState: ConversationTitleState.values.byName(
+        json['titleState']?.toString() ?? ConversationTitleState.manual.name,
+      ),
     );
   }
 }

@@ -14,45 +14,113 @@ part 'background_task_bridge.g.dart';
 /// coordinator calls [start] when a request begins and [stop] when it ends,
 /// regardless of outcome.
 abstract interface class BackgroundTaskBridge {
-  Future<void> start({required String title});
+  Future<BackgroundTaskStartResult> start({
+    required String ownerId,
+    required String title,
+  });
 
-  Future<void> stop();
+  Future<void> stop({required String ownerId});
 }
+
+enum BackgroundTaskStartResult { started, alreadyRunning, unavailable }
 
 class NoopBackgroundTaskBridge implements BackgroundTaskBridge {
   const NoopBackgroundTaskBridge();
 
   @override
-  Future<void> start({required String title}) async {}
+  Future<BackgroundTaskStartResult> start({
+    required String ownerId,
+    required String title,
+  }) async => BackgroundTaskStartResult.started;
 
   @override
-  Future<void> stop() async {}
+  Future<void> stop({required String ownerId}) async {}
 }
 
 class AndroidForegroundTaskBridge implements BackgroundTaskBridge {
-  const AndroidForegroundTaskBridge();
+  AndroidForegroundTaskBridge({
+    Future<ServiceRequestResult> Function(String title)? startService,
+    Future<bool> Function()? isRunning,
+    Future<ServiceRequestResult> Function()? stopService,
+  }) : _startService = startService ?? _pluginStart,
+       _isRunning = isRunning ?? (() => FlutterForegroundTask.isRunningService),
+       _stopService = stopService ?? FlutterForegroundTask.stopService;
 
-  @override
-  Future<void> start({required String title}) async {
-    await FlutterForegroundTask.startService(
-      serviceTypes: [ForegroundServiceTypes.dataSync],
-      notificationTitle: title,
-      notificationText: 'mobilka is working in the background',
+  final Future<ServiceRequestResult> Function(String title) _startService;
+  final Future<bool> Function() _isRunning;
+  final Future<ServiceRequestResult> Function() _stopService;
+  final Set<String> _owners = {};
+  Future<void> _serial = Future.value();
+
+  static void initialize() {
+    FlutterForegroundTask.init(
+      androidNotificationOptions: AndroidNotificationOptions(
+        channelId: 'mobilka_streaming',
+        channelName: 'mobilka background responses',
+        channelDescription: 'Shows while mobilka is receiving a response.',
+        onlyAlertOnce: true,
+      ),
+      iosNotificationOptions: const IOSNotificationOptions(
+        showNotification: false,
+      ),
+      foregroundTaskOptions: ForegroundTaskOptions(
+        eventAction: ForegroundTaskEventAction.nothing(),
+        autoRunOnBoot: false,
+        autoRunOnMyPackageReplaced: false,
+        allowWakeLock: true,
+        allowWifiLock: false,
+        allowAutoRestart: false,
+        stopWithTask: true,
+      ),
     );
   }
 
+  static Future<ServiceRequestResult> _pluginStart(String title) =>
+      FlutterForegroundTask.startService(
+        serviceTypes: const [ForegroundServiceTypes.dataSync],
+        notificationTitle: title,
+        notificationText: 'mobilka is receiving a response',
+      );
+
   @override
-  Future<void> stop() async {
-    if (await FlutterForegroundTask.isRunningService) {
-      await FlutterForegroundTask.stopService();
+  Future<BackgroundTaskStartResult> start({
+    required String ownerId,
+    required String title,
+  }) => _serialized(() async {
+    if (_owners.contains(ownerId)) {
+      return BackgroundTaskStartResult.alreadyRunning;
     }
+    if (_owners.isNotEmpty || await _isRunning()) {
+      _owners.add(ownerId);
+      return BackgroundTaskStartResult.alreadyRunning;
+    }
+    final result = await _startService(title);
+    if (result is ServiceRequestFailure) {
+      return BackgroundTaskStartResult.unavailable;
+    }
+    _owners.add(ownerId);
+    return BackgroundTaskStartResult.started;
+  });
+
+  Future<T> _serialized<T>(Future<T> Function() operation) {
+    final result = _serial.then((_) => operation());
+    _serial = result.then<void>((_) {}, onError: (_) {});
+    return result;
   }
+
+  @override
+  Future<void> stop({required String ownerId}) => _serialized(() async {
+    if (!_owners.remove(ownerId) || _owners.isNotEmpty) return;
+    if (await _isRunning()) {
+      await _stopService();
+    }
+  });
 }
 
 @Riverpod(keepAlive: true)
 BackgroundTaskBridge backgroundTaskBridge(Ref ref) {
   if (kIsWeb) return const NoopBackgroundTaskBridge();
   return Platform.isAndroid
-      ? const AndroidForegroundTaskBridge()
+      ? AndroidForegroundTaskBridge()
       : const NoopBackgroundTaskBridge();
 }
