@@ -11,6 +11,8 @@ import '../../../features/memory/application/persona_registry.dart';
 import '../../../features/memory/application/workspace_paths.dart';
 import '../../../features/memory/data/memory_repository.dart';
 import 'background_task_bridge.dart';
+import 'automatic_title_coordinator.dart';
+import 'conversation_mutation.dart';
 import 'chat_tool_runtime_registry.dart';
 import '../data/chat_repository.dart';
 import '../data/conversation_store.dart';
@@ -33,14 +35,19 @@ final chatCompletionStreamerProvider = Provider<ChatCompletionStreamer>(
 @Riverpod(keepAlive: true)
 class ChatController extends _$ChatController {
   late final ChatLifecycleService _lifecycle;
+  late final AutomaticTitleCoordinator _automaticTitles;
 
   @override
   Future<ChatState> build() async {
     final store = ref.watch(conversationStoreProvider);
     await store.recoverInterrupted();
     final conversations = store.loadAll();
+    _automaticTitles = AutomaticTitleCoordinator(
+      conversationById: (id) => state.valueOrNull?.conversationById(id),
+      persist: _saveAndPublishAuthoritative,
+    );
     _lifecycle = ChatLifecycleService(
-      persistAndPublish: _persistAndPublish,
+      persistMutation: _persistMutation,
       generationFactory: _buildLifecycleGeneration,
     );
     ref.onDispose(_lifecycle.dispose);
@@ -53,7 +60,7 @@ class ChatController extends _$ChatController {
   ChatLifecycleGeneration _buildLifecycleGeneration(
     int revision,
     PendingWorkspaceBindingStore workspaceBindings,
-    Future<void> Function(Conversation conversation) persistAndPublish,
+    PersistConversationMutation persistMutation,
   ) {
     final runtime = ref.read(chatToolRuntimeRegistryProvider);
     return ChatLifecycleGeneration(
@@ -62,9 +69,15 @@ class ChatController extends _$ChatController {
       coordinator: ChatStreamingCoordinator(
         streamer: ref.read(chatCompletionStreamerProvider),
         conversationById: (id) => state.requireValue.conversationById(id),
-        persistAndPublish: persistAndPublish,
+        persistMutation: persistMutation,
         publishError: (message) {
-          state = AsyncData(state.requireValue.copyWith(errorMessage: message));
+          state = AsyncData(
+            state.requireValue.copyWith(
+              errorMessage: message == 'backgroundUnavailable'
+                  ? message.tr()
+                  : message,
+            ),
+          );
         },
         toolRuntime: runtime,
         backgroundTasks: ref.read(backgroundTaskBridgeProvider),
@@ -72,6 +85,7 @@ class ChatController extends _$ChatController {
         personaRegistry: ref.read(personaRegistryAdapterProvider),
         logger: ref.read(appLoggerProvider),
         workspaceBindings: workspaceBindings,
+        onFinalSuccess: _startAutomaticTitle,
       ),
     );
   }
@@ -86,6 +100,7 @@ class ChatController extends _$ChatController {
       createdAt: now,
       updatedAt: now,
       messages: const [],
+      titleState: ConversationTitleState.pendingAutomatic,
       sessionKey: WorkspaceStore.sessionKey(
         createdAt: now,
         title: 'New conversation',
@@ -129,7 +144,7 @@ class ChatController extends _$ChatController {
   Future<void> flushActiveConversation() async {
     final conversation = state.valueOrNull?.activeConversation;
     if (conversation == null) return;
-    await ref.read(conversationStoreProvider).save(conversation);
+    await _persistMutation(conversation.id, (latest) => latest);
   }
 
   void selectConversation(String id) =>
@@ -141,8 +156,13 @@ class ChatController extends _$ChatController {
   void setShowArchived(bool value) =>
       state = AsyncData(state.requireValue.copyWith(showArchived: value));
 
-  Future<void> rename(String id, String title) =>
-      _updateConversation(id, (item) => item.copyWith(title: title.trim()));
+  Future<void> rename(String id, String title) => _updateConversation(
+    id,
+    (item) => item.copyWith(
+      title: title.trim(),
+      titleState: ConversationTitleState.manual,
+    ),
+  );
 
   Future<void> archive(String id) =>
       _updateConversation(id, (item) => item.copyWith(isArchived: true));
@@ -152,21 +172,23 @@ class ChatController extends _$ChatController {
 
   Future<void> delete(String id) async {
     await _lifecycle.cancelAndWait(id);
-    final current = state.requireValue;
-    await ref.read(conversationStoreProvider).delete(id);
-    final conversations = current.conversations
-        .where((item) => item.id != id)
-        .toList();
-    final deletedActive = current.activeConversationId == id;
-    state = AsyncData(
-      current.copyWith(
-        conversations: conversations,
-        activeConversationId: deletedActive
-            ? conversations.firstOrNull?.id
-            : current.activeConversationId,
-        clearActiveConversation: deletedActive && conversations.isEmpty,
-      ),
-    );
+    await _automaticTitles.serialize(id, () async {
+      final current = state.requireValue;
+      await ref.read(conversationStoreProvider).delete(id);
+      final conversations = current.conversations
+          .where((item) => item.id != id)
+          .toList();
+      final deletedActive = current.activeConversationId == id;
+      state = AsyncData(
+        current.copyWith(
+          conversations: conversations,
+          activeConversationId: deletedActive
+              ? conversations.firstOrNull?.id
+              : current.activeConversationId,
+          clearActiveConversation: deletedActive && conversations.isEmpty,
+        ),
+      );
+    });
   }
 
   Future<void> send(
@@ -199,8 +221,27 @@ class ChatController extends _$ChatController {
       workspaceBinding: _retryWorkspaceBinding(conversation, coordinator),
     );
     if (retry == null) return;
-    await _persistAndPublish(retry.conversation, clearError: true);
-    await _lifecycle.run(retry.request, locationRevision: revision);
+    final retryAssistant = retry.conversation.messages.last;
+    final persisted = await _persistMutation(
+      conversationId,
+      (latest) => latest.copyWith(
+        updatedAt: retry.conversation.updatedAt,
+        messages: [...latest.messages, retryAssistant],
+      ),
+    );
+    _clearError();
+    if (persisted == null) return;
+    await _lifecycle.run(
+      buildChatStreamRequest(
+        persisted,
+        retry.request.requestMessageId,
+        retry.request.assistantMessageId,
+        selectedAgentId: retry.request.selectedAgentId,
+        allowedTools: retry.request.allowedTools,
+        workspaceBinding: retry.request.workspaceBinding,
+      ),
+      locationRevision: revision,
+    );
   }
 
   void cancel() {
@@ -305,29 +346,33 @@ class ChatController extends _$ChatController {
         ),
       );
     }
-    final updated = conversation.copyWith(
-      title: conversation.messages.isEmpty ? _titleFrom(text) : null,
-      updatedAt: now,
-      pendingRequestMessageId: requestId,
-      messages: [
-        ...conversation.messages,
-        ChatMessage(
-          id: requestId,
-          role: ChatRole.user,
-          content: text,
-          createdAt: now,
-          attachments: List.unmodifiable(attachments),
-        ),
-        ChatMessage(
-          id: assistantId,
-          role: ChatRole.assistant,
-          content: '',
-          createdAt: now,
-          status: ChatMessageStatus.pending,
-        ),
-      ],
+    final updated = await _automaticTitles.mutate(
+      conversation.id,
+      (latest) => latest.copyWith(
+        title: latest.messages.isEmpty ? _titleFrom(text) : null,
+        updatedAt: now,
+        pendingRequestMessageId: requestId,
+        messages: [
+          ...latest.messages,
+          ChatMessage(
+            id: requestId,
+            role: ChatRole.user,
+            content: text,
+            createdAt: now,
+            attachments: List.unmodifiable(attachments),
+          ),
+          ChatMessage(
+            id: assistantId,
+            role: ChatRole.assistant,
+            content: '',
+            createdAt: now,
+            status: ChatMessageStatus.pending,
+          ),
+        ],
+      ),
     );
-    await _persistAndPublish(updated, clearError: true);
+    if (updated == null) throw StateError('Conversation was deleted');
+    _clearError();
     return buildChatStreamRequest(
       updated,
       requestId,
@@ -384,18 +429,17 @@ class ChatController extends _$ChatController {
   Future<void> _updateConversation(
     String id,
     Conversation Function(Conversation) update,
-  ) async {
-    final existing = state.requireValue.conversationById(id);
-    if (existing == null) return;
-    await _persistAndPublish(
-      update(existing).copyWith(updatedAt: DateTime.now()),
-    );
-  }
+  ) => _automaticTitles.mutate(
+    id,
+    (latest) => update(latest).copyWith(updatedAt: DateTime.now()),
+  );
 
-  Future<void> _persistAndPublish(
-    Conversation conversation, {
-    bool clearError = false,
-  }) async {
+  Future<Conversation?> _persistMutation(
+    String conversationId,
+    ConversationMutation mutation,
+  ) => _automaticTitles.mutate(conversationId, mutation);
+
+  Future<void> _saveAndPublishAuthoritative(Conversation conversation) async {
     await ref.read(conversationStoreProvider).save(conversation);
     final current = state.requireValue;
     final conversations =
@@ -407,11 +451,38 @@ class ChatController extends _$ChatController {
       current.copyWith(
         conversations: conversations,
         activeConversationId: current.activeConversationId ?? conversation.id,
-        clearError: clearError,
       ),
     );
   }
 
+  void _clearError() {
+    final current = state.requireValue;
+    state = AsyncData(current.copyWith(clearError: true));
+  }
+
   static String _titleFrom(String text) =>
       text.length <= 42 ? text : '${text.substring(0, 39)}...';
+
+  void _startAutomaticTitle(ChatStreamRequest request, String assistantText) {
+    Future<void>(() async {
+      try {
+        final claimed = await _automaticTitles.claim(request.conversationId);
+        if (claimed == null) return;
+        final firstUser = claimed.messages
+            .where((message) => message.role == ChatRole.user)
+            .firstOrNull;
+        if (firstUser == null) return;
+        final generated = await ref
+            .read(chatRepositoryProvider)
+            .createAutomaticTitle(
+              model: request.modelId,
+              firstUserText: firstUser.content,
+              assistantText: assistantText,
+            );
+        await _automaticTitles.complete(request.conversationId, generated);
+      } on Object {
+        return;
+      }
+    });
+  }
 }

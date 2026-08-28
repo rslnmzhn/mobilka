@@ -1,15 +1,15 @@
 import '../../memory/application/update_memory_file_service.dart';
-import '../domain/conversation.dart';
 import '../domain/pending_memory_proposal.dart';
 import 'chat_streaming_coordinator.dart';
 import 'chat_tool_runtime.dart';
 import 'pending_workspace_binding_store.dart';
+import 'conversation_mutation.dart';
 
 typedef ChatLifecycleGenerationFactory =
     ChatLifecycleGeneration Function(
       int locationRevision,
       PendingWorkspaceBindingStore workspaceBindings,
-      Future<void> Function(Conversation conversation) persistAndPublish,
+      PersistConversationMutation persistMutation,
     );
 
 class ChatLifecycleGeneration {
@@ -44,12 +44,12 @@ class MemoryDecisionServices {
 class ChatLifecycleService {
   ChatLifecycleService({
     required ChatLifecycleGenerationFactory generationFactory,
-    required Future<void> Function(Conversation conversation) persistAndPublish,
+    required PersistConversationMutation persistMutation,
   }) : _generationFactory = generationFactory,
-       _persistAndPublish = persistAndPublish;
+       _persistMutation = persistMutation;
 
   final ChatLifecycleGenerationFactory _generationFactory;
-  final Future<void> Function(Conversation conversation) _persistAndPublish;
+  final PersistConversationMutation _persistMutation;
   final PendingWorkspaceBindingStore _workspaceBindings =
       PendingWorkspaceBindingStore();
   final List<_Generation> _generations = [];
@@ -153,9 +153,11 @@ class ChatLifecycleService {
   _Generation _createGeneration(int revision) {
     late final _Generation generation;
     final value = _generationFactory(revision, _workspaceBindings, (
-      conversation,
+      conversationId,
+      mutation,
     ) async {
-      await _persistAndPublish(conversation);
+      final conversation = await _persistMutation(conversationId, mutation);
+      if (conversation == null) return null;
       final proposal = conversation.pendingMemoryProposal;
       if (proposal != null &&
           !_pendingDecisions.any(
@@ -167,6 +169,7 @@ class ChatLifecycleService {
           _PendingDecision(conversation.id, proposal, generation),
         );
       }
+      return conversation;
     });
     generation = _Generation(revision, value);
     _generations.add(generation);

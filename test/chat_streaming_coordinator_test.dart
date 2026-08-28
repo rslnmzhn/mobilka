@@ -10,6 +10,27 @@ import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'support/chat_streaming_coordinator_fakes.dart';
 
 void main() {
+  test(
+    'thrown background start exception warns and continues request',
+    () async {
+      final bridge = RecordingBackgroundBridge()
+        ..startError = StateError('plugin');
+      final fixture = CoordinatorFixture(
+        events: const [
+          ChatStreamEvent(delta: 'ok'),
+          ChatStreamEvent(isTerminal: true),
+        ],
+        backgroundTasks: bridge,
+      );
+
+      await fixture.run();
+
+      expect(fixture.assistant.status, ChatMessageStatus.complete);
+      expect(fixture.errors, ['backgroundUnavailable']);
+      expect(bridge.stopped, 1);
+    },
+  );
+
   test('terminal stream completes and clears retry metadata', () async {
     final fixture = CoordinatorFixture(
       events: const [
@@ -25,6 +46,35 @@ void main() {
     expect(fixture.conversation.usage?.totalTokens, 5);
     expect(fixture.errors, isEmpty);
   });
+
+  test(
+    'stale terminal finalization does not trigger final-success callback',
+    () async {
+      late CoordinatorFixture fixture;
+      var mutationCount = 0;
+      var finalSuccesses = 0;
+      fixture = CoordinatorFixture(
+        events: const [
+          ChatStreamEvent(delta: 'Old response', isTerminal: true),
+        ],
+        beforePersistMutation: (_) {
+          mutationCount++;
+          if (mutationCount != 2) return;
+          fixture.conversations['conversation-1'] = fixture.conversation
+              .copyWith(pendingRequestMessageId: 'user-2');
+        },
+        onFinalSuccess: (_, _) => finalSuccesses++,
+      );
+
+      await fixture.run();
+
+      expect(mutationCount, 2);
+      expect(finalSuccesses, 0);
+      expect(fixture.conversation.pendingRequestMessageId, 'user-2');
+      expect(fixture.assistant.content, 'Old response');
+      expect(fixture.assistant.status, ChatMessageStatus.streaming);
+    },
+  );
 
   test(
     'transient connection failure before first token is retried once',

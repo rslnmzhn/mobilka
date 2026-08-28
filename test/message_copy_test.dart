@@ -59,6 +59,11 @@ void main() {
     );
   }
 
+  Future<void> tapBubblePadding(WidgetTester tester, String id) async {
+    final rect = tester.getRect(find.byKey(Key('message-bubble-$id')));
+    await tester.tapAt(Offset(rect.right - 4, rect.bottom - 4));
+  }
+
   testWidgets('user and assistant copy their exact independent content', (
     tester,
   ) async {
@@ -86,6 +91,9 @@ void main() {
       message(id: 'user-1', role: ChatRole.user, content: userText),
     );
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('copy-message-user-1')), findsNothing);
+    await tapBubblePadding(tester, 'user-1');
+    await tester.pump();
     await tester.tap(find.byKey(const Key('copy-message-user-1')));
     await tester.pump();
 
@@ -103,6 +111,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tapBubblePadding(tester, 'assistant-1');
+    await tester.pump();
     await tester.tap(find.byKey(const Key('copy-message-assistant-1')));
     await tester.pump();
 
@@ -137,6 +147,8 @@ void main() {
       locale: const Locale('ru'),
     );
     await tester.pumpAndSettle();
+    await tapBubblePadding(tester, 'ru');
+    await tester.pump();
     final semantics = tester.ensureSemantics();
 
     final button = find.byKey(const Key('copy-message-ru'));
@@ -180,6 +192,8 @@ void main() {
       locale: const Locale('en'),
     );
     await tester.pumpAndSettle();
+    await tapBubblePadding(tester, 'feedback');
+    await tester.pump();
 
     await tester.tap(find.byKey(const Key('copy-message-feedback')));
     await tester.pump();

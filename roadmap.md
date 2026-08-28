@@ -20,7 +20,7 @@
 - [x] 8. `PromptGuard`: скан на prompt injection (inline-маркер), вырезание YAML-frontmatter. Лимитов длины нет.
 
 ## Milestone M4 — Agent & workspace
-- [ ] 9. Skills: агент сам пишет/читает/листает свои навыки в `<storage>/skills/<name>.md` (`write_skill` / `read_skill` / `list_skills`); Android-SAF fallback.
+- [x] 9. Skills: агент сам пишет/читает/листает свои навыки в `<storage>/skills/<name>.md` (`write_skill` / `read_skill` / `list_skills`); Android-SAF fallback. Владелец подтвердил на реальном Android-устройстве успешные list/read/write skills.
 - [ ] 10. Сессии: папки `sessions/<yyyy-MM-DD_название>/` c `session.md` (контекст для смены модели) и `artifacts/` для артефактов; инструменты `write_session_notes` / `read_session_notes`. Android-SAF fallback.
 - [x] 11. Артефакты пишутся в папку сессии автоматически (docx рядом с .md источником).
 - [ ] 12. Документация для ИИ (`docs/ai/`): карта архитектуры, инвентарь инструментов, соглашения проекта — чтобы агент не читал весь репозиторий.
@@ -52,6 +52,9 @@
 ## Milestone M7 — Validation
 - [ ] 17. Полный analyze/test после всех пунктов; обновление fixture-тестов памяти.
 - [ ] 18. Ручная проверка владельцем: миграция старых файлов, персоны, skills, session notes, docx-экспорт на устройстве.
+- [x] 33. Инициализирован request-scoped Android foreground service и уведомление для streaming с отключёнными boot/package/auto restart; ошибка запуска не прерывает запрос и даёт локализованное предупреждение. Автоматизировано; физическая проверка background/notification permission остаётся обязательной, force-stop survival не заявляется.
+- [x] 34. В Settings добавлены локализованные статус и прямой выбор/reselect workspace-папки только через memory controller, без broad storage permissions. Автоматизировано; физический reselect остаётся в пункте 30.
+- [x] 35. После первого финального успешного ответа добавлено одно изолированное non-streaming автозаглавие с persistent claim, bound model, строгим parser/timeout/fallback и защитой manual rename; единая conversation-scoped очередь сериализует authoritative mutations и streaming snapshots, а title completion изменяет только title-поля последнего состояния. Focused tests и analyze пройдены; ручная проверка с реальным endpoint остаётся отдельной.
 
 ## Future architecture — Chat / Advanced Coding
 - [ ] Добавить отдельный режим Advanced Coding рядом с текущим Chat, не меняя текущее поведение чата до отдельного проектирования.

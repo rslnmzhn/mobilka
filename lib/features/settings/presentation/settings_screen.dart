@@ -9,6 +9,7 @@ import '../../../core/theme/theme_controller.dart';
 import '../../../core/theme/workbench_widgets.dart';
 import 'user_data_section.dart';
 import '../../updater/presentation/update_settings_section.dart';
+import '../../memory/application/memory_controller.dart';
 import '../application/settings_controller.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -163,6 +164,8 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 20),
             const UserDataSection(),
             const SizedBox(height: 20),
+            const _WorkspaceFolderSection(),
+            const SizedBox(height: 20),
             WorkbenchSectionLabel(
               label: 'settings.connection'.tr(),
               icon: Icons.cable_outlined,
@@ -188,6 +191,73 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _WorkspaceFolderSection extends ConsumerWidget {
+  const _WorkspaceFolderSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final memory = ref.watch(memoryControllerProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        WorkbenchSectionLabel(
+          label: 'workspaceFolder'.tr(),
+          icon: Icons.folder_outlined,
+        ),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: memory.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (error, _) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('workspaceError'.tr()),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: () => ref
+                        .read(memoryControllerProvider.notifier)
+                        .chooseFolder(),
+                    icon: const Icon(Icons.folder_open_outlined),
+                    label: Text('reselectWorkspaceFolder'.tr()),
+                  ),
+                ],
+              ),
+              data: (location) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    location == null
+                        ? 'workspaceUnconfigured'.tr()
+                        : 'workspaceConfigured'.tr(),
+                  ),
+                  if (location != null) ...[
+                    const SizedBox(height: 6),
+                    SelectableText(location.value),
+                  ],
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    key: const Key('settings-choose-memory-folder'),
+                    onPressed: () => ref
+                        .read(memoryControllerProvider.notifier)
+                        .chooseFolder(),
+                    icon: const Icon(Icons.folder_open_outlined),
+                    label: Text(
+                      location == null
+                          ? 'chooseWorkspaceFolder'.tr()
+                          : 'changeWorkspaceFolder'.tr(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -14,6 +14,24 @@ import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
 import 'package:mobilka/features/memory/application/workspace_paths.dart';
 
+class RecordingBackgroundBridge implements BackgroundTaskBridge {
+  Object? startError;
+  BackgroundTaskStartResult result = BackgroundTaskStartResult.started;
+  var stopped = 0;
+
+  @override
+  Future<BackgroundTaskStartResult> start({
+    required String ownerId,
+    required String title,
+  }) async {
+    if (startError case final error?) throw error;
+    return result;
+  }
+
+  @override
+  Future<void> stop({required String ownerId}) async => stopped++;
+}
+
 class CoordinatorFixture {
   CoordinatorFixture({
     List<ChatStreamEvent>? events,
@@ -22,6 +40,9 @@ class CoordinatorFixture {
     BackgroundTaskBridge? backgroundTasks,
     List<Object>? streamerErrors,
     PendingWorkspaceBindingStore? workspaceBindings,
+    void Function(ChatStreamRequest request, String assistantText)?
+    onFinalSuccess,
+    void Function(String conversationId)? beforePersistMutation,
   }) {
     conversations['conversation-1'] = conversationWithId(
       'conversation-1',
@@ -32,14 +53,21 @@ class CoordinatorFixture {
     coordinator = ChatStreamingCoordinator(
       streamer: streamer ?? EventStreamer(events ?? const []),
       conversationById: (id) => conversations[id],
-      persistAndPublish: (conversation) async {
+      persistMutation: (conversationId, mutation) async {
+        beforePersistMutation?.call(conversationId);
+        final latest = conversations[conversationId];
+        if (latest == null) return null;
+        final conversation = mutation(latest);
+        if (conversation == null) return null;
         persisted.add(conversation);
         conversations[conversation.id] = conversation;
+        return conversation;
       },
       publishError: errors.add,
       toolRuntime: toolRuntime,
       backgroundTasks: backgroundTasks ?? const NoopBackgroundTaskBridge(),
       workspaceBindings: workspaceBindings,
+      onFinalSuccess: onFinalSuccess,
     );
   }
 

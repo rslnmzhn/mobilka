@@ -8,6 +8,7 @@ import 'chat_tool_executor.dart';
 import 'chat_tool_runtime.dart';
 import 'fallback_tool_call_parser.dart';
 import 'pending_workspace_binding_store.dart';
+import 'conversation_mutation.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
 import '../../../features/memory/application/workspace_paths.dart';
@@ -21,7 +22,7 @@ class ChatStreamingCoordinator {
   ChatStreamingCoordinator({
     required ChatCompletionStreamer streamer,
     required Conversation? Function(String id) conversationById,
-    required Future<void> Function(Conversation conversation) persistAndPublish,
+    required PersistConversationMutation persistMutation,
     required void Function(String message) publishError,
     ChatToolRuntime? toolRuntime,
     BackgroundTaskBridge backgroundTasks = const NoopBackgroundTaskBridge(),
@@ -30,9 +31,11 @@ class ChatStreamingCoordinator {
     void Function(String event)? onTransientRetry,
     AppLogger? logger,
     PendingWorkspaceBindingStore? workspaceBindings,
+    void Function(ChatStreamRequest request, String assistantText)?
+    onFinalSuccess,
   }) : _streamer = streamer,
        _conversationById = conversationById,
-       _persistAndPublish = persistAndPublish,
+       _persistMutation = persistMutation,
        _publishError = publishError,
        _toolRuntime = toolRuntime,
        _backgroundTasks = backgroundTasks,
@@ -41,11 +44,12 @@ class ChatStreamingCoordinator {
        _onTransientRetry = onTransientRetry,
        _logger = logger,
        _workspaceBindings = workspaceBindings ?? PendingWorkspaceBindingStore(),
-       _ownsWorkspaceBindings = workspaceBindings == null;
+       _ownsWorkspaceBindings = workspaceBindings == null,
+       _onFinalSuccess = onFinalSuccess;
 
   final ChatCompletionStreamer _streamer;
   final Conversation? Function(String id) _conversationById;
-  final Future<void> Function(Conversation conversation) _persistAndPublish;
+  final PersistConversationMutation _persistMutation;
   final void Function(String message) _publishError;
   final ChatToolRuntime? _toolRuntime;
   final InstantMemoryWriter? _instantMemoryWriter;
@@ -59,7 +63,7 @@ class ChatStreamingCoordinator {
       : ChatToolExecutor(
           runtime: _toolRuntime,
           conversationById: _conversationById,
-          persistAndPublish: _persistAndPublish,
+          persistMutation: _persistMutation,
           instantMemoryWriter: _instantMemoryWriter,
           personaRegistry: _personaRegistry,
           logger: _logger,
@@ -79,6 +83,8 @@ class ChatStreamingCoordinator {
   final Set<String> _memoryDecisions = {};
   final PendingWorkspaceBindingStore _workspaceBindings;
   final bool _ownsWorkspaceBindings;
+  late final void Function(ChatStreamRequest request, String assistantText)?
+  _onFinalSuccess;
   Future<void> run(ChatStreamRequest request) {
     if (_running != null) {
       throw StateError('A chat request is already running');
@@ -114,10 +120,6 @@ class ChatStreamingCoordinator {
     }
     final now = DateTime.now();
     final assistantId = '${now.microsecondsSinceEpoch}-assistant';
-    final messages = [...conversation.messages];
-    final proposalAssistantIndex = messages.indexWhere(
-      (message) => message.id == proposal.assistantMessageId,
-    );
     final toolResultMessage = ChatMessage(
       id: '${now.microsecondsSinceEpoch}-tool',
       role: ChatRole.tool,
@@ -125,42 +127,46 @@ class ChatStreamingCoordinator {
       createdAt: now,
       toolCallId: proposal.toolCallId,
     );
-    if (proposalAssistantIndex < 0) {
-      messages.add(toolResultMessage);
-    } else {
-      var insertionIndex = proposalAssistantIndex + 1;
-      var matchingResults = 0;
-      while (insertionIndex < messages.length &&
-          messages[insertionIndex].role == ChatRole.tool) {
-        if (messages[insertionIndex].toolCallId == proposal.toolCallId) {
-          if (matchingResults >= proposal.callOccurrence) break;
-          matchingResults++;
-        }
-        insertionIndex++;
-      }
-      messages.insert(insertionIndex, toolResultMessage);
-    }
-    final updated = conversation.copyWith(
-      updatedAt: now,
-      clearPendingMemoryProposal: true,
-      messages: [
-        ...messages,
-        ChatMessage(
-          id: assistantId,
-          role: ChatRole.assistant,
-          content: '',
-          createdAt: now,
-          status: ChatMessageStatus.pending,
-        ),
-      ],
-    );
     final retainedBinding = _workspaceBindings.resolveForDecision(
       conversationId: conversation.id,
       requestMessageId: requestMessageId,
       proposal: proposal,
     );
     try {
-      await _persistAndPublish(updated);
+      final updated = await _persistMutation(conversation.id, (latest) {
+        final latestProposal = latest.pendingMemoryProposal;
+        if (latest.pendingRequestMessageId != requestMessageId ||
+            latestProposal == null ||
+            !latestProposal.hasSameIdentity(proposal)) {
+          return null;
+        }
+        final latestMessages = [...latest.messages];
+        final proposalIndex = latestMessages.indexWhere(
+          (message) => message.id == proposal.assistantMessageId,
+        );
+        final insertion = proposalIndex < 0
+            ? latestMessages.length
+            : proposalIndex + 1 + proposal.callOccurrence;
+        latestMessages.insert(
+          insertion.clamp(0, latestMessages.length),
+          toolResultMessage,
+        );
+        latestMessages.add(
+          ChatMessage(
+            id: assistantId,
+            role: ChatRole.assistant,
+            content: '',
+            createdAt: now,
+            status: ChatMessageStatus.pending,
+          ),
+        );
+        return latest.copyWith(
+          updatedAt: now,
+          clearPendingMemoryProposal: true,
+          messages: latestMessages,
+        );
+      });
+      if (updated == null) return;
       await run(
         buildChatStreamRequest(
           updated,
@@ -214,7 +220,18 @@ class ChatStreamingCoordinator {
     _activeRequest = request;
     _cancelToken = cancelToken;
     try {
-      await _backgroundTasks.start(title: request.conversationTitle);
+      BackgroundTaskStartResult backgroundResult;
+      try {
+        backgroundResult = await _backgroundTasks.start(
+          ownerId: request.requestMessageId,
+          title: request.conversationTitle,
+        );
+      } on Object {
+        backgroundResult = BackgroundTaskStartResult.unavailable;
+      }
+      if (backgroundResult == BackgroundTaskStartResult.unavailable) {
+        _publishError('backgroundUnavailable');
+      }
       var history = request.history;
       var assistantId = request.assistantMessageId;
       var toolRounds = 0;
@@ -239,8 +256,33 @@ class ChatStreamingCoordinator {
                 event.delta.isNotEmpty ||
                 event.reasoningDelta.isNotEmpty ||
                 event.toolCallDeltas.isNotEmpty;
-            final latest = _conversationById(request.conversationId);
-            if (latest == null) {
+            final updated = await _persistMutation(request.conversationId, (
+              latest,
+            ) {
+              if (latest.pendingRequestMessageId != request.requestMessageId) {
+                return null;
+              }
+              return latest.copyWith(
+                updatedAt: DateTime.now(),
+                usage: event.usage == null
+                    ? null
+                    : ConversationUsage.fromChatUsage(event.usage!),
+                messages: latest.messages
+                    .map(
+                      (message) => message.id == assistantId
+                          ? message.copyWith(
+                              content: '${message.content}${event.delta}',
+                              reasoningContent:
+                                  '${message.reasoningContent}'
+                                  '${event.reasoningDelta}',
+                              status: ChatMessageStatus.streaming,
+                            )
+                          : message,
+                    )
+                    .toList(),
+              );
+            });
+            if (updated == null) {
               cancelToken.cancel('Conversation deleted');
               return;
             }
@@ -251,26 +293,6 @@ class ChatStreamingCoordinator {
             }
             terminalSeen = terminalSeen || event.isTerminal;
             finishReason = event.finishReason ?? finishReason;
-            final updated = latest.copyWith(
-              updatedAt: DateTime.now(),
-              usage: event.usage == null
-                  ? null
-                  : ConversationUsage.fromChatUsage(event.usage!),
-              messages: latest.messages
-                  .map(
-                    (message) => message.id == assistantId
-                        ? message.copyWith(
-                            content: '${message.content}${event.delta}',
-                            reasoningContent:
-                                '${message.reasoningContent}'
-                                '${event.reasoningDelta}',
-                            status: ChatMessageStatus.streaming,
-                          )
-                        : message,
-                  )
-                  .toList(),
-            );
-            await _persistAndPublish(updated);
           }
           if (terminalSeen && finishReason == 'tool_calls') {
             toolRounds++;
@@ -309,18 +331,22 @@ class ChatStreamingCoordinator {
                   .toSet(),
             );
             if (parsed.visibleText != assistant.content) {
-              await _persistAndPublish(
-                conversation.copyWith(
+              await _persistMutation(request.conversationId, (latest) {
+                if (latest.pendingRequestMessageId !=
+                    request.requestMessageId) {
+                  return latest;
+                }
+                return latest.copyWith(
                   updatedAt: DateTime.now(),
-                  messages: conversation.messages
+                  messages: latest.messages
                       .map(
                         (message) => message.id == assistantId
                             ? message.copyWith(content: parsed.visibleText)
                             : message,
                       )
                       .toList(),
-                ),
-              );
+                );
+              });
             }
             if (parsed.calls.isNotEmpty) {
               toolRounds++;
@@ -363,7 +389,18 @@ class ChatStreamingCoordinator {
         if (cancelToken.isCancelled) {
           await _finish(request, ChatMessageStatus.interrupted);
         } else if (terminalSeen) {
-          await _finish(request, ChatMessageStatus.complete);
+          final finalized = await _finish(
+            request,
+            ChatMessageStatus.complete,
+          );
+          if (!finalized) return;
+          final completed = _conversationById(request.conversationId);
+          final assistant = completed?.messages
+              .where((message) => message.id == assistantId)
+              .firstOrNull;
+          if (assistant != null) {
+            _onFinalSuccess?.call(request, assistant.content);
+          }
         } else {
           await _interruptWithError(
             request,
@@ -400,15 +437,15 @@ class ChatStreamingCoordinator {
           request.requestMessageId,
         );
       }
+      try {
+        await _backgroundTasks.stop(ownerId: request.requestMessageId);
+      } on Object {
+        // Background cleanup is best-effort after request state is finalized.
+      }
       if (identical(_activeRequest, request)) {
         _activeRequest = null;
         _cancelToken = null;
         _running = null;
-      }
-      try {
-        await _backgroundTasks.stop();
-      } on Object {
-        // Background cleanup is best-effort after request state is finalized.
       }
     }
   }
@@ -429,12 +466,15 @@ class ChatStreamingCoordinator {
     ChatStreamRequest request,
     String assistantId,
   ) async {
-    final conversation = _conversationById(request.conversationId)!;
-    await _persistAndPublish(
-      conversation.copyWith(
+    await _persistMutation(request.conversationId, (latest) {
+      if (latest.pendingRequestMessageId != request.requestMessageId ||
+          latest.messages.any((message) => message.id == assistantId)) {
+        return null;
+      }
+      return latest.copyWith(
         updatedAt: DateTime.now(),
         messages: [
-          ...conversation.messages,
+          ...latest.messages,
           ChatMessage(
             id: assistantId,
             role: ChatRole.assistant,
@@ -443,8 +483,8 @@ class ChatStreamingCoordinator {
             status: ChatMessageStatus.pending,
           ),
         ],
-      ),
-    );
+      );
+    });
   }
 
   Future<void> _interruptWithError(
@@ -455,26 +495,29 @@ class ChatStreamingCoordinator {
     _publishError(message);
   }
 
-  Future<void> _finish(
+  Future<bool> _finish(
     ChatStreamRequest request,
     ChatMessageStatus status,
   ) async {
-    final conversation = _conversationById(request.conversationId);
-    if (conversation == null) return;
-    final updated = conversation.copyWith(
-      updatedAt: DateTime.now(),
-      clearPendingRequest: status == ChatMessageStatus.complete,
-      messages: conversation.messages
-          .map(
-            (message) =>
-                message.role == ChatRole.assistant &&
-                    (message.status == ChatMessageStatus.pending ||
-                        message.status == ChatMessageStatus.streaming)
-                ? message.copyWith(status: status)
-                : message,
-          )
-          .toList(),
-    );
-    await _persistAndPublish(updated);
+    final updated = await _persistMutation(request.conversationId, (latest) {
+      if (latest.pendingRequestMessageId != request.requestMessageId) {
+        return null;
+      }
+      return latest.copyWith(
+        updatedAt: DateTime.now(),
+        clearPendingRequest: status == ChatMessageStatus.complete,
+        messages: latest.messages
+            .map(
+              (message) =>
+                  message.role == ChatRole.assistant &&
+                      (message.status == ChatMessageStatus.pending ||
+                          message.status == ChatMessageStatus.streaming)
+                  ? message.copyWith(status: status)
+                  : message,
+            )
+            .toList(),
+      );
+    });
+    return updated != null;
   }
 }
