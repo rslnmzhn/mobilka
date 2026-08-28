@@ -1,0 +1,72 @@
+# Registered chat tools
+
+The authoritative registry is `CompositeChatToolRuntime` in
+[`chat_tool_runtime_registry.dart`](../../lib/features/chat/application/chat_tool_runtime_registry.dart).
+It composes artifact, skill, session-note, persona, and memory runtimes. A tool
+is advertised only when its name is in the immutable allowed-tool set captured
+from the selected agent. The default agent definition is
+[`general-assistant.md`](../../assets/agents/general-assistant.md).
+
+The current registry and default agent both contain exactly these 11 names:
+
+| Tool | JSON arguments (`additionalProperties: false` where declared) | Runtime owner | Confirmation/effect |
+|---|---|---|---|
+| `generate_docx` | `title: string`, `markdown: string` (both required) | `ArtifactsChatToolRuntime` | Additive; no confirmation. Validates document/quotas, creates app-private MD+DOCX, then best-effort session mirror. |
+| `write_skill` | `name: string`, `content: string` (both required) | `SkillsChatTools` | Immediate write to `skills/<name>.md`; kebab-case name up to 64 characters, content limit 256 KiB. |
+| `read_skill` | `name: string` (required) | `SkillsChatTools` | Reads one skill. |
+| `list_skills` | empty object | `SkillsChatTools` | Lists skill files. |
+| `write_session_notes` | `content: string` (required) | `SessionNotesTools` | Immediate write to the bound session's `session.md`; requires valid session context. |
+| `read_session_notes` | empty object | `SessionNotesTools` | Reads bound session notes; requires valid session context. |
+| `list_personas` | empty object | `PersonaChatTools` | Reads names and active persona. |
+| `switch_persona` | optional `name: string|null`; null/`none` clears | `PersonaChatTools` / `PersonaRegistry` | Immediate active-overlay selection for the session. |
+| `save_persona` | `name: string`, `text: string` (both required) | `MemoryToolDispatcher` + memory proposal runtime | Rewrites `personas.yaml` only after explicit exact-diff confirmation. |
+| `delete_persona` | `name: string` (required) | `MemoryToolDispatcher` + memory proposal runtime | Rewrites `personas.yaml` only after explicit exact-diff confirmation. |
+| `update_memory_file` | `file_name: "user.md"|"memory.md"`, `content: string` (both required; complete file content) | `MemoryToolDispatcher` + `MemoryChatToolRuntime` | `user.md`: exact-diff proposal and explicit confirmation. `memory.md`: bounded instant write. `soul.md` is prohibited. |
+
+## Permission and confirmation rules
+
+- The request captures selected agent ID and an unmodifiable allowed-tool set.
+  Runtime execution checks that set again; memory confirmation also revalidates
+  that the selected agent still owns the permission before mutation.
+- Unknown or unadvertised calls fail without mutation. Tool-call rounds are
+  capped at eight. Only one memory/persona proposal can await confirmation per
+  assistant response; subsequent calls in that response are not executed.
+- Confirmable proposals persist proposed complete content, exact diff,
+  permission snapshot, version/token, and target. Confirm/reject is explicit;
+  confirm revalidates permissions and current storage state through the shared
+  memory mutation coordinator.
+- `memory.md` uses `InstantMemoryWriter` and the same `update_memory_file`
+  permission but bypasses proposal confirmation by product design. Its soft
+  size limit still applies.
+- `generate_docx` receives immutable conversation/session/workspace context.
+  Artifact ownership is assigned at creation and cannot be retargeted.
+
+## Output conventions
+
+Tool message content is a JSON object encoded as text and linked to the source
+call with `toolCallId`. Normal runtime results use `{"ok": true, ...}` or
+`{"ok": false, "error": ...}`. Memory dispatch failures additionally expose
+a bounded `error_code`; unexpected failures are converted to a generic safe
+error while details remain in privacy-safe app logging.
+
+Notable success fields include:
+
+- `generate_docx`: `artifact_id`, `file_name`, `workspace_saved`, and optional
+  `workspace_status` (the app-private artifact remains valid if mirroring fails).
+- skill tools: `file`, `name`/`content`, or `skills`.
+- session tools: `file` or `content`.
+- persona tools: `active`, `personas`, or `status`.
+- instant memory: `file` and `status`.
+
+Confirmable memory/persona calls do not emit a successful tool result until the
+owner decision lifecycle resolves; they persist a pending proposal and pause
+the model continuation.
+
+## Not registered/current
+
+`web_search`, public-source URL reading, `list_files`, `search_files`,
+`read_file`, `write_file`, `apply_patch`, `move_file`, `delete_file`,
+`make_directory`, OCR/document extraction tools, attachment tools, arbitrary
+HTTP, shell/terminal tools, and Advanced Coding tools are **future roadmap
+items, not current chat tools**. Do not add them to prompts or documentation as
+available until registry code, permissions, tests, and roadmap status agree.

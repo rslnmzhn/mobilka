@@ -27,43 +27,52 @@ class ArtifactsController extends _$ArtifactsController {
   @override
   List<Artifact> build() => _store.loadAll();
 
-  Future<Artifact> create({required String title, required String content}) =>
-      _creationLock.synchronized(() async {
-        ArtifactPolicy.validateDocument(title, content);
-        final stored = _store.loadAll();
-        ArtifactPolicy.validateQuotas(
-          documentCount: stored.length + 1,
-          totalBytes: _totalBytes(stored) + ArtifactPolicy.bytesOf(content),
-        );
-        final now = _clock();
-        final id = await _allocateId(now);
-        final artifact = Artifact(
-          id: id,
-          title: title.trim(),
-          content: content,
-          createdAt: now,
-          updatedAt: now,
-        );
-        var markdownCreated = false;
-        var metadataCreated = false;
-        try {
-          await _files.write(artifact.id, artifact.content);
-          markdownCreated = true;
-          await _store.save(artifact);
-          metadataCreated = true;
-          state = _store.loadAll();
-          return artifact;
-        } catch (error, stackTrace) {
-          metadataCreated = metadataCreated || _store.contains(artifact.id);
-          markdownCreated =
-              markdownCreated ||
-              await _files.exists(artifact.id, extension: 'md');
-          if (metadataCreated) await _store.delete(artifact.id);
-          if (markdownCreated) await _files.delete(artifact.id);
-          state = _store.loadAll();
-          Error.throwWithStackTrace(error, stackTrace);
-        }
-      });
+  Future<Artifact> create({
+    required String title,
+    required String content,
+    String? conversationId,
+    String? sessionKey,
+  }) => _creationLock.synchronized(() async {
+    ArtifactPolicy.validateDocument(title, content);
+    final stored = _store.loadAll();
+    ArtifactPolicy.validateQuotas(
+      documentCount: stored.length + 1,
+      totalBytes: _totalBytes(stored) + ArtifactPolicy.bytesOf(content),
+    );
+    final now = _clock();
+    final id = await _allocateId(now);
+    final artifact = Artifact(
+      id: id,
+      title: title.trim(),
+      content: content,
+      createdAt: now,
+      updatedAt: now,
+      conversationId: conversationId,
+      sessionKey: sessionKey,
+    );
+    var markdownCreated = false;
+    var metadataCreated = false;
+    var filesMutated = false;
+    try {
+      await _files.write(artifact.id, artifact.content);
+      markdownCreated = true;
+      filesMutated = true;
+      await _store.save(artifact);
+      metadataCreated = true;
+      state = _store.loadAll();
+      return artifact;
+    } catch (error, stackTrace) {
+      metadataCreated = metadataCreated || _store.contains(artifact.id);
+      markdownCreated =
+          markdownCreated || await _files.exists(artifact.id, extension: 'md');
+      if (metadataCreated) await _store.delete(artifact.id);
+      if (markdownCreated) await _files.delete(artifact.id);
+      state = _store.loadAll();
+      Error.throwWithStackTrace(error, stackTrace);
+    } finally {
+      if (filesMutated) _refreshRepresentations();
+    }
+  });
 
   Future<void> update(
     Artifact artifact, {
@@ -77,20 +86,43 @@ class ArtifactsController extends _$ArtifactsController {
       totalBytes: _totalBytes(others) + ArtifactPolicy.bytesOf(content),
     );
     final updated = artifact.copyWith(title: title.trim(), content: content);
-    await _files.write(updated.id, updated.content);
-    await _store.save(updated);
-    state = _store.loadAll();
+    var filesMutated = false;
+    try {
+      await _files.write(updated.id, updated.content);
+      filesMutated = true;
+      await _store.save(updated);
+      state = _store.loadAll();
+    } finally {
+      if (filesMutated) _refreshRepresentations();
+    }
   }
 
   Future<void> delete(Artifact artifact) async {
-    await _files.delete(artifact.id);
-    await _store.delete(artifact.id);
-    state = _store.loadAll();
+    final before = await _representationPresence(artifact.id);
+    var filesMutated = false;
+    try {
+      await _files.delete(artifact.id);
+      filesMutated = before.hasAny;
+      await _store.delete(artifact.id);
+      state = _store.loadAll();
+    } finally {
+      if (!filesMutated && before.hasAny) {
+        final after = await _representationPresence(artifact.id);
+        filesMutated = after != before;
+      }
+      if (filesMutated) _refreshRepresentations();
+    }
   }
 
   Future<String> shareablePath(Artifact artifact) async {
-    final file = await _files.write(artifact.id, artifact.content);
-    return file.path;
+    var filesMutated = false;
+    try {
+      final file = await _files.write(artifact.id, artifact.content);
+      filesMutated = true;
+      return file.path;
+    } finally {
+      if (filesMutated) _refreshRepresentations();
+    }
   }
 
   /// Creates a Markdown artifact together with a generated `.docx` sibling.
@@ -100,6 +132,8 @@ class ArtifactsController extends _$ArtifactsController {
   Future<CreatedDocxArtifact> createDocxArtifact({
     required String title,
     required String markdown,
+    String? conversationId,
+    String? sessionKey,
   }) => _creationLock.synchronized(() async {
     ArtifactPolicy.validateDocument(title, markdown);
     final bytes = _docxConverter.generate(
@@ -119,13 +153,17 @@ class ArtifactsController extends _$ArtifactsController {
       content: markdown,
       createdAt: now,
       updatedAt: now,
+      conversationId: conversationId,
+      sessionKey: sessionKey,
     );
     var metadataCreated = false;
     var markdownCreated = false;
     var docxCreated = false;
+    var filesMutated = false;
     try {
       await _files.write(artifact.id, markdown);
       markdownCreated = true;
+      filesMutated = true;
       await _files.writeBytes(artifact.id, bytes, extension: 'docx');
       docxCreated = true;
       await _store.save(artifact);
@@ -190,6 +228,8 @@ class ArtifactsController extends _$ArtifactsController {
         );
       }
       Error.throwWithStackTrace(error, stackTrace);
+    } finally {
+      if (filesMutated) _refreshRepresentations();
     }
   });
 
@@ -199,7 +239,30 @@ class ArtifactsController extends _$ArtifactsController {
       title: artifact.title,
       markdown: artifact.content,
     );
-    return _files.writeBytes(artifact.id, bytes, extension: 'docx');
+    var filesMutated = false;
+    try {
+      final file = await _files.writeBytes(
+        artifact.id,
+        bytes,
+        extension: 'docx',
+      );
+      filesMutated = true;
+      return file;
+    } finally {
+      if (filesMutated) _refreshRepresentations();
+    }
+  }
+
+  Future<({bool markdown, bool docx, bool hasAny})> _representationPresence(
+    String artifactId,
+  ) async {
+    final markdown = await _files.exists(artifactId, extension: 'md');
+    final docx = await _files.exists(artifactId, extension: 'docx');
+    return (markdown: markdown, docx: docx, hasAny: markdown || docx);
+  }
+
+  void _refreshRepresentations() {
+    ref.read(artifactRepresentationsRevisionProvider.notifier).state++;
   }
 
   int _totalBytes(Iterable<Artifact> artifacts) => artifacts.fold<int>(

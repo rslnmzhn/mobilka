@@ -64,7 +64,9 @@ void main() {
     expect(result.artifacts, 1);
   });
 
-  testWidgets('outer system edge and wrong region do nothing', (tester) async {
+  testWidgets('outer system edge is excluded and center start works', (
+    tester,
+  ) async {
     final outer = await swipe(
       tester,
       start: const Offset(5, 300),
@@ -76,10 +78,10 @@ void main() {
       delta: const Offset(120, 0),
     );
     expect(outer, (history: 0, artifacts: 0));
-    expect(middle, (history: 0, artifacts: 0));
+    expect(middle, (history: 1, artifacts: 0));
   });
 
-  testWidgets('vertical diagonal and reversed drags do nothing', (
+  testWidgets('vertical and diagonal reject while left drag opens artifacts', (
     tester,
   ) async {
     final vertical = await swipe(
@@ -99,7 +101,7 @@ void main() {
     );
     expect(vertical, (history: 0, artifacts: 0));
     expect(diagonal, (history: 0, artifacts: 0));
-    expect(reversed, (history: 0, artifacts: 0));
+    expect(reversed, (history: 0, artifacts: 1));
   });
 
   testWidgets('route guard suppresses presentation', (tester) async {
@@ -111,6 +113,78 @@ void main() {
       moves: 3,
     );
     expect(result, (history: 0, artifacts: 0));
+  });
+
+  testWidgets('vertical child ListView wins the gesture arena', (tester) async {
+    var history = 0;
+    final controller = ScrollController();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatEdgeSwipeAccess(
+            canPresent: () => true,
+            onHistory: () => history++,
+            onArtifacts: () {},
+            child: ListView.builder(
+              controller: controller,
+              itemExtent: 80,
+              itemCount: 30,
+              itemBuilder: (_, index) => Text('Item $index'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -180));
+    await tester.pumpAndSettle();
+    expect(controller.offset, greaterThan(0));
+    expect(history, 0);
+  });
+
+  testWidgets('long hold before horizontal intent is permanently rejected', (
+    tester,
+  ) async {
+    var history = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatEdgeSwipeAccess(
+          canPresent: () => true,
+          onHistory: () => history++,
+          onArtifacts: () {},
+          child: const SelectableText('Selectable markdown-like content'),
+        ),
+      ),
+    );
+    final gesture = await tester.startGesture(const Offset(100, 300));
+    await tester.pump(const Duration(milliseconds: 500));
+    await gesture.moveBy(const Offset(120, 0));
+    await gesture.up();
+    expect(history, 0);
+  });
+
+  testWidgets('second pointer permanently rejects the broad swipe', (
+    tester,
+  ) async {
+    var history = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatEdgeSwipeAccess(
+          canPresent: () => true,
+          onHistory: () => history++,
+          onArtifacts: () {},
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    final first = await tester.startGesture(const Offset(100, 300), pointer: 1);
+    final second = await tester.startGesture(
+      const Offset(180, 300),
+      pointer: 2,
+    );
+    await first.moveBy(const Offset(120, 0));
+    await first.up();
+    await second.up();
+    expect(history, 0);
   });
 
   testWidgets('wrong first decisive movement permanently rejects gesture', (
@@ -141,5 +215,54 @@ void main() {
       await gesture.up();
       expect(history, 0);
     }
+  });
+
+  testWidgets('rejected sequences do not poison later swipes on same widget', (
+    tester,
+  ) async {
+    var history = 0;
+    var artifacts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatEdgeSwipeAccess(
+          canPresent: () => true,
+          onHistory: () => history++,
+          onArtifacts: () => artifacts++,
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+
+    Future<void> rejectedThenValid(Offset rejected) async {
+      const start = Offset(120, 300);
+      final bad = await tester.startGesture(start);
+      await bad.moveBy(rejected);
+      await bad.up();
+      final good = await tester.startGesture(start);
+      await good.moveBy(const Offset(120, 0));
+      await good.up();
+    }
+
+    await rejectedThenValid(const Offset(10, 100));
+    await rejectedThenValid(const Offset(-40, 0));
+
+    const start = Offset(120, 300);
+    final reversed = await tester.startGesture(start);
+    await reversed.moveBy(const Offset(40, 0));
+    await reversed.moveTo(start + const Offset(10, 0));
+    await reversed.up();
+    final validArtifact = await tester.startGesture(start);
+    await validArtifact.moveBy(const Offset(-120, 0));
+    await validArtifact.up();
+
+    final timedOut = await tester.startGesture(start);
+    await tester.pump(const Duration(milliseconds: 500));
+    await timedOut.up();
+    final finalValid = await tester.startGesture(start);
+    await finalValid.moveBy(const Offset(120, 0));
+    await finalValid.up();
+
+    expect(history, 3);
+    expect(artifacts, 1);
   });
 }

@@ -119,6 +119,8 @@ class ArtifactsChatToolRuntime implements ChatToolRuntime {
       final generated = await controller.createDocxArtifact(
         title: title,
         markdown: markdown,
+        conversationId: context?.conversationId,
+        sessionKey: context?.sessionKey,
       );
       var workspaceSaved = false;
       String? workspaceStatus;

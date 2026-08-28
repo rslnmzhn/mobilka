@@ -10,6 +10,9 @@ part 'artifact_store.g.dart';
 @Riverpod(keepAlive: true)
 LocalArtifactFiles localArtifactFiles(Ref ref) => LocalArtifactFiles();
 
+/// Invalidates read-only projections of the authoritative app-private files.
+final artifactRepresentationsRevisionProvider = StateProvider<int>((ref) => 0);
+
 @Riverpod(keepAlive: true)
 ArtifactStore artifactStore(Ref ref) => ArtifactStore();
 

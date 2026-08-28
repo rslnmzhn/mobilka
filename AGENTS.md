@@ -39,8 +39,7 @@ format: dart format .
 - `guide.md`: Architectural specification and future architecture guidance.
 
 ## Business rules
-- RLM Markdown memory is stored in human-readable Markdown files (`user_profile.md`, `project_context.md`, `system_instructions.md`, `memory_log.md`).
-- `memory_log.md` is a human-readable audit mirror; the app-private Hive journal is the recovery authority.
+- RLM Markdown memory uses the current human-readable files `user.md`, `soul.md`, `memory.md`, and `personas.yaml`; the app-private Hive journal is the recovery authority for coordinated mutations.
 - Context Injector must deterministically prepend one atomic snapshot of the selected `.md` memory files and active Agent system prompts into System Prompt before sending requests.
 - Native `update_memory_file` proposals must target approved filenames, persist the exact diff plus permission snapshot, require explicit confirm or reject, and revalidate current permissions before mutation.
 - User retains 100% full control and manual editing capabilities over memory files and agent prompt files.
@@ -51,6 +50,8 @@ format: dart format .
 - Persist conversations, messages, and request lifecycle state in Hive before issuing network requests.
 - SSE completion requires an explicit terminal event; a stream that closes prematurely remains interrupted and retryable.
 - Token usage is owned by the `Conversation` domain model.
+- Chat artifacts are immutably owned by their originating conversation ID and stable session key. Legacy ownerless artifacts remain global/unowned only; never infer ownership. Conversation deletion retains artifacts.
+- Artifact representation types and sizes are derived from actual app-private files. A chat artifact may also have its existing session-workspace mirror; do not create a third copy or scan sessions/workspaces to build the global catalog.
 - Android backups remain disabled because chat history is unencrypted local data.
 - Android release APKs must have the sole signer SHA-256 fingerprint `4A:76:9B:92:8D:47:82:77:30:E3:C5:E1:5A:E3:86:5C:D8:B8:99:93:13:A3:E5:79:BA:A9:B7:34:56:46:55:CD`.
 - Windows auto-update requires the MSI signer SHA-256 fingerprint `84EFAEE8B51EF463E312FC90D8B86613739961F11B0C6582B472BB3845D21BA4`, the expected per-machine `HKLM\Software\mobilka` marker/UpgradeCode, and an executable inside the recorded install location; portable or unknown installs are ineligible.
