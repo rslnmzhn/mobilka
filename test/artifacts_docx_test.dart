@@ -130,8 +130,7 @@ void main() {
     ProviderContainer safWorkspaceContainer(_ArtifactSafAccess access) {
       const bareTreeUri =
           'content://com.android.externalstorage.documents/tree/primary%3AMemory';
-      const rootDocumentUri =
-          '$bareTreeUri/document/primary%3AMemory';
+      const rootDocumentUri = '$bareTreeUri/document/primary%3AMemory';
       Hive.box<dynamic>('preferences')
         ..put('memoryLocation', rootDocumentUri)
         ..put('memoryLocationIsUri', true);
@@ -356,6 +355,10 @@ void main() {
       );
       expect(providerContainer.read(artifactsControllerProvider), isEmpty);
       expect(filesDir.listSync().whereType<File>(), isEmpty);
+      expect(
+        providerContainer.read(artifactRepresentationsRevisionProvider),
+        1,
+      );
     });
 
     test(
@@ -432,6 +435,10 @@ void main() {
       );
       expect(providerContainer.read(artifactsControllerProvider), hasLength(1));
       expect(filesDir.listSync().whereType<File>(), isEmpty);
+      expect(
+        providerContainer.read(artifactRepresentationsRevisionProvider),
+        1,
+      );
     });
 
     test(

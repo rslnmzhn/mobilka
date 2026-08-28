@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/chat/presentation/chat_screen.dart';
+import '../../features/artifacts/presentation/artifacts_screen.dart';
 import '../../features/agents/presentation/agents_screen.dart';
 import '../../features/memory/presentation/memory_screen.dart';
 import '../../features/models/presentation/models_screen.dart';
@@ -17,7 +18,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         branches: [
           StatefulShellBranch(
             routes: [
-              GoRoute(path: '/chat', builder: (_, _) => const ChatScreen()),
+              GoRoute(
+                path: '/chat',
+                builder: (_, _) => const ChatScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'artifacts',
+                    builder: (_, _) => const ArtifactsScreen(),
+                  ),
+                ],
+              ),
             ],
           ),
           StatefulShellBranch(

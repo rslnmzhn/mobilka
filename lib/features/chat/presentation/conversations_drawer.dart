@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../application/chat_controller.dart';
 import '../domain/conversation.dart';
@@ -91,6 +92,16 @@ class ConversationsDrawer extends ConsumerWidget {
                     )
                     .toList(),
               ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              key: const Key('global-artifacts'),
+              leading: const Icon(Icons.folder_copy_outlined),
+              title: Text('artifacts.catalog'.tr()),
+              onTap: () {
+                Navigator.pop(context);
+                context.go('/chat/artifacts');
+              },
             ),
           ],
         ),

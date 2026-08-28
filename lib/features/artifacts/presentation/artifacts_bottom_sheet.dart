@@ -66,7 +66,7 @@ class ArtifactsBottomSheet extends StatelessWidget {
                       icon: Icons.code,
                       message: 'artifacts.noCode'.tr(),
                     ),
-                    const _DocumentsTab(),
+                    _DocumentsTab(conversation: conversation),
                     _EmptyArtifactTab(
                       icon: Icons.preview_outlined,
                       message: 'artifacts.noPreview'.tr(),
@@ -106,11 +106,18 @@ class _EmptyArtifactTab extends StatelessWidget {
 }
 
 class _DocumentsTab extends ConsumerWidget {
-  const _DocumentsTab();
+  const _DocumentsTab({required this.conversation});
+
+  final Conversation? conversation;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final artifacts = ref.watch(artifactsControllerProvider);
+    final artifacts = conversation == null
+        ? const <Artifact>[]
+        : ref
+              .watch(artifactsControllerProvider)
+              .where((artifact) => artifact.conversationId == conversation!.id)
+              .toList(growable: false);
     if (artifacts.isEmpty) {
       return Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -119,12 +126,13 @@ class _DocumentsTab extends ConsumerWidget {
             icon: Icons.description_outlined,
             message: 'artifacts.noDocuments'.tr(),
           ),
-          FilledButton.tonalIcon(
-            key: const Key('artifact-create'),
-            onPressed: () => _openEditor(context, ref, null),
-            icon: const Icon(Icons.add),
-            label: Text('artifacts.create'.tr()),
-          ),
+          if (conversation != null)
+            FilledButton.tonalIcon(
+              key: const Key('artifact-create'),
+              onPressed: () => _openEditor(context, ref, null),
+              icon: const Icon(Icons.add),
+              label: Text('artifacts.create'.tr()),
+            ),
         ],
       );
     }
@@ -132,16 +140,17 @@ class _DocumentsTab extends ConsumerWidget {
       key: const Key('artifact-documents'),
       padding: const EdgeInsets.all(16),
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: FilledButton.tonalIcon(
-            key: const Key('artifact-create'),
-            onPressed: () => _openEditor(context, ref, null),
-            icon: const Icon(Icons.add),
-            label: Text('artifacts.create'.tr()),
+        if (conversation != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonalIcon(
+              key: const Key('artifact-create'),
+              onPressed: () => _openEditor(context, ref, null),
+              icon: const Icon(Icons.add),
+              label: Text('artifacts.create'.tr()),
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
+        if (conversation != null) const SizedBox(height: 8),
         for (final artifact in artifacts)
           ListTile(
             key: Key('artifact-item-${artifact.id}'),
@@ -193,7 +202,12 @@ class _DocumentsTab extends ConsumerWidget {
       builder: (sheetContext) => DocumentEditorSheet(
         artifact: artifact,
         onSave: (title, content) => artifact == null
-            ? controller.create(title: title, content: content)
+            ? controller.create(
+                title: title,
+                content: content,
+                conversationId: conversation!.id,
+                sessionKey: conversation!.sessionKey,
+              )
             : controller.update(artifact, title: title, content: content),
         onOpen: artifact == null
             ? null

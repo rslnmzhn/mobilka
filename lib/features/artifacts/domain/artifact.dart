@@ -5,6 +5,8 @@ class Artifact {
     required this.content,
     required this.createdAt,
     required this.updatedAt,
+    this.conversationId,
+    this.sessionKey,
   });
 
   final String id;
@@ -12,6 +14,8 @@ class Artifact {
   final String content;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String? conversationId;
+  final String? sessionKey;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -19,6 +23,8 @@ class Artifact {
     'content': content,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
+    'conversationId': conversationId,
+    'sessionKey': sessionKey,
   };
 
   factory Artifact.fromJson(Map<dynamic, dynamic> json) => Artifact(
@@ -27,6 +33,8 @@ class Artifact {
     content: json['content']?.toString() ?? '',
     createdAt: DateTime.parse(json['createdAt'].toString()),
     updatedAt: DateTime.parse(json['updatedAt'].toString()),
+    conversationId: json['conversationId']?.toString(),
+    sessionKey: json['sessionKey']?.toString(),
   );
 
   Artifact copyWith({String? title, String? content}) => Artifact(
@@ -35,5 +43,7 @@ class Artifact {
     content: content ?? this.content,
     createdAt: createdAt,
     updatedAt: DateTime.now(),
+    conversationId: conversationId,
+    sessionKey: sessionKey,
   );
 }

@@ -85,4 +85,43 @@ class LocalArtifactFiles {
     final target = await fileFor(artifactId, extension: extension);
     return target.exists();
   }
+
+  /// Reads representation metadata without creating, copying, or discovering
+  /// files outside the app-private artifact directory.
+  Future<FileStat?> stat(String artifactId, {required String extension}) async {
+    try {
+      final fileName = ArtifactFileName.fromId(
+        artifactId,
+        extension: extension,
+      );
+      final base = await _resolveBase();
+      final basePath = p.normalize(p.absolute(base.path));
+      final targetPath = p.normalize(p.join(basePath, fileName.value));
+      if (!p.isWithin(basePath, targetPath)) return null;
+      final type = await FileSystemEntity.type(targetPath, followLinks: false);
+      if (type != FileSystemEntityType.file) return null;
+
+      final canonicalBase = await base.resolveSymbolicLinks();
+      final canonicalTarget = await File(targetPath).resolveSymbolicLinks();
+      if (!p.isWithin(canonicalBase, canonicalTarget)) return null;
+      if (await FileSystemEntity.type(targetPath, followLinks: false) !=
+          FileSystemEntityType.file) {
+        return null;
+      }
+      final stat = await File(targetPath).stat();
+      if (stat.type != FileSystemEntityType.file) return null;
+      final finalCanonicalTarget = await File(
+        targetPath,
+      ).resolveSymbolicLinks();
+      if (finalCanonicalTarget != canonicalTarget ||
+          !p.isWithin(canonicalBase, finalCanonicalTarget) ||
+          await FileSystemEntity.type(targetPath, followLinks: false) !=
+              FileSystemEntityType.file) {
+        return null;
+      }
+      return stat;
+    } on Object {
+      return null;
+    }
+  }
 }

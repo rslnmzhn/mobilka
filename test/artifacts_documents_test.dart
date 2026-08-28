@@ -14,6 +14,7 @@ import 'package:mobilka/features/artifacts/domain/artifact.dart';
 import 'package:mobilka/features/artifacts/domain/artifact_file_name.dart';
 import 'package:mobilka/features/artifacts/presentation/artifacts_bottom_sheet.dart';
 import 'package:mobilka/features/artifacts/presentation/document_editor_sheet.dart';
+import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
@@ -49,6 +50,8 @@ void main() {
       content: '# Hello',
       createdAt: DateTime.utc(2026, 8, 23),
       updatedAt: DateTime.utc(2026, 8, 23, 1),
+      conversationId: 'conversation-1',
+      sessionKey: '2026-08-23_notes',
     );
 
     final restored = Artifact.fromJson(artifact.toJson());
@@ -58,6 +61,24 @@ void main() {
     expect(restored.content, artifact.content);
     expect(restored.createdAt, artifact.createdAt);
     expect(restored.updatedAt, artifact.updatedAt);
+    expect(restored.conversationId, 'conversation-1');
+    expect(restored.sessionKey, '2026-08-23_notes');
+    final edited = restored.copyWith(title: 'Edited');
+    expect(edited.conversationId, restored.conversationId);
+    expect(edited.sessionKey, restored.sessionKey);
+  });
+
+  test('legacy artifact ownership remains explicitly unknown', () {
+    final restored = Artifact.fromJson({
+      'id': 'legacy-artifact',
+      'title': 'Legacy',
+      'content': 'body',
+      'createdAt': DateTime.utc(2026).toIso8601String(),
+      'updatedAt': DateTime.utc(2026).toIso8601String(),
+    });
+
+    expect(restored.conversationId, isNull);
+    expect(restored.sessionKey, isNull);
   });
 
   group('artifact file names reject traversal', () {
@@ -163,6 +184,79 @@ void main() {
   });
 
   test(
+    'representation revision follows create edit export and delete',
+    () async {
+      final container = ProviderContainer(
+        overrides: overrides(files(), (_, {mimeType}) async {}),
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(artifactsControllerProvider.notifier);
+      expect(container.read(artifactRepresentationsRevisionProvider), 0);
+
+      final created = await controller.create(title: 'One', content: 'body');
+      expect(container.read(artifactRepresentationsRevisionProvider), 1);
+      expect(await files().stat(created.id, extension: 'md'), isNotNull);
+
+      await controller.update(created, title: 'Two', content: 'longer body');
+      expect(container.read(artifactRepresentationsRevisionProvider), 2);
+      expect((await files().stat(created.id, extension: 'md'))?.size, 11);
+
+      await controller.exportDocx(created);
+      expect(container.read(artifactRepresentationsRevisionProvider), 3);
+      expect(await files().stat(created.id, extension: 'docx'), isNotNull);
+
+      await controller.delete(created);
+      expect(container.read(artifactRepresentationsRevisionProvider), 4);
+      expect(await files().stat(created.id, extension: 'md'), isNull);
+      expect(await files().stat(created.id, extension: 'docx'), isNull);
+    },
+  );
+
+  test('file write refreshes projection when metadata save fails', () async {
+    final container = ProviderContainer(
+      overrides: [
+        ...overrides(files(), (_, {mimeType}) async {}),
+        artifactStoreProvider.overrideWithValue(_SaveFailingStore()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await expectLater(
+      container
+          .read(artifactsControllerProvider.notifier)
+          .create(title: 'Failed', content: 'body'),
+      throwsStateError,
+    );
+    expect(container.read(artifactRepresentationsRevisionProvider), 1);
+    expect(filesDir.listSync().whereType<File>(), isEmpty);
+  });
+
+  test(
+    'file deletion refreshes projection when metadata delete fails',
+    () async {
+      final store = _DeleteFailingStore();
+      final container = ProviderContainer(
+        overrides: [
+          ...overrides(files(), (_, {mimeType}) async {}),
+          artifactStoreProvider.overrideWithValue(store),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(artifactsControllerProvider.notifier);
+      final artifact = await controller.create(title: 'Saved', content: 'body');
+      final before = container.read(artifactRepresentationsRevisionProvider);
+      store.failDelete = true;
+
+      await expectLater(controller.delete(artifact), throwsStateError);
+      expect(
+        container.read(artifactRepresentationsRevisionProvider),
+        before + 1,
+      );
+      expect(await files().stat(artifact.id, extension: 'md'), isNull);
+    },
+  );
+
+  test(
     'concurrent creations with the same clock reserve distinct IDs',
     () async {
       final fixedNow = DateTime.utc(2026, 8, 27);
@@ -228,7 +322,11 @@ void main() {
             () => _FakeController(created),
           ),
         ],
-        child: const MaterialApp(home: Scaffold(body: ArtifactsBottomSheet())),
+        child: MaterialApp(
+          home: Scaffold(
+            body: ArtifactsBottomSheet(conversation: _ownedConversation()),
+          ),
+        ),
       ),
     );
 
@@ -336,7 +434,11 @@ void main() {
             () => _FakeController(created, deleted),
           ),
         ],
-        child: const MaterialApp(home: Scaffold(body: ArtifactsBottomSheet())),
+        child: MaterialApp(
+          home: Scaffold(
+            body: ArtifactsBottomSheet(conversation: _ownedConversation()),
+          ),
+        ),
       ),
     );
 
@@ -372,6 +474,29 @@ void main() {
   });
 }
 
+Conversation _ownedConversation() => Conversation(
+  id: 'conversation',
+  title: 'Conversation',
+  modelId: 'model',
+  sessionKey: '2026-08-28_conversation',
+  createdAt: DateTime(2026),
+  updatedAt: DateTime(2026),
+  messages: const [],
+);
+
+class _SaveFailingStore extends ArtifactStore {
+  @override
+  Future<void> save(Artifact artifact) => Future.error(StateError('save'));
+}
+
+class _DeleteFailingStore extends ArtifactStore {
+  bool failDelete = false;
+
+  @override
+  Future<void> delete(String id) =>
+      failDelete ? Future.error(StateError('delete')) : super.delete(id);
+}
+
 class _FakeController extends ArtifactsController {
   final List<Artifact> created;
   final List<Artifact> deleted;
@@ -387,6 +512,8 @@ class _FakeController extends ArtifactsController {
   Future<Artifact> create({
     required String title,
     required String content,
+    String? conversationId,
+    String? sessionKey,
   }) async {
     final artifact = Artifact(
       id: 'fake-${_seq++}',
@@ -394,6 +521,8 @@ class _FakeController extends ArtifactsController {
       content: content,
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
+      conversationId: conversationId,
+      sessionKey: sessionKey,
     );
     created.add(artifact);
     state = [...created];

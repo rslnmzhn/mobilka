@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:mobilka/features/artifacts/presentation/artifacts_bottom_sheet.dart';
+import 'package:mobilka/features/artifacts/application/artifacts_controller.dart';
+import 'package:mobilka/features/artifacts/domain/artifact.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:path/path.dart' as p;
@@ -40,6 +42,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('artifacts.noPreview'), findsOneWidget);
   });
+
+  testWidgets(
+    'null conversation fails closed with no global documents or create',
+    (tester) async {
+      final legacy = Artifact(
+        id: 'legacy',
+        title: 'Global legacy artifact',
+        content: 'body',
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            artifactsControllerProvider.overrideWith(
+              () => _Artifacts([legacy]),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: ArtifactsBottomSheet()),
+          ),
+        ),
+      );
+      await tester.tap(find.text('artifacts.documents'));
+      await tester.pumpAndSettle();
+      expect(find.text('Global legacy artifact'), findsNothing);
+      expect(find.byKey(const Key('artifact-create')), findsNothing);
+    },
+  );
 
   testWidgets('logs show completed failed and running calls', (tester) async {
     final conversation = _conversation([
@@ -124,6 +155,13 @@ void main() {
     expect(find.textContaining('plain output'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+}
+
+class _Artifacts extends ArtifactsController {
+  _Artifacts(this.items);
+  final List<Artifact> items;
+  @override
+  List<Artifact> build() => items;
 }
 
 Conversation _conversation(List<ChatMessage> messages) => Conversation(
