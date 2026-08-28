@@ -17,6 +17,7 @@ class SkillsChatTools implements ChatToolRuntime {
   final int maxSkillBytes;
 
   static const writeSkill = ChatToolDefinition(
+    effect: ChatToolEffect.mutating,
     name: 'write_skill',
     description:
         'Create or overwrite a reusable skill note at skills/NAME.md. '
@@ -39,6 +40,7 @@ class SkillsChatTools implements ChatToolRuntime {
   );
 
   static const readSkill = ChatToolDefinition(
+    effect: ChatToolEffect.readOnly,
     name: 'read_skill',
     description: 'Read the full content of one of your saved skills by name.',
     parameters: {
@@ -52,6 +54,7 @@ class SkillsChatTools implements ChatToolRuntime {
   );
 
   static const listSkills = ChatToolDefinition(
+    effect: ChatToolEffect.readOnly,
     name: 'list_skills',
     description: 'List names of all saved skills.',
     parameters: {'type': 'object', 'properties': {}},

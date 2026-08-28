@@ -80,7 +80,9 @@ proportional; documentation-only changes need link/path checks and
   broad storage access.
 - Tool availability is the intersection of the request's immutable allowed-tool
   set and the current registered runtime. See [tools.md](tools.md).
-- **Not current:** `web_search`, public-source URL reading, workspace file tools,
+- `read_public_source` is the only current public-network reader: HTTPS text/raw
+  HTML only, DNS-policy checked and connection-pinned, bounded and PromptGuarded.
+- **Not current:** `web_search`, workspace file tools,
   OCR/document extraction, general attachments, and Chat / Advanced Coding.
   These are future roadmap items and must not be presented as registered tools
   or shipped behavior. Image-processing support in source does not make the

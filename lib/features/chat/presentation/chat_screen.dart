@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 
-import '../../artifacts/presentation/artifacts_bottom_sheet.dart';
+import '../../../core/router/route_locations.dart';
 import '../../models/application/models_controller.dart';
 import '../../models/domain/model_capabilities.dart';
 import '../application/chat_controller.dart';
@@ -91,21 +92,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _showArtifacts() async {
     if (!_canPresentRoute()) return;
+    final conversationId = ref
+        .read(chatControllerProvider)
+        .value
+        ?.activeConversation
+        ?.id;
+    if (conversationId == null) return;
     _presentingRoute = true;
     try {
-      await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        builder: (context) => Consumer(
-          builder: (context, ref, _) => ArtifactsBottomSheet(
-            conversation: ref
-                .watch(chatControllerProvider)
-                .value
-                ?.activeConversation,
-          ),
-        ),
-      );
+      await context.push<void>(sessionArtifactsLocation(conversationId));
     } finally {
       _presentingRoute = false;
     }
@@ -280,6 +275,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             onReject: ref
                                 .read(chatControllerProvider.notifier)
                                 .rejectPendingMemoryProposal,
+                          ),
+                        if (conversation?.pendingToolProposal
+                            case final proposal?)
+                          PendingToolProposalCard(
+                            toolName: proposal.call.name,
+                            isBusy:
+                                state.confirmingToolCallId == proposal.call.id,
+                            onConfirm: ref
+                                .read(chatControllerProvider.notifier)
+                                .confirmPendingToolProposal,
+                            onReject: ref
+                                .read(chatControllerProvider.notifier)
+                                .rejectPendingToolProposal,
                           ),
                         ChatComposer(
                           controller: composer,

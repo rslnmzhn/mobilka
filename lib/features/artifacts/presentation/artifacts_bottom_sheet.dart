@@ -19,67 +19,109 @@ class ArtifactsBottomSheet extends StatelessWidget {
   final Conversation? conversation;
 
   @override
-  Widget build(BuildContext context) => DefaultTabController(
-    length: 4,
-    child: FractionallySizedBox(
-      heightFactor: 0.82,
-      child: Material(
-        color: Theme.of(context).colorScheme.surface,
-        child: SafeArea(
-          top: false,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 12, 6),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'artifacts.title'.tr(),
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
+  Widget build(BuildContext context) => FractionallySizedBox(
+    heightFactor: 0.82,
+    child: Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 12, 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'artifacts.title'.tr(),
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    IconButton(
-                      tooltip: 'common.close'.tr(),
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
-              TabBar(
-                isScrollable: true,
-                tabAlignment: TabAlignment.start,
-                tabs: [
-                  Tab(text: 'artifacts.code'.tr()),
-                  Tab(text: 'artifacts.documents'.tr()),
-                  Tab(text: 'artifacts.preview'.tr()),
-                  Tab(text: 'artifacts.logs'.tr()),
+                  ),
+                  IconButton(
+                    tooltip: 'common.close'.tr(),
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
                 ],
               ),
-              const Divider(height: 1),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    _EmptyArtifactTab(
-                      icon: Icons.code,
-                      message: 'artifacts.noCode'.tr(),
-                    ),
-                    _DocumentsTab(conversation: conversation),
-                    _EmptyArtifactTab(
-                      icon: Icons.preview_outlined,
-                      message: 'artifacts.noPreview'.tr(),
-                    ),
-                    _ExecutionLogTab(conversation: conversation),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+            Expanded(child: ArtifactSessionTabs(conversation: conversation)),
+          ],
         ),
       ),
     ),
+  );
+}
+
+class ArtifactSessionTabs extends StatefulWidget {
+  const ArtifactSessionTabs({
+    required this.conversation,
+    this.onTabChanged,
+    super.key,
+  });
+
+  final Conversation? conversation;
+  final ValueChanged<int>? onTabChanged;
+
+  @override
+  State<ArtifactSessionTabs> createState() => _ArtifactSessionTabsState();
+}
+
+class _ArtifactSessionTabsState extends State<ArtifactSessionTabs>
+    with SingleTickerProviderStateMixin {
+  late final TabController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TabController(length: 4, vsync: this)
+      ..addListener(() {
+        if (!_controller.indexIsChanging) {
+          widget.onTabChanged?.call(_controller.index);
+        }
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      TabBar(
+        controller: _controller,
+        isScrollable: true,
+        tabAlignment: TabAlignment.start,
+        tabs: [
+          Tab(text: 'artifacts.code'.tr()),
+          Tab(text: 'artifacts.documents'.tr()),
+          Tab(text: 'artifacts.preview'.tr()),
+          Tab(text: 'artifacts.logs'.tr()),
+        ],
+      ),
+      const Divider(height: 1),
+      Expanded(
+        child: TabBarView(
+          controller: _controller,
+          children: [
+            _EmptyArtifactTab(
+              icon: Icons.code,
+              message: 'artifacts.noCode'.tr(),
+            ),
+            _DocumentsTab(conversation: widget.conversation),
+            _EmptyArtifactTab(
+              icon: Icons.preview_outlined,
+              message: 'artifacts.noPreview'.tr(),
+            ),
+            _ExecutionLogTab(conversation: widget.conversation),
+          ],
+        ),
+      ),
+    ],
   );
 }
 

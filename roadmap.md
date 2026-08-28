@@ -24,7 +24,7 @@
 - [ ] 10. Сессии: папки `sessions/<yyyy-MM-DD_название>/` c `session.md` (контекст для смены модели) и `artifacts/` для артефактов; инструменты `write_session_notes` / `read_session_notes`. Android-SAF fallback.
 - [x] 11. Артефакты пишутся в папку сессии автоматически (docx рядом с .md источником).
 - [x] 12. Документация для ИИ (`docs/ai/`): карта архитектуры, инвентарь инструментов, соглашения проекта — чтобы агент не читал весь репозиторий.
-- [ ] 13. Инструмент чтения публичных исходников по ссылке (https, текст ≤256 КБ, через PromptGuard) — для изучения репо агентом.
+- [x] 13. Реализован и автоматизированно проверен `read_public_source`: direct HTTPS transport с DNS/IP pinning, ручными redirects, cancellation, безопасными MIME/charset, лимитом 1 МиБ на вызов и UTF-8 chunks ≤256 КиБ. Persisted Conversation хранит fail-closed совокупный wire budget 8 МиБ; cache miss консервативно резервирует allowance до открытия transport, unused bytes возвращаются при штатном завершении, crash оставляет reservation списанным, cache hit бесплатен, некорректный persisted counter считается исчерпанным. Canonical URL ограничен 8 КиБ, alias metadata — 8/resource и 64/conversation. Единый RequestToolSecurityState помечает только текущий request как untrusted; mutating/sensitive/unknown и instant memory.md требуют persisted exact-call confirmation. Решение терминально завершает request; orphan executing восстанавливается как indeterminate без повторного исполнения. PromptGuard остаётся эвристикой. Focused, analyze и полный suite (556 тестов) пройдены без live internet.
 - [x] 14. Новый системный промпт дефолтного агента под полную схему.
 
 ## Milestone M5 — Shell polish

@@ -9,6 +9,7 @@ class ChatState {
     this.query = '',
     this.showArchived = false,
     this.confirmingMemoryToolCallId,
+    this.confirmingToolCallId,
   });
 
   final List<Conversation> conversations;
@@ -17,6 +18,7 @@ class ChatState {
   final String query;
   final bool showArchived;
   final String? confirmingMemoryToolCallId;
+  final String? confirmingToolCallId;
 
   Conversation? get activeConversation =>
       conversationById(activeConversationId);
@@ -24,7 +26,10 @@ class ChatState {
   bool get isStreaming => activeConversation?.isStreaming ?? false;
 
   bool get hasInFlightRequest => conversations.any(
-    (item) => item.isStreaming || item.pendingMemoryProposal != null,
+    (item) =>
+        item.isStreaming ||
+        item.pendingMemoryProposal != null ||
+        item.pendingToolProposal != null,
   );
 
   List<Conversation> get visibleConversations => conversations
@@ -45,6 +50,8 @@ class ChatState {
     bool? showArchived,
     String? confirmingMemoryToolCallId,
     bool clearConfirmingMemory = false,
+    String? confirmingToolCallId,
+    bool clearConfirmingTool = false,
   }) => ChatState(
     conversations: conversations ?? this.conversations,
     activeConversationId: clearActiveConversation
@@ -56,6 +63,9 @@ class ChatState {
     confirmingMemoryToolCallId: clearConfirmingMemory
         ? null
         : (confirmingMemoryToolCallId ?? this.confirmingMemoryToolCallId),
+    confirmingToolCallId: clearConfirmingTool
+        ? null
+        : (confirmingToolCallId ?? this.confirmingToolCallId),
   );
 }
 

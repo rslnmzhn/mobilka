@@ -40,6 +40,7 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
        _logger = logger ?? AppLogger();
 
   static const updateMemoryFile = ChatToolDefinition(
+    effect: ChatToolEffect.runtimeConfirmed,
     name: 'update_memory_file',
     description:
         'Write complete Markdown content to a memory file. '

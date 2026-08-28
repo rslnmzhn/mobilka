@@ -39,6 +39,7 @@ class ArtifactsChatToolRuntime implements ChatToolRuntime {
        _workspace = workspace;
 
   static const generateDocx = ChatToolDefinition(
+    effect: ChatToolEffect.mutating,
     name: 'generate_docx',
     description:
         'Create a downloadable .docx document artifact from Markdown. '

@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:mobilka/core/router/app_router.dart';
 import 'package:mobilka/features/shell/presentation/app_shell.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -26,6 +27,7 @@ void main() {
       Hive.openBox<dynamic>('preferences'),
       Hive.openBox<dynamic>('models'),
       Hive.openBox<dynamic>('conversations'),
+      Hive.openBox<dynamic>('artifacts'),
     ]);
   });
 
@@ -136,4 +138,21 @@ void main() {
     }
     await disposeApp(tester);
   });
+
+  test(
+    'session artifact route is root-level and distinct from global route',
+    () {
+      final session = appRoutes.whereType<GoRoute>().single;
+      final shell = appRoutes.whereType<StatefulShellRoute>().single;
+      final chat = shell.branches.first.routes.single as GoRoute;
+      final global = chat.routes.single as GoRoute;
+
+      expect(session.path, '/chat/:conversationId/artifacts');
+      expect(session.parentNavigatorKey, same(rootNavigatorKey));
+      expect(session.pageBuilder, isNotNull);
+      expect(global.path, 'artifacts');
+      expect(global.parentNavigatorKey, isNull);
+      expect(session.path, isNot('/chat/artifacts'));
+    },
+  );
 }

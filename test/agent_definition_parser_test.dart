@@ -62,6 +62,21 @@ Keep this trailing whitespace.
     expect(definition.name, 'General Assistant');
     expect(definition.mode, AgentMode.primary);
     expect(definition.tools, contains('update_memory_file'));
+    expect(definition.tools, hasLength(12));
+    expect(definition.tools.toSet(), {
+      'update_memory_file',
+      'generate_docx',
+      'switch_persona',
+      'list_personas',
+      'save_persona',
+      'delete_persona',
+      'write_skill',
+      'read_skill',
+      'list_skills',
+      'write_session_notes',
+      'read_session_notes',
+      'read_public_source',
+    });
     expect(
       definition.prompt.replaceAll('\r\n', '\n'),
       startsWith('\n## Role & System Instructions'),

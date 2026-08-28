@@ -15,6 +15,7 @@ class SessionNotesTools implements ChatToolRuntime {
   final WorkspaceStore workspace;
 
   static const writeSessionNotes = ChatToolDefinition(
+    effect: ChatToolEffect.mutating,
     name: 'write_session_notes',
     description:
         'Save a short summary of THIS conversation into session.md inside '
@@ -34,6 +35,7 @@ class SessionNotesTools implements ChatToolRuntime {
   );
 
   static const readSessionNotes = ChatToolDefinition(
+    effect: ChatToolEffect.readOnly,
     name: 'read_session_notes',
     description:
         'Read the saved session.md notes for the current conversation.',

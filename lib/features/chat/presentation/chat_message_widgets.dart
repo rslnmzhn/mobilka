@@ -228,6 +228,76 @@ class PendingMemoryProposalCard extends StatefulWidget {
       _PendingMemoryProposalCardState();
 }
 
+class PendingToolProposalCard extends StatefulWidget {
+  const PendingToolProposalCard({
+    required this.toolName,
+    required this.isBusy,
+    required this.onConfirm,
+    required this.onReject,
+    super.key,
+  });
+  final String toolName;
+  final bool isBusy;
+  final Future<void> Function() onConfirm;
+  final Future<void> Function() onReject;
+
+  @override
+  State<PendingToolProposalCard> createState() =>
+      _PendingToolProposalCardState();
+}
+
+class _PendingToolProposalCardState extends State<PendingToolProposalCard> {
+  var _busy = false;
+  Future<void> _run(Future<void> Function() action) async {
+    if (_busy || widget.isBusy) return;
+    setState(() => _busy = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+    key: const Key('pending-tool-proposal'),
+    margin: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'chat.memoryProposal'.tr(args: [widget.toolName]),
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            children: [
+              TextButton(
+                key: const Key('reject-tool-proposal'),
+                onPressed: _busy || widget.isBusy
+                    ? null
+                    : () => _run(widget.onReject),
+                child: Text('chat.rejectMemory'.tr()),
+              ),
+              FilledButton(
+                key: const Key('confirm-tool-proposal'),
+                onPressed: _busy || widget.isBusy
+                    ? null
+                    : () => _run(widget.onConfirm),
+                child: Text('chat.confirmMemory'.tr()),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _PendingMemoryProposalCardState extends State<PendingMemoryProposalCard> {
   var _busy = false;
   String? _error;
