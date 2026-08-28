@@ -128,20 +128,24 @@ void main() {
     }
 
     ProviderContainer safWorkspaceContainer(_ArtifactSafAccess access) {
+      const bareTreeUri =
+          'content://com.android.externalstorage.documents/tree/primary%3AMemory';
+      const rootDocumentUri =
+          '$bareTreeUri/document/primary%3AMemory';
       Hive.box<dynamic>('preferences')
-        ..put('memoryLocation', 'root')
+        ..put('memoryLocation', rootDocumentUri)
         ..put('memoryLocationIsUri', true);
       final repository = MemoryRepository(
         Saf(),
         persistedPermissions: () async => const [
           SafPersistedPermission(
-            uri: 'root',
+            uri: bareTreeUri,
             read: true,
             write: true,
             persistedTime: 0,
           ),
         ],
-        boundaryFactory: (_) => SafMemoryFileStore('root', access),
+        boundaryFactory: (_) => SafMemoryFileStore(rootDocumentUri, access),
       );
       final providerContainer = ProviderContainer(
         overrides: [

@@ -535,12 +535,13 @@ void main() {
         'soul.md': 'soul',
         'memory.md': 'memory',
       });
-      final store = SafMemoryFileStore('content://memory', access);
+      const treeUri = 'content://memory/tree/root';
+      final store = SafMemoryFileStore(treeUri, access);
       final repository = MemoryRepository(
         Saf(),
         persistedPermissions: () async => const [
           SafPersistedPermission(
-            uri: 'content://memory',
+            uri: treeUri,
             read: true,
             write: true,
             persistedTime: 0,
@@ -550,7 +551,7 @@ void main() {
       );
 
       await repository.ensureCurrentTemplatesAt(
-        const MemoryLocation(value: 'content://memory', isContentUri: true),
+        const MemoryLocation(value: treeUri, isContentUri: true),
       );
 
       expect(access.files['personas.yaml'], 'personas: {}\n');

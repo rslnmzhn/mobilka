@@ -1,5 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -22,6 +23,9 @@ class MessageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == ChatRole.user;
+    final canCopy =
+        (isUser || message.role == ChatRole.assistant) &&
+        message.content.isNotEmpty;
     return RepaintBoundary(
       child: Align(
         alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -63,11 +67,42 @@ class MessageCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.labelSmall,
                   ),
                 ),
+              if (canCopy)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    key: Key('copy-message-${message.id}'),
+                    tooltip: 'chat.copyMessage'.tr(),
+                    onPressed: () => _copyMessage(context),
+                    icon: Icon(
+                      Icons.copy_outlined,
+                      semanticLabel: 'chat.copyMessage'.tr(),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _copyMessage(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await Clipboard.setData(ClipboardData(text: message.content));
+      if (!context.mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(content: Text('chat.messageCopied'.tr())),
+      );
+    } on Object {
+      if (!context.mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(content: Text('chat.messageCopyFailed'.tr())),
+      );
+    }
   }
 }
 
