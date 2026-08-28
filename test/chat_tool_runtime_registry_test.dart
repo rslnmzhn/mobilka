@@ -8,6 +8,7 @@ import 'package:mobilka/features/chat/application/chat_tool_runtime_registry.dar
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/chat_tool.dart';
 import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
+import 'package:mobilka/features/agents/data/agent_definition_parser.dart';
 
 void main() {
   test('composite dedupes advertised tools across runtimes', () async {
@@ -92,6 +93,37 @@ void main() {
       isA<MemoryProposalRuntime>(),
     );
   });
+
+  test(
+    'production registry and bundled default agree on exact 12 tools',
+    () async {
+      Hive.init(
+        Directory.systemTemp.createTempSync('registry-inventory-').path,
+      );
+      await Hive.openBox<dynamic>('preferences');
+      addTearDown(() async {
+        await Hive.deleteBoxFromDisk('preferences');
+        await Hive.close();
+      });
+      final definition = const AgentDefinitionParser().parse(
+        File('assets/agents/general-assistant.md').readAsStringSync(),
+      );
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final runtime = container.read(chatToolRuntimeRegistryProvider);
+      final advertised = await runtime.availableTools(definition.tools.toSet());
+      expect(definition.tools, hasLength(12));
+      expect(
+        advertised.map((tool) => tool.name).toSet(),
+        definition.tools.toSet().difference({'update_memory_file'}),
+      );
+      expect(runtime, isA<MemoryProposalRuntime>());
+      final effects = {for (final tool in advertised) tool.name: tool.effect};
+      expect(effects['read_public_source'], ChatToolEffect.readOnly);
+      expect(effects['write_skill'], ChatToolEffect.mutating);
+      expect(effects['generate_docx'], ChatToolEffect.mutating);
+    },
+  );
 }
 
 class _StubRuntime implements ChatToolRuntime {

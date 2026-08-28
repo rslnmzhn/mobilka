@@ -11,6 +11,7 @@ import 'chat_tool_runtime.dart';
 import 'fallback_tool_call_parser.dart';
 import 'pending_workspace_binding_store.dart';
 import 'conversation_mutation.dart';
+import 'request_tool_security_state.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
 import '../../../features/memory/application/workspace_paths.dart';
@@ -92,6 +93,7 @@ class ChatStreamingCoordinator {
   CancelToken? _cancelToken;
   Future<void>? _running;
   final Set<String> _memoryDecisions = {};
+  RequestToolSecurityState? _requestSecurity;
   final PendingWorkspaceBindingStore _workspaceBindings;
   final bool _ownsWorkspaceBindings;
   late final void Function(ChatStreamRequest request, String assistantText)?
@@ -213,6 +215,9 @@ class ChatStreamingCoordinator {
     _memoryDecisions.removeWhere(
       (decision) => decision.startsWith('$conversationId:'),
     );
+    if (_requestSecurity?.conversationId == conversationId) {
+      _requestSecurity = null;
+    }
   }
 
   WorkspaceBinding? retainedWorkspaceBindingForRetry(
@@ -224,9 +229,14 @@ class ChatStreamingCoordinator {
     _cancelToken?.cancel('Coordinator disposed');
     if (_ownsWorkspaceBindings) _workspaceBindings.reset();
     _memoryDecisions.clear();
+    _requestSecurity = null;
   }
 
   Future<void> _run(ChatStreamRequest request) async {
+    _requestSecurity = RequestToolSecurityState(
+      conversationId: request.conversationId,
+      requestId: request.requestMessageId,
+    );
     final cancelToken = CancelToken();
     _activeRequest = request;
     _cancelToken = cancelToken;
@@ -467,7 +477,14 @@ class ChatStreamingCoordinator {
     if (executor == null || calls.isEmpty) {
       throw const FormatException('Tool call response has no executable calls');
     }
-    return executor.execute(request, assistantId, calls);
+    final result = await executor.execute(
+      request,
+      assistantId,
+      calls,
+      cancellation: _DioToolCancellation(_cancelToken!),
+      securityState: _requestSecurity!,
+    );
+    return result;
   }
 
   Future<void> _appendPendingAssistant(
@@ -493,5 +510,18 @@ class ChatStreamingCoordinator {
         ],
       );
     });
+  }
+}
+
+class _DioToolCancellation implements ChatToolCancellation {
+  const _DioToolCancellation(this.token);
+  final CancelToken token;
+
+  @override
+  bool get isCancelled => token.isCancelled;
+
+  @override
+  Future<void> get whenCancelled async {
+    await token.whenCancel;
   }
 }

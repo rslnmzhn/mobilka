@@ -1,6 +1,7 @@
 import 'chat_message.dart';
 import 'chat_stream_event.dart';
 import 'pending_memory_proposal.dart';
+import 'pending_tool_proposal.dart';
 
 enum ConversationTitleState { pendingAutomatic, generated, fallback, manual }
 
@@ -19,6 +20,8 @@ class Conversation {
     this.pendingMemoryProposal,
     this.sessionKey,
     this.titleState = ConversationTitleState.manual,
+    this.publicSourceWireBytesUsed = 0,
+    this.pendingToolProposal,
   });
 
   final String id;
@@ -34,6 +37,8 @@ class Conversation {
   final PendingMemoryProposal? pendingMemoryProposal;
   final String? sessionKey;
   final ConversationTitleState titleState;
+  final int publicSourceWireBytesUsed;
+  final PendingToolProposal? pendingToolProposal;
 
   Conversation copyWith({
     String? title,
@@ -48,6 +53,9 @@ class Conversation {
     PendingMemoryProposal? pendingMemoryProposal,
     bool clearPendingMemoryProposal = false,
     ConversationTitleState? titleState,
+    int? publicSourceWireBytesUsed,
+    PendingToolProposal? pendingToolProposal,
+    bool clearPendingToolProposal = false,
   }) => Conversation(
     id: id,
     title: title ?? this.title,
@@ -66,6 +74,11 @@ class Conversation {
         : (pendingMemoryProposal ?? this.pendingMemoryProposal),
     sessionKey: sessionKey,
     titleState: titleState ?? this.titleState,
+    publicSourceWireBytesUsed:
+        publicSourceWireBytesUsed ?? this.publicSourceWireBytesUsed,
+    pendingToolProposal: clearPendingToolProposal
+        ? null
+        : (pendingToolProposal ?? this.pendingToolProposal),
   );
 
   Map<String, dynamic> toJson() => {
@@ -81,6 +94,8 @@ class Conversation {
     'pendingMemoryProposal': pendingMemoryProposal?.toJson(),
     'sessionKey': sessionKey,
     'titleState': titleState.name,
+    'publicSourceWireBytesUsed': publicSourceWireBytesUsed,
+    'pendingToolProposal': pendingToolProposal?.toJson(),
     'messages': messages.map((message) => message.toStorageJson()).toList(),
   };
 
@@ -113,8 +128,19 @@ class Conversation {
       titleState: ConversationTitleState.values.byName(
         json['titleState']?.toString() ?? ConversationTitleState.manual.name,
       ),
+      publicSourceWireBytesUsed: _wireBytes(json['publicSourceWireBytesUsed']),
+      pendingToolProposal: json['pendingToolProposal'] is Map
+          ? PendingToolProposal.fromJson(json['pendingToolProposal'] as Map)
+          : null,
     );
   }
+}
+
+int _wireBytes(Object? value) {
+  const limit = 8 * 1024 * 1024;
+  if (value == null) return 0;
+  if (value is! int || value < 0 || value > limit) return limit;
+  return value;
 }
 
 String _legacySessionKey(DateTime createdAt, String title, String id) {

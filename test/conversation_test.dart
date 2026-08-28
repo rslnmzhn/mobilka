@@ -2,10 +2,57 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/chat/application/chat_state.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
+import 'package:mobilka/features/chat/domain/chat_tool.dart';
+import 'package:mobilka/features/chat/domain/pending_tool_proposal.dart';
 import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
 import 'package:mobilka/features/memory/application/workspace_paths.dart';
 
 void main() {
+  test(
+    'public-source budget and generic proposal persist backward compatibly',
+    () {
+      final now = DateTime(2026);
+      final conversation = Conversation(
+        id: 'c',
+        title: 't',
+        modelId: 'm',
+        createdAt: now,
+        updatedAt: now,
+        messages: const [],
+        publicSourceWireBytesUsed: 42,
+        pendingToolProposal: PendingToolProposal(
+          conversationId: 'c',
+          requestId: 'r',
+          assistantMessageId: 'a',
+          callOccurrence: 0,
+          call: const ChatToolCall(
+            id: 'x',
+            name: 'write_skill',
+            arguments: '{}',
+          ),
+          selectedAgentId: 'agent',
+          allowedTools: {'write_skill'},
+          effect: ChatToolEffect.mutating,
+          sourceTainted: true,
+          permissionSnapshot: null,
+          createdAt: now,
+        ),
+      );
+      final restored = Conversation.fromJson(conversation.toJson());
+      expect(restored.publicSourceWireBytesUsed, 42);
+      expect(restored.pendingToolProposal?.call.arguments, '{}');
+      final legacy = conversation.toJson()
+        ..remove('publicSourceWireBytesUsed')
+        ..remove('pendingToolProposal');
+      expect(Conversation.fromJson(legacy).publicSourceWireBytesUsed, 0);
+      final negative = conversation.toJson()
+        ..['publicSourceWireBytesUsed'] = -1;
+      expect(
+        Conversation.fromJson(negative).publicSourceWireBytesUsed,
+        8 * 1024 * 1024,
+      );
+    },
+  );
   test('conversation round trips through Hive-compatible maps', () {
     final conversation = Conversation(
       id: 'conversation-1',

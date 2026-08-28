@@ -136,9 +136,30 @@ MSI provenance constraints in [AGENTS.md](../../AGENTS.md).
 
 ## Explicit future boundaries
 
+Public-source reads use a dedicated direct HTTPS client, validate every DNS
+address and redirect, pin the actual connection, cap transfer at 1 MiB and each
+returned guarded chunk at 256 KiB, and never render HTML. PromptGuard only marks
+heuristically suspicious lines; content remains explicitly delimited untrusted
+data and must never be treated as instructions. Conversation caches are LRU
+bounded to 1 MiB total and are removed with the conversation.
+
 The following are roadmap designs, not implemented current architecture:
-`web_search`, public-source URL reading, typed workspace file tools, OCR and
+`web_search`, typed workspace file tools, OCR and
 document extraction, general message attachments, and Chat / Advanced Coding
 with a separate coding-agent catalog. Physical Android validation remains
 pending where called out in [roadmap.md](../../roadmap.md); automated coverage
 must not be reported as a device check.
+# Public-source mutation boundary
+
+Conversation persistence owns the cumulative 8 MiB public-source wire counter.
+The request-scoped streaming coordinator treats a successful source result as
+untrusted taint. Central tool execution then persists exact immutable proposals
+for subsequent mutating/sensitive calls and requires explicit confirmation;
+new user requests start untainted. PromptGuard remains heuristic only.
+
+`RequestToolSecurityState` is the sole in-memory taint authority for one
+immutable request and is shared across coordinator tool rounds. Generic proposal
+decisions are terminal: claim, exact execution or rejection, safe tool result,
+proposal removal, and pending-request removal are persisted through the shared
+conversation mutation boundary. Orphan executing claims recover as terminal
+indeterminate and are never executed again.

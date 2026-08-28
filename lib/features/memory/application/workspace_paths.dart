@@ -180,6 +180,9 @@ class WorkspaceBinding {
 
   final MemoryLocation _location;
   final BinarySubPathMemoryFileBoundary _boundary;
+
+  String get permissionSnapshot =>
+      '${_location.isContentUri}:${_location.value}';
 }
 
 class _UnavailableBinaryBoundary implements BinarySubPathMemoryFileBoundary {

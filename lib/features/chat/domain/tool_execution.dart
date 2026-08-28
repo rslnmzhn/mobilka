@@ -61,10 +61,14 @@ List<ToolExecution> projectToolExecutions(Conversation? conversation) {
       final result = occurrence < matches.length ? matches[occurrence] : null;
       final error = result == null ? null : toolResultError(result.content);
       final proposal = conversation.pendingMemoryProposal;
+      final toolProposal = conversation.pendingToolProposal;
       final awaitingConfirmation =
           proposal?.assistantMessageId == assistant.id &&
-          proposal?.toolCallId == call.id &&
-          proposal?.callOccurrence == occurrence;
+              proposal?.toolCallId == call.id &&
+              proposal?.callOccurrence == occurrence ||
+          (toolProposal?.assistantMessageId == assistant.id &&
+              toolProposal?.call.id == call.id &&
+              toolProposal?.callOccurrence == occurrence);
       final active =
           assistant.status == ChatMessageStatus.pending ||
           assistant.status == ChatMessageStatus.streaming;

@@ -2,12 +2,12 @@
 
 The authoritative registry is `CompositeChatToolRuntime` in
 [`chat_tool_runtime_registry.dart`](../../lib/features/chat/application/chat_tool_runtime_registry.dart).
-It composes artifact, skill, session-note, persona, and memory runtimes. A tool
+It composes artifact, skill, session-note, persona, memory, and public-source runtimes. A tool
 is advertised only when its name is in the immutable allowed-tool set captured
 from the selected agent. The default agent definition is
 [`general-assistant.md`](../../assets/agents/general-assistant.md).
 
-The current registry and default agent both contain exactly these 11 names:
+The current registry and default agent both contain exactly these 12 names:
 
 | Tool | JSON arguments (`additionalProperties: false` where declared) | Runtime owner | Confirmation/effect |
 |---|---|---|---|
@@ -22,6 +22,7 @@ The current registry and default agent both contain exactly these 11 names:
 | `save_persona` | `name: string`, `text: string` (both required) | `MemoryToolDispatcher` + memory proposal runtime | Rewrites `personas.yaml` only after explicit exact-diff confirmation. |
 | `delete_persona` | `name: string` (required) | `MemoryToolDispatcher` + memory proposal runtime | Rewrites `personas.yaml` only after explicit exact-diff confirmation. |
 | `update_memory_file` | `file_name: "user.md"|"memory.md"`, `content: string` (both required; complete file content) | `MemoryToolDispatcher` + `MemoryChatToolRuntime` | `user.md`: exact-diff proposal and explicit confirmation. `memory.md`: bounded instant write. `soul.md` is prohibited. |
+| `read_public_source` | `url: string` required, `offset: integer` 0..1 MiB optional | `PublicSourceChatToolRuntime` | Reads at most 1 MiB cumulatively per call through a DNS-validated, address-pinned HTTPS transport and returns at most 256 KiB including explicit untrusted-data delimiters. PromptGuard is heuristic marking, not proof of safety. |
 
 ## Permission and confirmation rules
 
@@ -57,6 +58,13 @@ Notable success fields include:
 - session tools: `file` or `content`.
 - persona tools: `active`, `personas`, or `status`.
 - instant memory: `file` and `status`.
+- public source: requested/final URLs, MIME/charset, redirects, byte offsets,
+  continuation metadata, guard counts, and untrusted `content`.
+
+Public-source bodies are cached per conversation by canonical original/final URL.
+Aliases share one object; LRU eviction keeps at most 16 resources and 1 MiB total
+body bytes per conversation. Evicted resources may be fetched again. Deleting a
+conversation drops its cache.
 
 Confirmable memory/persona calls do not emit a successful tool result until the
 owner decision lifecycle resolves; they persist a pending proposal and pause
@@ -64,9 +72,33 @@ the model continuation.
 
 ## Not registered/current
 
-`web_search`, public-source URL reading, `list_files`, `search_files`,
+`web_search`, `list_files`, `search_files`,
 `read_file`, `write_file`, `apply_patch`, `move_file`, `delete_file`,
 `make_directory`, OCR/document extraction tools, attachment tools, arbitrary
 HTTP, shell/terminal tools, and Advanced Coding tools are **future roadmap
 items, not current chat tools**. Do not add them to prompts or documentation as
 available until registry code, permissions, tests, and roadmap status agree.
+# Public-source trust and budget
+
+`read_public_source` has a persisted, fail-closed 8 MiB wire-byte budget per
+conversation. Every body byte read is charged, including failed responses and
+refetches; cache hits are free. The counter is stored with the Conversation and
+is removed only when that conversation is deleted.
+
+Canonical public URLs are limited to 8 KiB and ASCII hostnames without a
+trailing DNS dot. Cache aliases are bounded to 8 per resource and 64 per
+conversation with deterministic LRU eviction.
+
+After a successful public-source read, the current request is tainted. Later
+mutating or sensitive tools require a persisted, exact-call user confirmation;
+read-only tools remain available. Unclassified future tools fail closed as
+sensitive. Runtime-owned memory/persona confirmation remains single-layered.
+PromptGuard is heuristic marking, not a security boundary.
+
+Generic confirmation or rejection terminally finalizes the originating request;
+the user starts a new request afterward. A proposal is atomically claimed before
+execution. If the app restarts while it is executing, recovery records an
+`execution_indeterminate` terminal result and never repeats the mutation.
+Public-source cache misses conservatively reserve up to 1 MiB from the persisted
+8 MiB budget before opening transport; unused reservation is refunded normally,
+while a crash leaves the reservation charged.

@@ -12,6 +12,8 @@ format: dart format .
 - The current product slice supports remote OpenAI-compatible endpoints only; retain the future architecture path for other remote providers, with no local model execution on device.
 - OpenAI-compatible endpoints may use explicitly user-configured HTTP or HTTPS; send bearer API keys using the configured scheme.
 - Automatic HTTP redirects must remain disabled whenever an `Authorization` header is present to prevent credential forwarding.
+- Public-source reads have a persisted fail-closed 8 MiB wire-byte budget per conversation; successful source reads taint only the current request and centrally require explicit confirmation before later mutating/sensitive tools.
+- Public-source reading uses only its dedicated direct HTTPS client: validate every resolved address and redirect, pin the connection to validated addresses, send no credentials or chat data, accept bounded text/raw HTML only, and pass returned chunks through PromptGuard.
 - RLM Markdown memory is the sole context-memory architecture; no RAG, vector, or embeddings path is planned. Here, RLM means deterministic selected human-readable `.md` files injected as one atomic snapshot, manually managed by the user or updated by agents only after explicit user confirmation.
 - RLM Markdown memory is stored in the app sandbox or a user-chosen external folder, using an Android SAF package on Android and `file_selector` on desktop.
 - Manual edits, tool updates, and restores share an app-private Hive recovery journal and a single location transaction coordinator for memory mutations.

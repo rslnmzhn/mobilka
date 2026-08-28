@@ -6,6 +6,7 @@ import '../../agents/application/agents_controller.dart';
 import '../../memory/application/update_memory_file_service.dart';
 import '../../models/application/models_controller.dart';
 import '../../models/domain/model_capabilities.dart';
+import '../../public_source/application/public_source_chat_tool_runtime.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
 import '../../../features/memory/application/workspace_paths.dart';
@@ -14,6 +15,8 @@ import 'background_task_bridge.dart';
 import 'automatic_title_coordinator.dart';
 import 'conversation_mutation.dart';
 import 'chat_tool_runtime_registry.dart';
+import 'chat_tool_runtime.dart';
+import 'generic_tool_confirmation_service.dart';
 import '../data/chat_repository.dart';
 import '../data/conversation_store.dart';
 import '../domain/chat_message.dart';
@@ -175,6 +178,7 @@ class ChatController extends _$ChatController {
           clearActiveConversation: deletedActive && conversations.isEmpty,
         ),
       );
+      ref.read(publicSourceReaderProvider).removeScope(id);
     });
   }
 
@@ -185,6 +189,9 @@ class ChatController extends _$ChatController {
     final text = content.trim();
     if (text.isEmpty || !_requestAdmission.tryAcquire()) return;
     try {
+      if (state.requireValue.activeConversation?.pendingToolProposal != null) {
+        return;
+      }
       if (state.requireValue.hasInFlightRequest) return;
       final conversation = await _ensureConversation();
       if (conversation == null) return;
@@ -203,6 +210,13 @@ class ChatController extends _$ChatController {
       return;
     }
     try {
+      if (state.requireValue
+              .conversationById(conversationId)
+              ?.pendingToolProposal !=
+          null) {
+        _setError('sendAgainBlocked'.tr());
+        return;
+      }
       if (state.requireValue.hasInFlightRequest) {
         _setError('sendAgainBlocked'.tr());
         return;
@@ -333,6 +347,61 @@ class ChatController extends _$ChatController {
         proposal: proposal,
       ),
     );
+  }
+
+  Future<void> confirmPendingToolProposal() async {
+    final conversation = state.requireValue.activeConversation;
+    final proposal = conversation?.pendingToolProposal;
+    if (conversation == null || proposal == null || proposal.claimed) return;
+    state = AsyncData(
+      state.requireValue.copyWith(confirmingToolCallId: proposal.call.id),
+    );
+    try {
+      final runtime = ref.read(chatToolRuntimeRegistryProvider);
+      final catalog = await ref.read(agentsControllerProvider.future);
+      final selected = catalog.selected;
+      final workspaceBinding = _captureWorkspaceBinding();
+      final definitions = await runtime.availableTools(
+        selected?.definition.tools.toSet() ?? const {},
+      );
+      final definition = definitions
+          .where((item) => item.name == proposal.call.name)
+          .firstOrNull;
+      await GenericToolConfirmationService(
+        persistMutation: _persistMutation,
+      ).confirm(
+        conversation: conversation,
+        proposal: proposal,
+        selectedAgentId: selected?.definition.id,
+        currentAllowedTools: selected?.definition.tools.toSet() ?? const {},
+        definition: definition,
+        workspaceSnapshot: workspaceBinding?.permissionSnapshot,
+        execute: () => runtime.executeTool(
+          proposal.call,
+          proposal.allowedTools,
+          context: ChatToolExecutionContext(
+            conversationId: conversation.id,
+            sessionKey: conversation.sessionKey,
+            workspaceBinding: workspaceBinding,
+          ),
+        ),
+      );
+    } finally {
+      if (state.hasValue) {
+        state = AsyncData(
+          state.requireValue.copyWith(clearConfirmingTool: true),
+        );
+      }
+    }
+  }
+
+  Future<void> rejectPendingToolProposal() async {
+    final conversation = state.requireValue.activeConversation;
+    final proposal = conversation?.pendingToolProposal;
+    if (conversation == null || proposal == null) return;
+    await GenericToolConfirmationService(
+      persistMutation: _persistMutation,
+    ).reject(conversation: conversation, proposal: proposal);
   }
 
   ChatMemoryDecisionService get _memoryDecisionService =>

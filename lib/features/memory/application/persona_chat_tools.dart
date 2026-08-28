@@ -19,6 +19,7 @@ class PersonaChatTools implements ChatToolRuntime {
   final PersonaRegistryAdapter registry;
 
   static const listPersonas = ChatToolDefinition(
+    effect: ChatToolEffect.readOnly,
     name: 'list_personas',
     description:
         'List available personality overlays (personas.yaml). Use when the '
@@ -27,6 +28,7 @@ class PersonaChatTools implements ChatToolRuntime {
   );
 
   static const switchPersona = ChatToolDefinition(
+    effect: ChatToolEffect.mutating,
     name: 'switch_persona',
     description:
         'Activate a persona overlay for this session (applied on top of '
@@ -47,6 +49,7 @@ class PersonaChatTools implements ChatToolRuntime {
   );
 
   static const savePersona = ChatToolDefinition(
+    effect: ChatToolEffect.runtimeConfirmed,
     name: 'save_persona',
     description:
         'Create or update a named personality overlay in personas.yaml. The '
@@ -66,6 +69,7 @@ class PersonaChatTools implements ChatToolRuntime {
   );
 
   static const deletePersona = ChatToolDefinition(
+    effect: ChatToolEffect.runtimeConfirmed,
     name: 'delete_persona',
     description:
         'Remove a named persona from personas.yaml. Requires user '
