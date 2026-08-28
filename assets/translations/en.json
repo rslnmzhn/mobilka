@@ -1,6 +1,12 @@
 {
   "backgroundUnavailable": "Background continuation is unavailable. Keep mobilka open while this response finishes.",
-  "showCopyAction": "Show or hide copy action",
+  "chatNoConversation": "Chat",
+  "chatChangeModel": "Change model: {}",
+  "messageActions": "Message actions",
+  "openMessageActions": "Open message actions",
+  "sendAgain": "Send again",
+  "sendAgainBlocked": "Finish or resolve the current request before sending again.",
+  "sendAgainUnavailable": "This message can no longer be sent again.",
   "workspaceFolder": "Workspace folder",
   "workspaceUnconfigured": "No workspace folder selected",
   "workspaceConfigured": "Workspace folder configured",

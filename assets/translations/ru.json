@@ -1,6 +1,12 @@
 {
   "backgroundUnavailable": "Фоновое продолжение недоступно. Оставьте mobilka открытой до завершения ответа.",
-  "showCopyAction": "Показать или скрыть действие копирования",
+  "chatNoConversation": "Чат",
+  "chatChangeModel": "Сменить модель: {}",
+  "messageActions": "Действия с сообщением",
+  "openMessageActions": "Открыть действия с сообщением",
+  "sendAgain": "Отправить снова",
+  "sendAgainBlocked": "Завершите текущий запрос или решите ожидающее подтверждение.",
+  "sendAgainUnavailable": "Это сообщение больше нельзя отправить снова.",
   "workspaceFolder": "Папка рабочего пространства",
   "workspaceUnconfigured": "Папка рабочего пространства не выбрана",
   "workspaceConfigured": "Папка рабочего пространства настроена",

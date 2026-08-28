@@ -23,6 +23,9 @@ import 'chat_memory_decision_service.dart';
 import 'chat_lifecycle_service.dart';
 import 'chat_streaming_coordinator.dart';
 import 'pending_workspace_binding_store.dart';
+import 'chat_request_admission.dart';
+import 'send_again_service.dart';
+import 'chat_controller_support.dart';
 
 export 'chat_state.dart';
 
@@ -36,6 +39,9 @@ final chatCompletionStreamerProvider = Provider<ChatCompletionStreamer>(
 class ChatController extends _$ChatController {
   late final ChatLifecycleService _lifecycle;
   late final AutomaticTitleCoordinator _automaticTitles;
+  late final AutomaticTitleStarter _automaticTitleStarter;
+  final _requestAdmission = ChatRequestAdmission();
+  static const _sendAgainService = SendAgainService();
 
   @override
   Future<ChatState> build() async {
@@ -45,6 +51,11 @@ class ChatController extends _$ChatController {
     _automaticTitles = AutomaticTitleCoordinator(
       conversationById: (id) => state.valueOrNull?.conversationById(id),
       persist: _saveAndPublishAuthoritative,
+    );
+    _automaticTitleStarter = AutomaticTitleStarter(
+      repository: ref.read(chatRepositoryProvider),
+      claim: _automaticTitles.claim,
+      complete: _automaticTitles.complete,
     );
     _lifecycle = ChatLifecycleService(
       persistMutation: _persistMutation,
@@ -85,28 +96,14 @@ class ChatController extends _$ChatController {
         personaRegistry: ref.read(personaRegistryAdapterProvider),
         logger: ref.read(appLoggerProvider),
         workspaceBindings: workspaceBindings,
-        onFinalSuccess: _startAutomaticTitle,
+        onFinalSuccess: _automaticTitleStarter.start,
       ),
     );
   }
 
   Future<void> createConversation(String modelId) async {
     final current = state.requireValue;
-    final now = DateTime.now();
-    final conversation = Conversation(
-      id: now.microsecondsSinceEpoch.toString(),
-      title: 'New conversation',
-      modelId: modelId,
-      createdAt: now,
-      updatedAt: now,
-      messages: const [],
-      titleState: ConversationTitleState.pendingAutomatic,
-      sessionKey: WorkspaceStore.sessionKey(
-        createdAt: now,
-        title: 'New conversation',
-        conversationId: now.microsecondsSinceEpoch.toString(),
-      ),
-    );
+    final conversation = createNewConversation(modelId, DateTime.now());
     await ref.read(conversationStoreProvider).save(conversation);
     state = AsyncData(
       current.copyWith(
@@ -117,11 +114,6 @@ class ChatController extends _$ChatController {
     );
   }
 
-  /// Applies a model choice globally and to the active conversation.
-  ///
-  /// Requests are built from `conversation.modelId`, so switching models from
-  /// the chat picker must persist the change on the conversation itself;
-  /// otherwise the previous model keeps serving this chat.
   Future<void> applyModel(String modelId) async {
     await ref.read(modelsControllerProvider.notifier).select(modelId);
     final current = state.requireValue;
@@ -136,11 +128,6 @@ class ChatController extends _$ChatController {
   void dismissError() =>
       state = AsyncData(state.requireValue.copyWith(clearError: true));
 
-  /// Persists the newest snapshot of the active conversation.
-  ///
-  /// Lifecycle safety net (roadmap item 47): streaming already persists every
-  /// delta, but the final batch can be lost if the process dies between the
-  /// last event and the next save — this flush makes pause/hidden durable.
   Future<void> flushActiveConversation() async {
     final conversation = state.valueOrNull?.activeConversation;
     if (conversation == null) return;
@@ -196,52 +183,109 @@ class ChatController extends _$ChatController {
     List<ChatAttachment> attachments = const [],
   }) async {
     final text = content.trim();
-    if (text.isEmpty || state.requireValue.hasInFlightRequest) return;
-    final conversation = await _ensureConversation();
-    if (conversation == null) return;
-    final revision = ref.read(memoryLocationRevisionProvider);
-    _lifecycle.coordinatorForRequest(revision);
-    final request = await _prepareNewRequest(conversation, text, attachments);
-    await _lifecycle.run(request, locationRevision: revision);
+    if (text.isEmpty || !_requestAdmission.tryAcquire()) return;
+    try {
+      if (state.requireValue.hasInFlightRequest) return;
+      final conversation = await _ensureConversation();
+      if (conversation == null) return;
+      final revision = ref.read(memoryLocationRevisionProvider);
+      _lifecycle.coordinatorForRequest(revision);
+      final request = await _prepareNewRequest(conversation, text, attachments);
+      await _lifecycle.run(request, locationRevision: revision);
+    } finally {
+      _requestAdmission.release();
+    }
+  }
+
+  Future<void> sendAgain(String conversationId, String messageId) async {
+    if (!_requestAdmission.tryAcquire()) {
+      _setError('sendAgainBlocked'.tr());
+      return;
+    }
+    try {
+      if (state.requireValue.hasInFlightRequest) {
+        _setError('sendAgainBlocked'.tr());
+        return;
+      }
+      final policy = await _selectedToolPolicy();
+      final revision = ref.read(memoryLocationRevisionProvider);
+      _lifecycle.coordinatorForRequest(revision);
+      var invalid = false;
+      var attachmentsFiltered = false;
+      final preparation = _sendAgainService.prepare(
+        messageId: messageId,
+        now: DateTime.now(),
+        onInvalid: () => invalid = true,
+        onAttachmentsFiltered: () => attachmentsFiltered = true,
+      );
+      final updated = await _automaticTitles.mutate(
+        conversationId,
+        preparation.mutation,
+      );
+      if (updated == null) {
+        _setError(
+          invalid ? 'sendAgainUnavailable'.tr() : 'sendAgainBlocked'.tr(),
+        );
+        return;
+      }
+      if (attachmentsFiltered) _setError('chat.visionUnsupported'.tr());
+      await _lifecycle.run(
+        _sendAgainService.request(
+          conversation: updated,
+          preparation: preparation,
+          selectedAgentId: policy.agentId,
+          allowedTools: policy.allowedTools,
+          workspaceBinding: _captureWorkspaceBinding(),
+        ),
+        locationRevision: revision,
+      );
+    } finally {
+      _requestAdmission.release();
+    }
   }
 
   Future<void> retryInterrupted(String conversationId) async {
-    final current = state.requireValue;
-    if (current.hasInFlightRequest) return;
-    final conversation = current.conversationById(conversationId);
-    if (conversation == null) return;
-    final revision = ref.read(memoryLocationRevisionProvider);
-    final coordinator = _lifecycle.coordinatorForRetry(revision);
-    final policy = await _selectedToolPolicy();
-    final retry = prepareInterruptedRetry(
-      conversation,
-      DateTime.now(),
-      selectedAgentId: policy.agentId,
-      allowedTools: policy.allowedTools,
-      workspaceBinding: _retryWorkspaceBinding(conversation, coordinator),
-    );
-    if (retry == null) return;
-    final retryAssistant = retry.conversation.messages.last;
-    final persisted = await _persistMutation(
-      conversationId,
-      (latest) => latest.copyWith(
-        updatedAt: retry.conversation.updatedAt,
-        messages: [...latest.messages, retryAssistant],
-      ),
-    );
-    _clearError();
-    if (persisted == null) return;
-    await _lifecycle.run(
-      buildChatStreamRequest(
-        persisted,
-        retry.request.requestMessageId,
-        retry.request.assistantMessageId,
-        selectedAgentId: retry.request.selectedAgentId,
-        allowedTools: retry.request.allowedTools,
-        workspaceBinding: retry.request.workspaceBinding,
-      ),
-      locationRevision: revision,
-    );
+    if (!_requestAdmission.tryAcquire()) return;
+    try {
+      final current = state.requireValue;
+      if (current.hasInFlightRequest) return;
+      final conversation = current.conversationById(conversationId);
+      if (conversation == null) return;
+      final revision = ref.read(memoryLocationRevisionProvider);
+      final coordinator = _lifecycle.coordinatorForRetry(revision);
+      final policy = await _selectedToolPolicy();
+      final retry = prepareInterruptedRetry(
+        conversation,
+        DateTime.now(),
+        selectedAgentId: policy.agentId,
+        allowedTools: policy.allowedTools,
+        workspaceBinding: _retryWorkspaceBinding(conversation, coordinator),
+      );
+      if (retry == null) return;
+      final retryAssistant = retry.conversation.messages.last;
+      final persisted = await _persistMutation(
+        conversationId,
+        (latest) => latest.copyWith(
+          updatedAt: retry.conversation.updatedAt,
+          messages: [...latest.messages, retryAssistant],
+        ),
+      );
+      _clearError();
+      if (persisted == null) return;
+      await _lifecycle.run(
+        buildChatStreamRequest(
+          persisted,
+          retry.request.requestMessageId,
+          retry.request.assistantMessageId,
+          selectedAgentId: retry.request.selectedAgentId,
+          allowedTools: retry.request.allowedTools,
+          workspaceBinding: retry.request.workspaceBinding,
+        ),
+        locationRevision: revision,
+      );
+    } finally {
+      _requestAdmission.release();
+    }
   }
 
   void cancel() {
@@ -391,28 +435,14 @@ class ChatController extends _$ChatController {
     Conversation conversation,
     ChatStreamingCoordinator coordinator,
   ) {
-    final requestMessageId = conversation.pendingRequestMessageId!;
-    final retained = coordinator.retainedWorkspaceBindingForRetry(
-      conversation.id,
-      requestMessageId,
+    return retryWorkspaceBinding(
+      conversation: conversation,
+      retained: coordinator.retainedWorkspaceBindingForRetry(
+        conversation.id,
+        conversation.pendingRequestMessageId!,
+      ),
+      captureCurrent: _captureWorkspaceBinding,
     );
-    if (retained != null) return retained;
-    final requestIndex = conversation.messages.indexWhere(
-      (message) => message.id == requestMessageId,
-    );
-    final followedMemoryDecision = conversation.messages
-        .skip(
-          requestIndex < 0 ? conversation.messages.length : requestIndex + 1,
-        )
-        .any(
-          (message) => message.toolCalls.any(
-            (call) =>
-                call.name == 'update_memory_file' ||
-                call.name == 'save_persona' ||
-                call.name == 'delete_persona',
-          ),
-        );
-    return followedMemoryDecision ? null : _captureWorkspaceBinding();
   }
 
   Future<({String? agentId, Set<String> allowedTools})>
@@ -460,29 +490,10 @@ class ChatController extends _$ChatController {
     state = AsyncData(current.copyWith(clearError: true));
   }
 
+  void _setError(String message) {
+    state = AsyncData(state.requireValue.copyWith(errorMessage: message));
+  }
+
   static String _titleFrom(String text) =>
       text.length <= 42 ? text : '${text.substring(0, 39)}...';
-
-  void _startAutomaticTitle(ChatStreamRequest request, String assistantText) {
-    Future<void>(() async {
-      try {
-        final claimed = await _automaticTitles.claim(request.conversationId);
-        if (claimed == null) return;
-        final firstUser = claimed.messages
-            .where((message) => message.role == ChatRole.user)
-            .firstOrNull;
-        if (firstUser == null) return;
-        final generated = await ref
-            .read(chatRepositoryProvider)
-            .createAutomaticTitle(
-              model: request.modelId,
-              firstUserText: firstUser.content,
-              assistantText: assistantText,
-            );
-        await _automaticTitles.complete(request.conversationId, generated);
-      } on Object {
-        return;
-      }
-    });
-  }
 }

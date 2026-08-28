@@ -1,5 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
@@ -10,33 +11,19 @@ import 'package:highlight/highlight.dart' as hl;
 import '../domain/chat_message.dart';
 import '../domain/tool_execution.dart';
 import 'tool_call_card.dart';
+import 'message_actions.dart';
 
-class MessageCard extends StatefulWidget {
+class MessageCard extends StatelessWidget {
   const MessageCard({
     super.key,
     required this.message,
     this.toolExecutions = const [],
+    this.onSendAgain,
   });
 
   final ChatMessage message;
   final List<ToolExecution> toolExecutions;
-
-  @override
-  State<MessageCard> createState() => _MessageCardState();
-}
-
-class _MessageCardState extends State<MessageCard> {
-  var _showCopy = false;
-
-  ChatMessage get message => widget.message;
-
-  @override
-  void didUpdateWidget(covariant MessageCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.message.id != widget.message.id) {
-      _showCopy = false;
-    }
-  }
+  final VoidCallback? onSendAgain;
 
   @override
   Widget build(BuildContext context) {
@@ -55,11 +42,13 @@ class _MessageCardState extends State<MessageCard> {
           children: [
             Semantics(
               button: canCopy,
-              label: canCopy ? 'showCopyAction'.tr() : null,
+              label: canCopy ? 'openMessageActions'.tr() : null,
               customSemanticsActions: canCopy
                   ? {
-                      CustomSemanticsAction(label: 'showCopyAction'.tr()):
-                          _toggleCopy,
+                      CustomSemanticsAction(
+                        label: 'openMessageActions'.tr(),
+                      ): () =>
+                          _showActions(context),
                     }
                   : null,
               child: FocusableActionDetector(
@@ -71,103 +60,151 @@ class _MessageCardState extends State<MessageCard> {
                 actions: {
                   ActivateIntent: CallbackAction<ActivateIntent>(
                     onInvoke: (_) {
-                      _toggleCopy();
+                      _showActions(context);
                       return null;
                     },
                   ),
                 },
-                child: GestureDetector(
-                  key: Key('message-bubble-${message.id}'),
-                  behavior: HitTestBehavior.translucent,
-                  onTap: canCopy ? _toggleCopy : null,
+                child: Listener(
+                  onPointerDown: canCopy
+                      ? (event) {
+                          if ((event.buttons & kSecondaryMouseButton) != 0) {
+                            _showActions(context);
+                          }
+                        }
+                      : null,
                   child: Container(
+                    key: Key('message-bubble-${message.id}'),
                     constraints: const BoxConstraints(maxWidth: 760),
                     margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: isUser
                           ? Theme.of(context).colorScheme.primaryContainer
                           : Theme.of(context).colorScheme.surfaceContainerLow,
                       borderRadius: BorderRadius.circular(18),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Stack(
                       children: [
-                        if (message.reasoningContent.isNotEmpty)
-                          _ReasoningBlock(text: message.reasoningContent),
-                        if (message.content.isNotEmpty ||
-                            (message.reasoningContent.isEmpty &&
-                                message.toolCalls.isEmpty))
-                          MarkdownBody(
-                            data: message.content.isEmpty
-                                ? '…'
-                                : message.content,
-                            selectable: true,
-                            syntaxHighlighter: _CodeHighlighter(
-                              Theme.of(context).brightness,
-                            ),
+                        Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (message.reasoningContent.isNotEmpty)
+                                _ReasoningBlock(text: message.reasoningContent),
+                              if (message.content.isNotEmpty ||
+                                  (message.reasoningContent.isEmpty &&
+                                      message.toolCalls.isEmpty))
+                                MarkdownBody(
+                                  key: Key('message-markdown-${message.id}'),
+                                  data: message.content.isEmpty
+                                      ? '…'
+                                      : message.content,
+                                  selectable: true,
+                                  syntaxHighlighter: _CodeHighlighter(
+                                    Theme.of(context).brightness,
+                                  ),
+                                ),
+                              for (final execution in toolExecutions)
+                                ToolCallCard(
+                                  key: ValueKey(
+                                    '${execution.call.id}-${execution.callIndex}',
+                                  ),
+                                  data: ToolCardData.fromExecution(execution),
+                                ),
+                              if (message.status != ChatMessageStatus.complete)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    message.status.name,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.labelSmall,
+                                  ),
+                                ),
+                            ],
                           ),
-                        for (final execution in widget.toolExecutions)
-                          ToolCallCard(
-                            key: ValueKey(
-                              '${execution.call.id}-${execution.callIndex}',
-                            ),
-                            data: ToolCardData.fromExecution(execution),
+                        ),
+                        if (canCopy) ...[
+                          _PaddingLongPress(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: 14,
+                            onLongPress: () => _showActions(context),
                           ),
-                        if (message.status != ChatMessageStatus.complete)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              message.status.name,
-                              style: Theme.of(context).textTheme.labelSmall,
-                            ),
+                          _PaddingLongPress(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            height: 14,
+                            onLongPress: () => _showActions(context),
                           ),
+                          _PaddingLongPress(
+                            top: 14,
+                            bottom: 14,
+                            left: 0,
+                            width: 14,
+                            onLongPress: () => _showActions(context),
+                          ),
+                          _PaddingLongPress(
+                            top: 14,
+                            bottom: 14,
+                            right: 0,
+                            width: 14,
+                            onLongPress: () => _showActions(context),
+                          ),
+                        ],
                       ],
                     ),
                   ),
                 ),
               ),
             ),
-            if (canCopy && _showCopy)
-              IconButton(
-                key: Key('copy-message-${message.id}'),
-                tooltip: 'chat.copyMessage'.tr(),
-                constraints: const BoxConstraints.tightFor(
-                  width: 48,
-                  height: 44,
-                ),
-                iconSize: 10,
-                onPressed: () => _copyMessage(context),
-                icon: Icon(
-                  Icons.copy_outlined,
-                  semanticLabel: 'chat.copyMessage'.tr(),
-                ),
-              ),
           ],
         ),
       ),
     );
   }
 
-  void _toggleCopy() => setState(() => _showCopy = !_showCopy);
+  Future<void> _showActions(BuildContext context) => showMessageActions(
+    context,
+    message: message,
+    onSendAgain: message.role == ChatRole.user ? onSendAgain : null,
+  );
+}
 
-  Future<void> _copyMessage(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await Clipboard.setData(ClipboardData(text: message.content));
-      if (!context.mounted) return;
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(content: Text('chat.messageCopied'.tr())),
-      );
-    } on Object {
-      if (!context.mounted) return;
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(content: Text('chat.messageCopyFailed'.tr())),
-      );
-    }
-  }
+class _PaddingLongPress extends StatelessWidget {
+  const _PaddingLongPress({
+    required this.onLongPress,
+    this.top,
+    this.bottom,
+    this.left,
+    this.right,
+    this.width,
+    this.height,
+  });
+
+  final VoidCallback onLongPress;
+  final double? top;
+  final double? bottom;
+  final double? left;
+  final double? right;
+  final double? width;
+  final double? height;
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+    top: top,
+    bottom: bottom,
+    left: left,
+    right: right,
+    child: GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onLongPress: onLongPress,
+      child: SizedBox(width: width, height: height),
+    ),
+  );
 }
 
 class PendingMemoryProposalCard extends StatefulWidget {
