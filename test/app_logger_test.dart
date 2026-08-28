@@ -36,7 +36,6 @@ void main() {
       'operationId',
       'conversationId',
       'toolCallId',
-      'fileName',
       'status',
       'errorType',
       'durationMs',
@@ -57,7 +56,8 @@ void main() {
     final encoded = entries.single.toString();
     expect(entries.single.event, 'redacted');
     expect(entries.single.status, 'redacted');
-    expect(entries.single.fileName, isNull);
+    expect(entries.single.toJson(), isNot(contains('fileName')));
+    expect(encoded, isNot(contains('user.md')));
     expect(encoded, isNot(contains('private')));
     expect(encoded, isNot(contains('Bearer')));
     expect(encoded, isNot(contains('nonce')));

@@ -4,36 +4,78 @@ import 'package:flutter/material.dart';
 import '../../models/application/models_controller.dart';
 import '../../models/domain/ai_model.dart';
 
-class ModelPickerButton extends StatelessWidget {
-  const ModelPickerButton({
+class ChatHeaderBar extends StatelessWidget implements PreferredSizeWidget {
+  const ChatHeaderBar({
+    required this.title,
     required this.modelId,
-    required this.onPressed,
+    required this.onModelPressed,
+    required this.onNewChat,
     super.key,
   });
 
+  final String title;
   final String? modelId;
-  final VoidCallback onPressed;
+  final VoidCallback onModelPressed;
+  final VoidCallback? onNewChat;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+
+  @override
+  Widget build(BuildContext context) => AppBar(
+    automaticallyImplyLeading: false,
+    title: ChatHeader(
+      title: title,
+      modelId: modelId,
+      onModelPressed: onModelPressed,
+    ),
+    actions: [
+      IconButton(
+        key: const Key('new-chat'),
+        tooltip: 'chat.newConversation'.tr(),
+        onPressed: onNewChat,
+        icon: const Icon(Icons.add_comment_outlined),
+      ),
+      const SizedBox(width: 4),
+    ],
+  );
+}
+
+class ChatHeader extends StatelessWidget {
+  const ChatHeader({
+    required this.title,
+    required this.modelId,
+    required this.onModelPressed,
+    super.key,
+  });
+
+  final String title;
+  final String? modelId;
+  final VoidCallback onModelPressed;
 
   @override
   Widget build(BuildContext context) {
     final label = modelId ?? 'chat.selectModel'.tr();
-    if (MediaQuery.sizeOf(context).width < 600) {
-      return IconButton(
-        tooltip: label,
-        onPressed: onPressed,
-        icon: const Icon(Icons.tune),
-      );
-    }
-    return Tooltip(
-      message: label,
-      child: TextButton.icon(
-        onPressed: onPressed,
-        icon: const Icon(Icons.tune, size: 18),
-        label: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 120),
-          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        Semantics(
+          button: true,
+          label: 'chatChangeModel'.tr(args: [label]),
+          child: InkWell(
+            key: const Key('chat-header-model'),
+            onTap: onModelPressed,
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 }

@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import '../../../core/logging/app_logger.dart';
 export 'chat_stream_request.dart';
 import 'background_task_bridge.dart';
+import 'chat_background_lease.dart';
+import 'chat_stream_finalizer.dart';
 import 'chat_stream_request.dart';
 import 'chat_stream_support.dart';
 import 'chat_tool_executor.dart';
@@ -54,9 +56,18 @@ class ChatStreamingCoordinator {
   final ChatToolRuntime? _toolRuntime;
   final InstantMemoryWriter? _instantMemoryWriter;
   final PersonaRegistryAdapter? _personaRegistry;
-  final BackgroundTaskBridge _backgroundTasks;
   final void Function(String event)? _onTransientRetry;
   final AppLogger? _logger;
+  late final ChatBackgroundLease _backgroundLease = ChatBackgroundLease(
+    bridge: _backgroundTasks,
+    publishUnavailable: () => _publishError('backgroundUnavailable'),
+    logger: _logger,
+  );
+  late final ChatStreamFinalizer _finalizer = ChatStreamFinalizer(
+    persistMutation: _persistMutation,
+    publishError: _publishError,
+  );
+  final BackgroundTaskBridge _backgroundTasks;
   ChatToolExecutor? _toolExecutorFor(ChatStreamRequest request) =>
       _toolRuntime == null
       ? null
@@ -220,18 +231,7 @@ class ChatStreamingCoordinator {
     _activeRequest = request;
     _cancelToken = cancelToken;
     try {
-      BackgroundTaskStartResult backgroundResult;
-      try {
-        backgroundResult = await _backgroundTasks.start(
-          ownerId: request.requestMessageId,
-          title: request.conversationTitle,
-        );
-      } on Object {
-        backgroundResult = BackgroundTaskStartResult.unavailable;
-      }
-      if (backgroundResult == BackgroundTaskStartResult.unavailable) {
-        _publishError('backgroundUnavailable');
-      }
+      await _backgroundLease.acquire(request);
       var history = request.history;
       var assistantId = request.assistantMessageId;
       var toolRounds = 0;
@@ -243,6 +243,7 @@ class ChatStreamingCoordinator {
         var terminalSeen = false;
         String? finishReason;
         var receivedAnyToken = false;
+        var eventCount = 0;
         final buffers = <int, ToolCallBuffer>{};
         try {
           await for (final event in _streamer.streamCompletion(
@@ -251,6 +252,7 @@ class ChatStreamingCoordinator {
             cancelToken: cancelToken,
             tools: tools,
           )) {
+            eventCount++;
             receivedAnyToken =
                 receivedAnyToken ||
                 event.delta.isNotEmpty ||
@@ -387,9 +389,9 @@ class ChatStreamingCoordinator {
           rethrow;
         }
         if (cancelToken.isCancelled) {
-          await _finish(request, ChatMessageStatus.interrupted);
+          await _finalizer.finish(request, ChatMessageStatus.interrupted);
         } else if (terminalSeen) {
-          final finalized = await _finish(
+          final finalized = await _finalizer.finish(
             request,
             ChatMessageStatus.complete,
           );
@@ -402,21 +404,31 @@ class ChatStreamingCoordinator {
             _onFinalSuccess?.call(request, assistant.content);
           }
         } else {
-          await _interruptWithError(
+          await _finalizer.interrupt(
             request,
             'The response stream closed before completion. Retry the interrupted response.',
           );
         }
+        _logger?.log(
+          event: 'chat.stream_outcome',
+          conversationId: request.conversationId,
+          status: cancelToken.isCancelled
+              ? 'cancelled'
+              : (terminalSeen ? 'terminal' : 'interrupted'),
+          terminalSeen: terminalSeen,
+          receivedAnyToken: receivedAnyToken,
+          eventCount: eventCount,
+        );
         return;
       }
     } on DioException catch (error) {
       if (CancelToken.isCancel(error)) {
-        await _finish(request, ChatMessageStatus.interrupted);
+        await _finalizer.finish(request, ChatMessageStatus.interrupted);
       } else {
-        await _interruptWithError(request, friendlyChatError(error));
+        await _finalizer.interrupt(request, friendlyChatError(error));
       }
     } on FormatException catch (error) {
-      await _interruptWithError(request, error.message);
+      await _finalizer.interrupt(request, error.message);
     } on Object catch (error) {
       _logger?.log(
         event: 'chat.streaming',
@@ -425,7 +437,7 @@ class ChatStreamingCoordinator {
         status: 'failed',
         error: error,
       );
-      await _interruptWithError(
+      await _finalizer.interrupt(
         request,
         'The request failed unexpectedly. Please retry.',
       );
@@ -437,11 +449,7 @@ class ChatStreamingCoordinator {
           request.requestMessageId,
         );
       }
-      try {
-        await _backgroundTasks.stop(ownerId: request.requestMessageId);
-      } on Object {
-        // Background cleanup is best-effort after request state is finalized.
-      }
+      await _backgroundLease.release(request);
       if (identical(_activeRequest, request)) {
         _activeRequest = null;
         _cancelToken = null;
@@ -485,39 +493,5 @@ class ChatStreamingCoordinator {
         ],
       );
     });
-  }
-
-  Future<void> _interruptWithError(
-    ChatStreamRequest request,
-    String message,
-  ) async {
-    await _finish(request, ChatMessageStatus.interrupted);
-    _publishError(message);
-  }
-
-  Future<bool> _finish(
-    ChatStreamRequest request,
-    ChatMessageStatus status,
-  ) async {
-    final updated = await _persistMutation(request.conversationId, (latest) {
-      if (latest.pendingRequestMessageId != request.requestMessageId) {
-        return null;
-      }
-      return latest.copyWith(
-        updatedAt: DateTime.now(),
-        clearPendingRequest: status == ChatMessageStatus.complete,
-        messages: latest.messages
-            .map(
-              (message) =>
-                  message.role == ChatRole.assistant &&
-                      (message.status == ChatMessageStatus.pending ||
-                          message.status == ChatMessageStatus.streaming)
-                  ? message.copyWith(status: status)
-                  : message,
-            )
-            .toList(),
-      );
-    });
-    return updated != null;
   }
 }

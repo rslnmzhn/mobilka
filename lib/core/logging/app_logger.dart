@@ -14,10 +14,12 @@ class AppLogEntry {
     this.operationId,
     this.conversationId,
     this.toolCallId,
-    this.fileName,
     this.status,
     this.errorType,
     this.duration,
+    this.eventCount,
+    this.terminalSeen,
+    this.receivedAnyToken,
   });
 
   final DateTime timestamp;
@@ -26,10 +28,12 @@ class AppLogEntry {
   final String? operationId;
   final String? conversationId;
   final String? toolCallId;
-  final String? fileName;
   final String? status;
   final String? errorType;
   final Duration? duration;
+  final int? eventCount;
+  final bool? terminalSeen;
+  final bool? receivedAnyToken;
 
   Map<String, Object> toJson() => {
     'timestamp': timestamp.toUtc().toIso8601String(),
@@ -43,13 +47,17 @@ class AppLogEntry {
     // ignore: use_null_aware_elements
     if (toolCallId != null) 'toolCallId': toolCallId!,
     // ignore: use_null_aware_elements
-    if (fileName != null) 'fileName': fileName!,
-    // ignore: use_null_aware_elements
     if (status != null) 'status': status!,
     // ignore: use_null_aware_elements
     if (errorType != null) 'errorType': errorType!,
     // ignore: use_null_aware_elements
     if (duration != null) 'durationMs': duration!.inMilliseconds,
+    // ignore: use_null_aware_elements
+    if (eventCount != null) 'eventCount': eventCount!,
+    // ignore: use_null_aware_elements
+    if (terminalSeen != null) 'terminalSeen': terminalSeen!,
+    // ignore: use_null_aware_elements
+    if (receivedAnyToken != null) 'receivedAnyToken': receivedAnyToken!,
   };
 
   @override
@@ -89,6 +97,9 @@ class AppLogger {
     String? status,
     Object? error,
     Duration? duration,
+    int? eventCount,
+    bool? terminalSeen,
+    bool? receivedAnyToken,
   }) {
     _sink(
       AppLogEntry(
@@ -98,21 +109,17 @@ class AppLogger {
         operationId: _safeIdentifier(operationId),
         conversationId: _safeIdentifier(conversationId),
         toolCallId: _safeIdentifier(toolCallId),
-        fileName: _safeFileName(fileName),
         status: status == null ? null : _safeLabel(status),
         errorType: error?.runtimeType.toString(),
         duration: duration,
+        eventCount: eventCount,
+        terminalSeen: terminalSeen,
+        receivedAnyToken: receivedAnyToken,
       ),
     );
   }
 
   static final RegExp _safeLabelPattern = RegExp(r'^[a-z0-9_.-]{1,64}$');
-  static const _safeFileNames = {
-    'user.md',
-    'soul.md',
-    'memory.md',
-    'personas.yaml',
-  };
 
   static String _safeLabel(String value) =>
       _safeLabelPattern.hasMatch(value) ? value : 'redacted';
@@ -122,9 +129,6 @@ class AppLogger {
     final digest = sha256.convert(utf8.encode(value)).toString();
     return 'sha256:${digest.substring(0, 16)}';
   }
-
-  static String? _safeFileName(String? value) =>
-      _safeFileNames.contains(value) ? value : null;
 }
 
 class DiagnosticLogNotifier extends Notifier<List<AppLogEntry>> {

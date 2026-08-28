@@ -19,10 +19,12 @@ abstract interface class BackgroundTaskBridge {
     required String title,
   });
 
-  Future<void> stop({required String ownerId});
+  Future<BackgroundTaskStopResult> stop({required String ownerId});
 }
 
 enum BackgroundTaskStartResult { started, alreadyRunning, unavailable }
+
+enum BackgroundTaskStopResult { released, notRunning, retainedForRetry }
 
 class NoopBackgroundTaskBridge implements BackgroundTaskBridge {
   const NoopBackgroundTaskBridge();
@@ -34,22 +36,43 @@ class NoopBackgroundTaskBridge implements BackgroundTaskBridge {
   }) async => BackgroundTaskStartResult.started;
 
   @override
-  Future<void> stop({required String ownerId}) async {}
+  Future<BackgroundTaskStopResult> stop({required String ownerId}) async =>
+      BackgroundTaskStopResult.notRunning;
 }
 
 class AndroidForegroundTaskBridge implements BackgroundTaskBridge {
+  static const notificationTitle = 'mobilka';
+  static const notificationText = 'Response generation in progress';
+
   AndroidForegroundTaskBridge({
     Future<ServiceRequestResult> Function(String title)? startService,
     Future<bool> Function()? isRunning,
     Future<ServiceRequestResult> Function()? stopService,
+    Future<void> Function(Duration delay)? cleanupDelay,
+    void Function(String status)? onCleanupStatus,
+    List<Duration> cleanupRetryDelays = const [
+      Duration(seconds: 1),
+      Duration(seconds: 3),
+      Duration(seconds: 10),
+    ],
   }) : _startService = startService ?? _pluginStart,
        _isRunning = isRunning ?? (() => FlutterForegroundTask.isRunningService),
-       _stopService = stopService ?? FlutterForegroundTask.stopService;
+       _stopService = stopService ?? FlutterForegroundTask.stopService,
+       _cleanupDelay = cleanupDelay ?? Future<void>.delayed,
+       _onCleanupStatus = onCleanupStatus,
+       _cleanupRetryDelays = List.unmodifiable(cleanupRetryDelays);
 
   final Future<ServiceRequestResult> Function(String title) _startService;
   final Future<bool> Function() _isRunning;
   final Future<ServiceRequestResult> Function() _stopService;
+  final Future<void> Function(Duration delay) _cleanupDelay;
+  final void Function(String status)? _onCleanupStatus;
+  final List<Duration> _cleanupRetryDelays;
   final Set<String> _owners = {};
+  bool _cleanupPending = false;
+  String? _cleanupOwner;
+  int _cleanupGeneration = 0;
+  bool _cleanupScheduled = false;
   Future<void> _serial = Future.value();
 
   static void initialize() {
@@ -63,23 +86,27 @@ class AndroidForegroundTaskBridge implements BackgroundTaskBridge {
       iosNotificationOptions: const IOSNotificationOptions(
         showNotification: false,
       ),
-      foregroundTaskOptions: ForegroundTaskOptions(
-        eventAction: ForegroundTaskEventAction.nothing(),
-        autoRunOnBoot: false,
-        autoRunOnMyPackageReplaced: false,
-        allowWakeLock: true,
-        allowWifiLock: false,
-        allowAutoRestart: false,
-        stopWithTask: true,
-      ),
+      foregroundTaskOptions: foregroundTaskOptions(),
     );
   }
 
-  static Future<ServiceRequestResult> _pluginStart(String title) =>
+  @visibleForTesting
+  static ForegroundTaskOptions foregroundTaskOptions() => ForegroundTaskOptions(
+    eventAction: ForegroundTaskEventAction.nothing(),
+    autoRunOnBoot: false,
+    autoRunOnMyPackageReplaced: false,
+    allowWakeLock: true,
+    allowWifiLock: false,
+    allowAutoRestart: false,
+    // The request-scoped lease is the sole normal service stop owner.
+    stopWithTask: false,
+  );
+
+  static Future<ServiceRequestResult> _pluginStart(String _) =>
       FlutterForegroundTask.startService(
         serviceTypes: const [ForegroundServiceTypes.dataSync],
-        notificationTitle: title,
-        notificationText: 'mobilka is receiving a response',
+        notificationTitle: notificationTitle,
+        notificationText: notificationText,
       );
 
   @override
@@ -87,6 +114,7 @@ class AndroidForegroundTaskBridge implements BackgroundTaskBridge {
     required String ownerId,
     required String title,
   }) => _serialized(() async {
+    await _retryPendingCleanup();
     if (_owners.contains(ownerId)) {
       return BackgroundTaskStartResult.alreadyRunning;
     }
@@ -94,7 +122,7 @@ class AndroidForegroundTaskBridge implements BackgroundTaskBridge {
       _owners.add(ownerId);
       return BackgroundTaskStartResult.alreadyRunning;
     }
-    final result = await _startService(title);
+    final result = await _startService(notificationTitle);
     if (result is ServiceRequestFailure) {
       return BackgroundTaskStartResult.unavailable;
     }
@@ -109,12 +137,96 @@ class AndroidForegroundTaskBridge implements BackgroundTaskBridge {
   }
 
   @override
-  Future<void> stop({required String ownerId}) => _serialized(() async {
-    if (!_owners.remove(ownerId) || _owners.isNotEmpty) return;
-    if (await _isRunning()) {
-      await _stopService();
+  Future<BackgroundTaskStopResult> stop({required String ownerId}) =>
+      _serialized(() async {
+        if (!_owners.contains(ownerId)) {
+          return BackgroundTaskStopResult.notRunning;
+        }
+        if (_owners.length > 1) {
+          _owners.remove(ownerId);
+          if (_cleanupPending) _scheduleCleanup();
+          return BackgroundTaskStopResult.released;
+        }
+        final outcome = await _tryStop(attempts: 2);
+        if (outcome != BackgroundTaskStopResult.retainedForRetry) {
+          _owners.remove(ownerId);
+          _clearCleanupPending();
+        } else {
+          _cleanupPending = true;
+          _cleanupOwner = ownerId;
+          _onCleanupStatus?.call('cleanup_pending');
+          _scheduleCleanup();
+        }
+        return outcome;
+      });
+
+  Future<void> _retryPendingCleanup() async {
+    if (!_cleanupPending || _owners.length != 1) return;
+    final outcome = await _tryStop(attempts: 1);
+    if (outcome != BackgroundTaskStopResult.retainedForRetry) {
+      _owners.clear();
+      _clearCleanupPending();
     }
-  });
+  }
+
+  void _scheduleCleanup() {
+    if (_cleanupScheduled || !_cleanupPending || _cleanupOwner == null) return;
+    _cleanupScheduled = true;
+    final generation = ++_cleanupGeneration;
+    final owner = _cleanupOwner!;
+    Future<void>(() async {
+      for (final delay in _cleanupRetryDelays) {
+        await _cleanupDelay(delay);
+        if (generation != _cleanupGeneration || !_cleanupPending) return;
+        final outcome = await _serialized(() async {
+          if (generation != _cleanupGeneration ||
+              !_cleanupPending ||
+              _cleanupOwner != owner ||
+              _owners.length != 1 ||
+              !_owners.contains(owner)) {
+            return BackgroundTaskStopResult.retainedForRetry;
+          }
+          return _tryStop(attempts: 1);
+        });
+        if (generation != _cleanupGeneration || !_cleanupPending) return;
+        if (outcome != BackgroundTaskStopResult.retainedForRetry) {
+          await _serialized(() async {
+            if (generation == _cleanupGeneration && _cleanupOwner == owner) {
+              _owners.remove(owner);
+              _clearCleanupPending();
+            }
+          });
+          return;
+        }
+      }
+      if (generation == _cleanupGeneration && _cleanupPending) {
+        _cleanupScheduled = false;
+        _onCleanupStatus?.call('cleanup_exhausted');
+      }
+    });
+  }
+
+  void _clearCleanupPending() {
+    _cleanupPending = false;
+    _cleanupOwner = null;
+    _cleanupScheduled = false;
+    _cleanupGeneration++;
+  }
+
+  Future<BackgroundTaskStopResult> _tryStop({required int attempts}) async {
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      try {
+        if (!await _isRunning()) return BackgroundTaskStopResult.notRunning;
+        final result = await _stopService();
+        if (result is ServiceRequestSuccess) {
+          return BackgroundTaskStopResult.released;
+        }
+      } on Object {
+        // A bounded retry or the next serialized operation owns recovery.
+      }
+    }
+    return BackgroundTaskStopResult.retainedForRetry;
+  }
 }
 
 @Riverpod(keepAlive: true)

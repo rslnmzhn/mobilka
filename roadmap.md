@@ -52,9 +52,10 @@
 ## Milestone M7 — Validation
 - [ ] 17. Полный analyze/test после всех пунктов; обновление fixture-тестов памяти.
 - [ ] 18. Ручная проверка владельцем: миграция старых файлов, персоны, skills, session notes, docx-экспорт на устройстве.
-- [x] 33. Инициализирован request-scoped Android foreground service и уведомление для streaming с отключёнными boot/package/auto restart; ошибка запуска не прерывает запрос и даёт локализованное предупреждение. Автоматизировано; физическая проверка background/notification permission остаётся обязательной, force-stop survival не заявляется.
+- [ ] 33. Request-scoped Android foreground service использует `stopWithTask: false`, lease остаётся единственным normal stop owner; ошибка запуска не прерывает запрос, а privacy-safe outcomes диагностируются. Автоматизированный fix проверен; физическая проверка pause/hidden/background и notification permission обязательна, force-stop survival не заявляется.
 - [x] 34. В Settings добавлены локализованные статус и прямой выбор/reselect workspace-папки только через memory controller, без broad storage permissions. Автоматизировано; физический reselect остаётся в пункте 30.
 - [x] 35. После первого финального успешного ответа добавлено одно изолированное non-streaming автозаглавие с persistent claim, bound model, строгим parser/timeout/fallback и защитой manual rename; единая conversation-scoped очередь сериализует authoritative mutations и streaming snapshots, а title completion изменяет только title-поля последнего состояния. Focused tests и analyze пройдены; ручная проверка с реальным endpoint остаётся отдельной.
+- [x] 36. Действия сообщений перенесены в локализованную доступную поверхность по long press/secondary click/keyboard: точное Copy и identity-bound Send again для user-сообщений. Заголовок показывает активный чат и независимо открываемую модель; отдельные history/model/artifact icons удалены, New chat сохранён. Консервативные touch-only inner-edge жесты открывают history/artifacts с route guard и не срабатывают на vertical/diagonal drag; keyboard/semantics alternatives сохранены. Автоматизировано; UX жестов требует физической проверки.
 
 ## Future architecture — Chat / Advanced Coding
 - [ ] Добавить отдельный режим Advanced Coding рядом с текущим Chat, не меняя текущее поведение чата до отдельного проектирования.

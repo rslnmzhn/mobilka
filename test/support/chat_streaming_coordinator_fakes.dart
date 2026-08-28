@@ -29,7 +29,10 @@ class RecordingBackgroundBridge implements BackgroundTaskBridge {
   }
 
   @override
-  Future<void> stop({required String ownerId}) async => stopped++;
+  Future<BackgroundTaskStopResult> stop({required String ownerId}) async {
+    stopped++;
+    return BackgroundTaskStopResult.released;
+  }
 }
 
 class CoordinatorFixture {

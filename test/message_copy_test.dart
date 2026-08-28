@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/presentation/chat_message_widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -59,10 +60,43 @@ void main() {
     );
   }
 
-  Future<void> tapBubblePadding(WidgetTester tester, String id) async {
-    final rect = tester.getRect(find.byKey(Key('message-bubble-$id')));
-    await tester.tapAt(Offset(rect.right - 4, rect.bottom - 4));
+  Future<void> openActions(WidgetTester tester, String id) async {
+    final bubble = tester.getRect(find.byKey(Key('message-bubble-$id')));
+    await tester.longPressAt(Offset(bubble.center.dx, bubble.top + 4));
+    await tester.pumpAndSettle();
   }
+
+  testWidgets('Markdown remains selectable while padding opens actions', (
+    tester,
+  ) async {
+    await pumpMessage(
+      tester,
+      message(id: 'selectable', role: ChatRole.assistant, content: 'select me'),
+    );
+    await tester.pumpAndSettle();
+
+    final markdown = tester.widget<MarkdownBody>(
+      find.byKey(const Key('message-markdown-selectable')),
+    );
+    expect(markdown.selectable, isTrue);
+    await openActions(tester, 'selectable');
+    expect(find.byKey(const Key('copy-message-selectable')), findsOneWidget);
+  });
+
+  testWidgets('keyboard activation opens actions with selectable content', (
+    tester,
+  ) async {
+    await pumpMessage(
+      tester,
+      message(id: 'keyboard', role: ChatRole.assistant, content: 'keyboard'),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('copy-message-keyboard')), findsOneWidget);
+  });
 
   testWidgets('user and assistant copy their exact independent content', (
     tester,
@@ -92,8 +126,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('copy-message-user-1')), findsNothing);
-    await tapBubblePadding(tester, 'user-1');
-    await tester.pump();
+    await openActions(tester, 'user-1');
     await tester.tap(find.byKey(const Key('copy-message-user-1')));
     await tester.pump();
 
@@ -111,8 +144,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tapBubblePadding(tester, 'assistant-1');
-    await tester.pump();
+    await openActions(tester, 'assistant-1');
     await tester.tap(find.byKey(const Key('copy-message-assistant-1')));
     await tester.pump();
 
@@ -147,18 +179,18 @@ void main() {
       locale: const Locale('ru'),
     );
     await tester.pumpAndSettle();
-    await tapBubblePadding(tester, 'ru');
-    await tester.pump();
+    await openActions(tester, 'ru');
     final semantics = tester.ensureSemantics();
 
     final button = find.byKey(const Key('copy-message-ru'));
-    expect(find.byTooltip('Копировать сообщение'), findsOneWidget);
+    expect(find.text('Копировать сообщение'), findsOneWidget);
     expect(
       tester.getSemantics(button),
       matchesSemantics(
         label: 'Копировать сообщение',
         isButton: true,
         isFocusable: true,
+        hasSelectedState: true,
         hasEnabledState: true,
         isEnabled: true,
         hasTapAction: true,
@@ -192,17 +224,16 @@ void main() {
       locale: const Locale('en'),
     );
     await tester.pumpAndSettle();
-    await tapBubblePadding(tester, 'feedback');
-    await tester.pump();
+    await openActions(tester, 'feedback');
 
     await tester.tap(find.byKey(const Key('copy-message-feedback')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('Message copied'), findsOneWidget);
 
-    await tester.pump();
     fail = true;
+    await openActions(tester, 'feedback');
     await tester.tap(find.byKey(const Key('copy-message-feedback')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('Could not copy message'), findsOneWidget);
   });
 }

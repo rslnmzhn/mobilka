@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobilka/features/chat/presentation/chat_screen.dart';
+import 'package:mobilka/features/chat/presentation/chat_header.dart';
 import 'package:mobilka/features/models/application/models_controller.dart';
 import 'package:mobilka/features/models/domain/ai_model.dart';
 
@@ -59,4 +59,38 @@ void main() {
     expect(find.text('alpha-model'), findsOneWidget);
     expect(find.text('zeta-model'), findsNothing);
   });
+
+  testWidgets(
+    'header shows current identity and exposes only new chat control',
+    (tester) async {
+      var modelTaps = 0;
+      var newChatTaps = 0;
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            appBar: ChatHeaderBar(
+              title: 'A very long authoritative conversation title for mobile',
+              modelId: 'provider/very-long-current-conversation-model-id',
+              onModelPressed: () => modelTaps++,
+              onNewChat: () => newChatTaps++,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.textContaining('authoritative conversation'), findsOneWidget);
+      expect(find.textContaining('provider/very-long'), findsOneWidget);
+      expect(find.byKey(const Key('new-chat')), findsOneWidget);
+      expect(find.byIcon(Icons.menu), findsNothing);
+      expect(find.byIcon(Icons.tune), findsNothing);
+      expect(find.byIcon(Icons.inventory_2_outlined), findsNothing);
+      await tester.tap(find.byKey(const Key('chat-header-model')));
+      await tester.tap(find.byKey(const Key('new-chat')));
+      expect(modelTaps, 1);
+      expect(newChatTaps, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
