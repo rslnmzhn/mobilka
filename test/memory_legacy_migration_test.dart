@@ -187,12 +187,13 @@ void main() {
         'user.md': MemoryRepository.templates['user.md']!,
         'memory.md': MemoryRepository.templates['memory.md']!,
       });
-      final store = SafMemoryFileStore('content://memory', access);
+      const treeUri = 'content://memory/tree/root';
+      final store = SafMemoryFileStore(treeUri, access);
       final injected = MemoryRepository(
         Saf(),
         persistedPermissions: () async => const [
           SafPersistedPermission(
-            uri: 'content://memory',
+            uri: treeUri,
             read: true,
             write: true,
             persistedTime: 0,
@@ -200,10 +201,7 @@ void main() {
         ],
         boundaryFactory: (_) => store,
       );
-      const safLocation = MemoryLocation(
-        value: 'content://memory',
-        isContentUri: true,
-      );
+      const safLocation = MemoryLocation(value: treeUri, isContentUri: true);
 
       await injected.migrateLegacyFilesAt(safLocation);
       await injected.migrateLegacyFilesAt(safLocation);
@@ -220,13 +218,13 @@ void main() {
       Saf(),
       persistedPermissions: () async => [
         const SafPersistedPermission(
-          uri: 'content://other',
+          uri: 'content://other/tree/root',
           read: true,
           write: true,
           persistedTime: 0,
         ),
         const SafPersistedPermission(
-          uri: 'content://memory',
+          uri: 'content://memory/tree/root',
           read: true,
           write: false,
           persistedTime: 0,
@@ -234,7 +232,7 @@ void main() {
       ],
     );
     const safLocation = MemoryLocation(
-      value: 'content://memory',
+      value: 'content://memory/tree/root',
       isContentUri: true,
     );
     await expectLater(

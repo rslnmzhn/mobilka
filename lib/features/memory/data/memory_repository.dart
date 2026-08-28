@@ -145,14 +145,42 @@ class MemoryRepository {
 
   Future<void> validateSavedLocationAccess(MemoryLocation location) async {
     if (!location.isContentUri) return;
+    final savedIdentity = _SafTreeIdentity.tryParse(location.value);
+    if (savedIdentity == null) {
+      throw StateError(
+        'The saved memory folder URI is malformed or unsupported. '
+        'Choose the memory folder again in Memory settings.',
+      );
+    }
     final grants = await _persistedPermissions();
-    final matching = grants.where((grant) => grant.uri == location.value);
-    if (!matching.any((grant) => grant.read && grant.write)) {
+    final matching = grants.where(
+      (grant) => _SafTreeIdentity.tryParse(grant.uri) == savedIdentity,
+    );
+    if (matching.isEmpty) {
       throw StateError(
         'The saved memory folder no longer has persisted read and write '
         'access. Re-select the same folder in Memory settings.',
       );
     }
+    if (matching.any((grant) => grant.read && grant.write)) return;
+    final hasRead = matching.any((grant) => grant.read);
+    final hasWrite = matching.any((grant) => grant.write);
+    if (hasRead) {
+      throw StateError(
+        'The saved memory folder has persisted read-only access. Re-select '
+        'the same folder in Memory settings to grant write access.',
+      );
+    }
+    if (hasWrite) {
+      throw StateError(
+        'The saved memory folder has persisted write-only access. Re-select '
+        'the same folder in Memory settings to grant read access.',
+      );
+    }
+    throw StateError(
+      'The saved memory folder grant has no persisted read or write access. '
+      'Re-select the same folder in Memory settings.',
+    );
   }
 
   MemoryLocation? savedLocation() {
@@ -208,6 +236,47 @@ class MemoryRepository {
       await store.createIfMissing(entry.key, entry.value);
     }
   }
+}
+
+class _SafTreeIdentity {
+  const _SafTreeIdentity(this.scheme, this.authority, this.treeDocumentId);
+
+  final String scheme;
+  final String authority;
+  final String treeDocumentId;
+
+  static _SafTreeIdentity? tryParse(String value) {
+    try {
+      final uri = Uri.parse(value);
+      if (uri.scheme != 'content' ||
+          !uri.hasAuthority ||
+          uri.authority.isEmpty ||
+          uri.hasQuery ||
+          uri.hasFragment) {
+        return null;
+      }
+      final segments = uri.pathSegments;
+      if (segments.length != 2 && segments.length != 4) return null;
+      if (segments[0] != 'tree' || segments[1].isEmpty) return null;
+      if (segments.length == 4 &&
+          (segments[2] != 'document' || segments[3] != segments[1])) {
+        return null;
+      }
+      return _SafTreeIdentity(uri.scheme, uri.authority, segments[1]);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is _SafTreeIdentity &&
+      scheme == other.scheme &&
+      authority == other.authority &&
+      treeDocumentId == other.treeDocumentId;
+
+  @override
+  int get hashCode => Object.hash(scheme, authority, treeDocumentId);
 }
 
 class LegacyMemoryMigrationConflict {
