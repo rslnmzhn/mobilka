@@ -84,11 +84,24 @@ void main() {
       expect(find.textContaining('provider/very-long'), findsOneWidget);
       expect(find.byKey(const Key('new-chat')), findsOneWidget);
       expect(find.byIcon(Icons.menu), findsNothing);
-      expect(find.byIcon(Icons.tune), findsNothing);
+      expect(find.byIcon(Icons.tune), findsOneWidget);
       expect(find.byIcon(Icons.inventory_2_outlined), findsNothing);
+      final context = tester.element(
+        find.byKey(const Key('chat-header-model')),
+      );
+      final text = tester.widget<Text>(
+        find.textContaining('provider/very-long'),
+      );
+      final icon = tester.widget<Icon>(
+        find.byKey(const Key('chat-header-model-icon')),
+      );
+      expect(text.style?.color, Theme.of(context).colorScheme.primary);
+      expect(icon.color, Theme.of(context).colorScheme.primary);
+      expect(find.byType(Tooltip), findsNWidgets(2));
       await tester.tap(find.byKey(const Key('chat-header-model')));
+      await tester.tap(find.byKey(const Key('chat-header-model-icon')));
       await tester.tap(find.byKey(const Key('new-chat')));
-      expect(modelTaps, 1);
+      expect(modelTaps, 2);
       expect(newChatTaps, 1);
       expect(tester.takeException(), isNull);
     },

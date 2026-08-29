@@ -56,22 +56,44 @@ class ChatHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = modelId ?? 'chat.selectModel'.tr();
+    final primary = Theme.of(context).colorScheme.primary;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        Semantics(
-          button: true,
-          label: 'chatChangeModel'.tr(args: [label]),
-          child: InkWell(
-            key: const Key('chat-header-model'),
-            onTap: onModelPressed,
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelSmall,
+        Tooltip(
+          message: 'chatChangeModel'.tr(args: [label]),
+          child: Semantics(
+            button: true,
+            label: 'chatChangeModel'.tr(args: [label]),
+            child: InkWell(
+              key: const Key('chat-header-model'),
+              onTap: onModelPressed,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelSmall?.copyWith(color: primary),
+                    ),
+                  ),
+                  const SizedBox(width: 3),
+                  ExcludeSemantics(
+                    child: Icon(
+                      Icons.tune,
+                      key: const Key('chat-header-model-icon'),
+                      size: 14,
+                      color: primary,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

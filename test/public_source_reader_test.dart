@@ -108,6 +108,23 @@ void main() {
     },
   );
 
+  test(
+    'WorldTime application/json fixture is accepted as bounded text',
+    () async {
+      final body = utf8.encode(
+        '{"timezone":"Etc/UTC","datetime":"2026-08-29T12:00:00Z"}',
+      );
+      final output = await _reader(
+        _QueueTransport([
+          _Response(200, body, contentType: 'application/json; charset=utf-8'),
+        ]),
+      ).read('https://worldtimeapi.org/api/timezone/Etc/UTC', 0, scope: 'c');
+
+      expect(output['content'], contains('"timezone":"Etc/UTC"'));
+      expect(output['has_more'], isFalse);
+    },
+  );
+
   test('empty body succeeds and redirect body is never consumed', () async {
     final redirect = _Response(
       302,

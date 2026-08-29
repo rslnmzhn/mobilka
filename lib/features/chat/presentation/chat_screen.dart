@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -36,35 +37,60 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// up pauses it until they return (roadmap: chat UX).
   var _pinnedToBottom = true;
   var _presentingRoute = false;
+  var _programmaticScroll = false;
+  var _userScrollActive = false;
 
   @override
   void initState() {
     super.initState();
-    // Jump to the newest message once the first frame is laid out.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
   bool _onScrollNotification(ScrollNotification notification) {
     if (notification is UserScrollNotification) {
-      final goingUp = notification.direction == ScrollDirection.reverse;
-      if (goingUp && _pinnedToBottom) {
-        setState(() => _pinnedToBottom = false);
-      }
-    } else if (notification is ScrollUpdateNotification) {
-      final metrics = notification.metrics;
-      final nearBottom =
-          metrics.pixels >= metrics.maxScrollExtent - 80 &&
-          metrics.axis == Axis.vertical;
-      if (nearBottom && !_pinnedToBottom) {
-        setState(() => _pinnedToBottom = true);
-      }
+      _userScrollActive = notification.direction != ScrollDirection.idle;
+      if (_userScrollActive) _updatePinned(notification.metrics);
+    } else if (notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      _userScrollActive = true;
+    } else if (notification is ScrollUpdateNotification &&
+        !_programmaticScroll &&
+        (_userScrollActive || notification.dragDetails != null)) {
+      _updatePinned(notification.metrics);
+    } else if (notification is ScrollEndNotification) {
+      if (!_programmaticScroll) _updatePinned(notification.metrics);
+      _userScrollActive = false;
     }
     return false;
   }
 
+  void _updatePinned(ScrollMetrics metrics) {
+    if (metrics.axis == Axis.vertical) {
+      final nearBottom = metrics.pixels <= metrics.minScrollExtent + 80;
+      if (nearBottom != _pinnedToBottom) {
+        setState(() => _pinnedToBottom = nearBottom);
+      }
+    }
+  }
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || _programmaticScroll) return;
+    _userScrollActive = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _programmaticScroll) return;
+      if (scrollController.hasClients) {
+        _updatePinned(scrollController.position);
+      }
+      _userScrollActive = false;
+    });
+  }
+
   void _scrollToBottom() {
     if (!scrollController.hasClients || !_pinnedToBottom) return;
-    scrollController.jumpTo(scrollController.position.maxScrollExtent);
+    _programmaticScroll = true;
+    scrollController.jumpTo(scrollController.position.minScrollExtent);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _programmaticScroll = false;
+    });
   }
 
   Future<String?> _pickModel(ModelsState models) async {
@@ -142,9 +168,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final chat = ref.watch(chatControllerProvider);
     final models = ref.watch(modelsControllerProvider);
-    // Auto-follow streaming output while pinned to the bottom.
-    ref.listen<AsyncValue<ChatState>>(chatControllerProvider, (_, _) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    ref.listen<AsyncValue<ChatState>>(chatControllerProvider, (previous, next) {
+      final before = previous?.valueOrNull?.activeConversation;
+      final after = next.valueOrNull?.activeConversation;
+      final switched = before?.id != after?.id;
+      final visibleChanged =
+          _messageFingerprint(before?.messages) !=
+          _messageFingerprint(after?.messages);
+      if (!switched && !visibleChanged) return;
+      if (switched) _pinnedToBottom = true;
+      if (_pinnedToBottom) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      }
     });
     return Scaffold(
       key: scaffoldKey,
@@ -219,24 +254,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     constraints: const BoxConstraints(
                                       maxWidth: 920,
                                     ),
-                                    child: NotificationListener<ScrollNotification>(
-                                      onNotification: _onScrollNotification,
-                                      child: ListView.builder(
-                                        controller: scrollController,
-                                        padding: const EdgeInsets.fromLTRB(
-                                          20,
-                                          20,
-                                          20,
-                                          12,
-                                        ),
-                                        itemCount: messages!.length,
-                                        itemBuilder: (context, index) =>
-                                            MessageCard(
-                                              key: ValueKey(messages[index].id),
-                                              message: messages[index],
+                                    child: Listener(
+                                      onPointerSignal: _onPointerSignal,
+                                      child: NotificationListener<ScrollNotification>(
+                                        onNotification: _onScrollNotification,
+                                        child: ListView.builder(
+                                          controller: scrollController,
+                                          reverse: true,
+                                          padding: const EdgeInsets.fromLTRB(
+                                            20,
+                                            20,
+                                            20,
+                                            12,
+                                          ),
+                                          itemCount: messages!.length,
+                                          itemBuilder: (context, index) {
+                                            final message =
+                                                messages[messages.length -
+                                                    1 -
+                                                    index];
+                                            return MessageCard(
+                                              key: ValueKey(message.id),
+                                              message: message,
                                               onSendAgain:
-                                                  messages[index].role ==
-                                                      ChatRole.user
+                                                  message.role == ChatRole.user
                                                   ? () => ref
                                                         .read(
                                                           chatControllerProvider
@@ -244,7 +285,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                         )
                                                         .sendAgain(
                                                           conversation.id,
-                                                          messages[index].id,
+                                                          message.id,
                                                         )
                                                   : null,
                                               toolExecutions: toolExecutions
@@ -252,10 +293,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                     (execution) =>
                                                         execution
                                                             .assistantMessageId ==
-                                                        messages[index].id,
+                                                        message.id,
                                                   )
                                                   .toList(growable: false),
-                                            ),
+                                            );
+                                          },
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -327,3 +370,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 }
+
+String _messageFingerprint(List<ChatMessage>? messages) =>
+    (messages ?? const [])
+        .where((message) => message.role != ChatRole.tool)
+        .map(
+          (message) =>
+              '${message.id}:${message.status.name}:${message.content.length}',
+        )
+        .join('|');

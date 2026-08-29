@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../../../core/logging/app_logger.dart';
 import '../../chat/application/chat_tool_runtime.dart';
 import '../application/public_source_policy.dart';
+import 'public_source_secure_connector.dart';
+
+export 'public_source_secure_connector.dart';
 
 const publicSourceTransferLimit = 1024 * 1024;
 
@@ -19,10 +23,6 @@ abstract interface class PublicSourceTransport {
     ValidatedPublicTarget target, {
     ChatToolCancellation? cancellation,
   });
-}
-
-abstract interface class PublicSourceConnector {
-  Future<ConnectionTask<Socket>> connect(InternetAddress address, int port);
 }
 
 typedef PublicSourceConnectionFactory =
@@ -64,22 +64,17 @@ class IoNativePublicSourceClientFactory
   NativePublicSourceClient create() => _IoNativeClient();
 }
 
-class DirectPublicSourceConnector implements PublicSourceConnector {
-  const DirectPublicSourceConnector();
-  @override
-  Future<ConnectionTask<Socket>> connect(InternetAddress address, int port) =>
-      Socket.startConnect(address, port);
-}
-
 class PinnedPublicSourceTransport implements PublicSourceTransport {
-  const PinnedPublicSourceTransport({
+  PinnedPublicSourceTransport({
     this.connector = const DirectPublicSourceConnector(),
     this.clientFactory = const IoNativePublicSourceClientFactory(),
     this.connectTimeout = const Duration(seconds: 8),
-  });
+    AppLogger? logger,
+  }) : logger = logger ?? AppLogger();
   final PublicSourceConnector connector;
   final NativePublicSourceClientFactory clientFactory;
   final Duration connectTimeout;
+  final AppLogger logger;
 
   @override
   Future<PublicSourceResponse> open(
@@ -90,15 +85,19 @@ class PinnedPublicSourceTransport implements PublicSourceTransport {
       throw const PublicSourceFailure('cancelled');
     }
     final client = clientFactory.create();
+    final deadline = DateTime.now().add(connectTimeout);
     client.configure(
       autoUncompress: false,
       connectionTimeout: connectTimeout,
       findProxy: (_) => 'DIRECT',
-      connectionFactory: (uri, proxyHost, proxyPort) {
+      connectionFactory: (uri, proxyHost, proxyPort) async {
         if (proxyHost != null) {
           throw const PublicSourceFailure('network_failed');
         }
-        return connector.connect(target.addresses.first, uri.port);
+        if (uri.scheme != 'https') {
+          throw const PublicSourceFailure('network_failed');
+        }
+        return _secureConnectionTask(target, uri.port, deadline, cancellation);
       },
     );
     NativePublicSourceRequest? request;
@@ -126,6 +125,124 @@ class PinnedPublicSourceTransport implements PublicSourceTransport {
       client.close(force: true);
       throw const PublicSourceFailure('network_failed');
     }
+  }
+
+  ConnectionTask<Socket> _secureConnectionTask(
+    ValidatedPublicTarget target,
+    int port,
+    DateTime deadline,
+    ChatToolCancellation? cancellation,
+  ) {
+    ConnectionTask<Socket>? tcpTask;
+    Socket? connectedSocket;
+    var cancelled = false;
+
+    Future<Socket> connect() async {
+      Object? lastError;
+      for (final candidate in target.addresses.indexed) {
+        var connected = false;
+        var attemptAbandoned = false;
+        if (cancelled || cancellation?.isCancelled == true) {
+          throw const PublicSourceFailure('cancelled');
+        }
+        final remaining = deadline.difference(DateTime.now());
+        if (remaining <= Duration.zero) {
+          throw const PublicSourceFailure('timeout');
+        }
+        final family = candidate.$2.type == InternetAddressType.IPv6
+            ? 'ipv6'
+            : 'ipv4';
+        logger.log(
+          event: 'public_source.connect',
+          status:
+              'tcp.$family.${candidate.$1 + 1}.${target.addresses.length}.start',
+        );
+        try {
+          final pendingTask = connector.connect(
+            candidate.$2,
+            port,
+            host: target.uri.host,
+          );
+          final ownedTask = pendingTask.then((task) {
+            if (cancelled || attemptAbandoned) {
+              task.cancel();
+              task.socket.then((socket) => socket.destroy(), onError: (_) {});
+              throw const PublicSourceFailure('cancelled');
+            }
+            tcpTask = task;
+            return task;
+          });
+          tcpTask = await _withDeadline(ownedTask, deadline, cancellation);
+          final secure = await _withDeadline(
+            tcpTask!.socket,
+            deadline,
+            cancellation,
+          );
+          connectedSocket = secure;
+          logger.log(
+            event: 'public_source.connect',
+            status:
+                'tls.$family.${candidate.$1 + 1}.${target.addresses.length}.ok',
+          );
+          connected = true;
+          return secure;
+        } on PublicSourceFailure catch (error) {
+          attemptAbandoned = true;
+          connectedSocket?.destroy();
+          tcpTask?.cancel();
+          if (error.code == 'cancelled' || error.code == 'timeout') rethrow;
+          lastError = error;
+        } on Object catch (error) {
+          attemptAbandoned = true;
+          lastError = error;
+          connectedSocket?.destroy();
+          tcpTask?.cancel();
+          logger.log(
+            event: 'public_source.connect',
+            level: AppLogLevel.warning,
+            status:
+                'candidate.$family.${candidate.$1 + 1}.${target.addresses.length}.failed',
+            error: error,
+          );
+        } finally {
+          if (!connected) {
+            connectedSocket = null;
+            tcpTask = null;
+          }
+        }
+      }
+      logger.log(
+        event: 'public_source.connect',
+        level: AppLogLevel.warning,
+        status: 'all_candidates.failed',
+        error: lastError,
+      );
+      throw const PublicSourceFailure('network_failed');
+    }
+
+    return ConnectionTask.fromSocket(connect(), () async {
+      cancelled = true;
+      connectedSocket?.destroy();
+      tcpTask?.cancel();
+    });
+  }
+
+  Future<T> _withDeadline<T>(
+    Future<T> operation,
+    DateTime deadline,
+    ChatToolCancellation? cancellation,
+  ) {
+    final remaining = deadline.difference(DateTime.now());
+    if (remaining <= Duration.zero) {
+      throw const PublicSourceFailure('timeout');
+    }
+    return _race(
+      operation.timeout(
+        remaining,
+        onTimeout: () => throw const PublicSourceFailure('timeout'),
+      ),
+      cancellation,
+    );
   }
 
   Future<T> _race<T>(Future<T> operation, ChatToolCancellation? cancellation) {
