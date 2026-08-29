@@ -112,6 +112,19 @@ void main() {
     expect(find.text('boom'), findsOneWidget);
   });
 
+  test('failed projection prefers error_code when error is absent', () {
+    expect(
+      toolResultError('{"ok":false,"error_code":"network_failed"}'),
+      'network_failed',
+    );
+    expect(
+      toolResultError(
+        '{"ok":false,"error":"safe failure","error_code":"http_error"}',
+      ),
+      'safe failure',
+    );
+  });
+
   testWidgets('result-less completed call is interrupted', (tester) async {
     await tester.pumpWidget(
       app(

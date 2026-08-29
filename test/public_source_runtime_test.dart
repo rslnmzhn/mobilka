@@ -79,6 +79,29 @@ void main() {
             as Map;
     expect(cancelled, {'ok': false, 'error_code': 'cancelled'});
   });
+
+  test(
+    'unexpected reader failures are internal_error, not arguments',
+    () async {
+      final failing = PublicSourceChatToolRuntime(
+        reader: PublicSourceReader(
+          policy: PublicSourcePolicy(_Resolver()),
+          transport: _UnexpectedTransport(),
+          guard: const PromptGuard(),
+        ),
+      );
+      final output =
+          jsonDecode(
+                await failing.executeTool(
+                  _call('{"url":"https://example.com"}'),
+                  const {'read_public_source'},
+                  context: _context(cancellation),
+                ),
+              )
+              as Map;
+      expect(output, {'ok': false, 'error_code': 'internal_error'});
+    },
+  );
 }
 
 ChatToolCall _call(String arguments) =>
@@ -104,6 +127,14 @@ class _Transport implements PublicSourceTransport {
     ValidatedPublicTarget target, {
     ChatToolCancellation? cancellation,
   }) async => _Response();
+}
+
+class _UnexpectedTransport implements PublicSourceTransport {
+  @override
+  Future<PublicSourceResponse> open(
+    ValidatedPublicTarget target, {
+    ChatToolCancellation? cancellation,
+  }) => throw StateError('unexpected');
 }
 
 class _Response implements PublicSourceResponse {

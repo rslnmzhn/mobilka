@@ -101,7 +101,15 @@ String? toolResultError(String content) {
   try {
     final value = jsonDecode(content);
     if (value is Map && value['ok'] == false) {
-      return value['error']?.toString() ?? 'Tool execution failed';
+      final error = value['error']?.toString();
+      if (error != null && error.isNotEmpty) {
+        return error.length <= 512 ? error : error.substring(0, 512);
+      }
+      final code = value['error_code']?.toString();
+      if (code != null && code.isNotEmpty) {
+        return code.length <= 128 ? code : code.substring(0, 128);
+      }
+      return 'Tool execution failed';
     }
   } on FormatException {
     // Plain text is a valid tool result.
