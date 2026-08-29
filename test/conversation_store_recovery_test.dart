@@ -8,6 +8,7 @@ import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/chat_tool.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:mobilka/features/chat/domain/pending_tool_proposal.dart';
+import 'package:mobilka/features/chat/domain/pending_skill_proposal.dart';
 
 void main() {
   late Directory root;
@@ -88,6 +89,73 @@ void main() {
       expect(recovered.pendingRequestMessageId, isNull);
       expect(recovered.pendingToolProposal, isNull);
       expect(recovered.isStreaming, isFalse);
+      expect(ChatState(conversations: [recovered]).hasInFlightRequest, isFalse);
+    },
+  );
+
+  test(
+    'executing skill proposal recovery is indeterminate and never replayed',
+    () async {
+      final now = DateTime(2026);
+      final proposal = PendingSkillProposal(
+        conversationId: 'skill-c',
+        requestId: 'request',
+        assistantMessageId: 'assistant',
+        name: 'safe',
+        oldContent: null,
+        proposedContent: 'candidate',
+        expectedHash: null,
+        sourceDerived: false,
+        provenanceSummary: 'trusted_local',
+        warnings: const [],
+        permissionSnapshot: null,
+        selectedAgentId: 'agent',
+        createdAt: now,
+        state: PendingSkillProposalState.executing,
+      );
+      final store = ConversationStore();
+      await store.save(
+        Conversation(
+          id: 'skill-c',
+          title: 't',
+          modelId: 'm',
+          createdAt: now,
+          updatedAt: now,
+          pendingRequestMessageId: 'request',
+          pendingSkillProposal: proposal,
+          messages: [
+            ChatMessage(
+              id: 'user',
+              role: ChatRole.user,
+              content: 'x',
+              createdAt: now,
+              status: ChatMessageStatus.pending,
+            ),
+            ChatMessage(
+              id: 'assistant',
+              role: ChatRole.assistant,
+              content: '',
+              createdAt: now,
+              status: ChatMessageStatus.streaming,
+            ),
+          ],
+        ),
+      );
+      await store.recoverInterrupted();
+      await store.recoverInterrupted();
+      final recovered = store.loadAll().single;
+      expect(
+        recovered.messages.take(2).map((m) => m.status),
+        everyElement(ChatMessageStatus.interrupted),
+      );
+      expect(
+        recovered.messages.where(
+          (m) => m.content == 'skill_mutation_indeterminate',
+        ),
+        hasLength(1),
+      );
+      expect(recovered.pendingRequestMessageId, isNull);
+      expect(recovered.pendingSkillProposal, isNull);
       expect(ChatState(conversations: [recovered]).hasInFlightRequest, isFalse);
     },
   );

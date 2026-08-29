@@ -81,7 +81,10 @@ class CoordinatorFixture {
   Conversation get conversation => conversations['conversation-1']!;
   ChatMessage get assistant => conversation.messages.last;
 
-  Future<void> run({WorkspaceBinding? workspaceBinding}) => coordinator.run(
+  Future<void> run({
+    WorkspaceBinding? workspaceBinding,
+    Set<String> allowedTools = const {'update_memory_file'},
+  }) => coordinator.run(
     ChatStreamRequest(
       conversationId: 'conversation-1',
       sessionKey: conversation.sessionKey,
@@ -90,7 +93,7 @@ class CoordinatorFixture {
       modelId: 'model',
       history: [conversation.messages.first],
       selectedAgentId: 'agent-1',
-      allowedTools: const {'update_memory_file'},
+      allowedTools: allowedTools,
       workspaceBinding: workspaceBinding,
     ),
   );

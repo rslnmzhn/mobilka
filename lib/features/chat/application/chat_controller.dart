@@ -29,10 +29,12 @@ import 'pending_workspace_binding_store.dart';
 import 'chat_request_admission.dart';
 import 'send_again_service.dart';
 import 'chat_controller_support.dart';
+import 'skill_proposal_controller_actions.dart';
 
 export 'chat_state.dart';
 
 part 'chat_controller.g.dart';
+part 'chat_controller_proposal_actions.dart';
 
 final chatCompletionStreamerProvider = Provider<ChatCompletionStreamer>(
   (ref) => ref.watch(chatRepositoryProvider),
@@ -210,14 +212,7 @@ class ChatController extends _$ChatController {
       return;
     }
     try {
-      if (state.requireValue
-              .conversationById(conversationId)
-              ?.pendingToolProposal !=
-          null) {
-        _setError('sendAgainBlocked'.tr());
-        return;
-      }
-      if (state.requireValue.hasInFlightRequest) {
+      if (_sendAgainBlocked(conversationId)) {
         _setError('sendAgainBlocked'.tr());
         return;
       }
@@ -256,6 +251,13 @@ class ChatController extends _$ChatController {
     } finally {
       _requestAdmission.release();
     }
+  }
+
+  bool _sendAgainBlocked(String conversationId) {
+    final current = state.requireValue;
+    return current.conversationById(conversationId)?.pendingToolProposal !=
+            null ||
+        current.hasInFlightRequest;
   }
 
   Future<void> retryInterrupted(String conversationId) async {
@@ -305,103 +307,6 @@ class ChatController extends _$ChatController {
   void cancel() {
     final id = state.requireValue.activeConversationId;
     if (id != null) _lifecycle.cancel(id);
-  }
-
-  Future<void> confirmPendingMemoryProposal() async {
-    final conversation = state.requireValue.activeConversation;
-    final proposal = conversation?.pendingMemoryProposal;
-    if (proposal != null) {
-      state = AsyncData(
-        state.requireValue.copyWith(
-          confirmingMemoryToolCallId: proposal.toolCallId,
-          clearError: true,
-        ),
-      );
-    }
-    try {
-      _applyMemoryDecisionAction(
-        await _memoryDecisionService.confirm(
-          conversation: conversation,
-          proposal: proposal,
-        ),
-      );
-    } finally {
-      if (proposal != null &&
-          state.hasValue &&
-          state.requireValue.confirmingMemoryToolCallId ==
-              proposal.toolCallId) {
-        state = AsyncData(
-          state.requireValue.copyWith(clearConfirmingMemory: true),
-        );
-      }
-    }
-  }
-
-  Future<void> rejectPendingMemoryProposal() async {
-    final conversation = state.requireValue.activeConversation;
-    final proposal = conversation?.pendingMemoryProposal;
-    if (conversation == null || proposal == null) return;
-    _applyMemoryDecisionAction(
-      await _memoryDecisionService.reject(
-        conversation: conversation,
-        proposal: proposal,
-      ),
-    );
-  }
-
-  Future<void> confirmPendingToolProposal() async {
-    final conversation = state.requireValue.activeConversation;
-    final proposal = conversation?.pendingToolProposal;
-    if (conversation == null || proposal == null || proposal.claimed) return;
-    state = AsyncData(
-      state.requireValue.copyWith(confirmingToolCallId: proposal.call.id),
-    );
-    try {
-      final runtime = ref.read(chatToolRuntimeRegistryProvider);
-      final catalog = await ref.read(agentsControllerProvider.future);
-      final selected = catalog.selected;
-      final workspaceBinding = _captureWorkspaceBinding();
-      final definitions = await runtime.availableTools(
-        selected?.definition.tools.toSet() ?? const {},
-      );
-      final definition = definitions
-          .where((item) => item.name == proposal.call.name)
-          .firstOrNull;
-      await GenericToolConfirmationService(
-        persistMutation: _persistMutation,
-      ).confirm(
-        conversation: conversation,
-        proposal: proposal,
-        selectedAgentId: selected?.definition.id,
-        currentAllowedTools: selected?.definition.tools.toSet() ?? const {},
-        definition: definition,
-        workspaceSnapshot: workspaceBinding?.permissionSnapshot,
-        execute: () => runtime.executeTool(
-          proposal.call,
-          proposal.allowedTools,
-          context: ChatToolExecutionContext(
-            conversationId: conversation.id,
-            sessionKey: conversation.sessionKey,
-            workspaceBinding: workspaceBinding,
-          ),
-        ),
-      );
-    } finally {
-      if (state.hasValue) {
-        state = AsyncData(
-          state.requireValue.copyWith(clearConfirmingTool: true),
-        );
-      }
-    }
-  }
-
-  Future<void> rejectPendingToolProposal() async {
-    final conversation = state.requireValue.activeConversation;
-    final proposal = conversation?.pendingToolProposal;
-    if (conversation == null || proposal == null) return;
-    await GenericToolConfirmationService(
-      persistMutation: _persistMutation,
-    ).reject(conversation: conversation, proposal: proposal);
   }
 
   ChatMemoryDecisionService get _memoryDecisionService =>
@@ -459,29 +364,20 @@ class ChatController extends _$ChatController {
         ),
       );
     }
+    final messages = _newRequestMessages(
+      requestId,
+      assistantId,
+      text,
+      attachments,
+      now,
+    );
     final updated = await _automaticTitles.mutate(
       conversation.id,
       (latest) => latest.copyWith(
         title: latest.messages.isEmpty ? _titleFrom(text) : null,
         updatedAt: now,
         pendingRequestMessageId: requestId,
-        messages: [
-          ...latest.messages,
-          ChatMessage(
-            id: requestId,
-            role: ChatRole.user,
-            content: text,
-            createdAt: now,
-            attachments: List.unmodifiable(attachments),
-          ),
-          ChatMessage(
-            id: assistantId,
-            role: ChatRole.assistant,
-            content: '',
-            createdAt: now,
-            status: ChatMessageStatus.pending,
-          ),
-        ],
+        messages: [...latest.messages, ...messages],
       ),
     );
     if (updated == null) throw StateError('Conversation was deleted');
@@ -495,6 +391,29 @@ class ChatController extends _$ChatController {
       workspaceBinding: _captureWorkspaceBinding(),
     );
   }
+
+  List<ChatMessage> _newRequestMessages(
+    String requestId,
+    String assistantId,
+    String text,
+    List<ChatAttachment> attachments,
+    DateTime now,
+  ) => [
+    ChatMessage(
+      id: requestId,
+      role: ChatRole.user,
+      content: text,
+      createdAt: now,
+      attachments: List.unmodifiable(attachments),
+    ),
+    ChatMessage(
+      id: assistantId,
+      role: ChatRole.assistant,
+      content: '',
+      createdAt: now,
+      status: ChatMessageStatus.pending,
+    ),
+  ];
 
   WorkspaceBinding? _captureWorkspaceBinding() => WorkspaceStore(
     repository: ref.read(memoryRepositoryProvider),

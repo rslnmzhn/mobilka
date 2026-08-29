@@ -35,6 +35,32 @@ abstract interface class SubPathMemoryFileBoundary {
   Future<List<String>> listSubPath(String relativeDirectory);
 }
 
+enum WorkspaceCompareWriteResult { written, conflict, failed }
+
+enum SkillCommitResult { written, conflict, quotaExceeded, unsupported, failed }
+
+abstract interface class SkillCandidateCommitBoundary {
+  Future<SkillCommitResult> commitSkillCandidate({
+    required String name,
+    required String content,
+    required String? expectedHash,
+    required int maxCount,
+    required int maxTotalBytes,
+  });
+}
+
+abstract interface class ExclusiveSkillCreateBoundary {
+  bool get supportsExclusiveCreateAndVerifiedReadback;
+}
+
+abstract interface class CompareWriteSubPathMemoryFileBoundary {
+  Future<WorkspaceCompareWriteResult> compareWriteSubPath(
+    String relativePath,
+    String? expectedContent,
+    String content,
+  );
+}
+
 const maxArtifactMarkdownBytes = 2 * 1024 * 1024;
 const maxArtifactDocxBytes = 10 * 1024 * 1024;
 

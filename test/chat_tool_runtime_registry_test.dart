@@ -95,7 +95,7 @@ void main() {
   });
 
   test(
-    'production registry and bundled default agree on exact 12 tools',
+    'production registry and bundled default agree on exact 12 agent tools',
     () async {
       Hive.init(
         Directory.systemTemp.createTempSync('registry-inventory-').path,
@@ -120,7 +120,8 @@ void main() {
       expect(runtime, isA<MemoryProposalRuntime>());
       final effects = {for (final tool in advertised) tool.name: tool.effect};
       expect(effects['read_public_source'], ChatToolEffect.readOnly);
-      expect(effects['write_skill'], ChatToolEffect.mutating);
+      expect(effects['write_skill'], isNull);
+      expect(effects['propose_skill'], ChatToolEffect.runtimeConfirmed);
       expect(effects['generate_docx'], ChatToolEffect.mutating);
     },
   );

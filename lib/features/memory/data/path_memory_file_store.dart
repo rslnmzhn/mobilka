@@ -1,8 +1,9 @@
 import 'dart:io';
-
 import 'package:synchronized/synchronized.dart';
 
 import 'memory_file_store_contracts.dart';
+import 'path_skill_commit.dart';
+import 'path_binary_pair_writer.dart';
 
 /// Test seam for modeling substitutions at the narrow remaining Dart I/O race.
 class PathMemoryFileStoreHooks {
@@ -16,12 +17,17 @@ class PathMemoryFileStore
     implements
         MemoryFileStore,
         SubPathMemoryFileBoundary,
+        CompareWriteSubPathMemoryFileBoundary,
+        SkillCandidateCommitBoundary,
+        ExclusiveSkillCreateBoundary,
         BinarySubPathMemoryFileBoundary {
   PathMemoryFileStore(this.directoryPath, {PathMemoryFileStoreHooks? hooks})
     : _hooks = hooks;
 
   final String directoryPath;
   final PathMemoryFileStoreHooks? _hooks;
+  @override
+  bool get supportsExclusiveCreateAndVerifiedReadback => true;
   static final Map<String, Lock> _directoryLocks = {};
 
   String get rootPath => directoryPath;
@@ -82,6 +88,74 @@ class PathMemoryFileStore
   }
 
   @override
+  Future<WorkspaceCompareWriteResult> compareWriteSubPath(
+    String relativePath,
+    String? expectedContent,
+    String content,
+  ) async {
+    final parts = MemoryFileValidation.subPath(relativePath);
+    if (parts == null) return WorkspaceCompareWriteResult.failed;
+    return _withCanonicalRoot((guard) async {
+      final parent = await guard.parent(parts, create: true);
+      if (parent == null) return WorkspaceCompareWriteResult.failed;
+      final destination = File(_join(parent.path, parts.last));
+      final type = await FileSystemEntity.type(
+        destination.path,
+        followLinks: false,
+      );
+      if (type != FileSystemEntityType.file &&
+          type != FileSystemEntityType.notFound) {
+        return WorkspaceCompareWriteResult.failed;
+      }
+      final current = type == FileSystemEntityType.file
+          ? MemoryFileCodec.decode(await destination.readAsBytes())
+          : null;
+      if (current != expectedContent) {
+        return WorkspaceCompareWriteResult.conflict;
+      }
+      await _atomicWrite(
+        guard: guard,
+        parentParts: parts,
+        canonicalParent: parent.path,
+        destination: destination,
+        bytes: MemoryFileCodec.encode(content),
+        overwrite: expectedContent != null,
+      );
+      return WorkspaceCompareWriteResult.written;
+    });
+  }
+
+  @override
+  Future<SkillCommitResult> commitSkillCandidate({
+    required String name,
+    required String content,
+    required String? expectedHash,
+    required int maxCount,
+    required int maxTotalBytes,
+  }) => _withCanonicalRoot(
+    (guard) =>
+        PathSkillCommit(
+          resolveParent: () => guard.parent(['skills', name], create: true),
+          atomicUpdate: (target, bytes) async {
+            final parent = target.parent;
+            await _atomicWrite(
+              guard: guard,
+              parentParts: ['skills', name],
+              canonicalParent: parent.path,
+              destination: target,
+              bytes: bytes,
+            );
+          },
+        ).run(
+          name: name,
+          content: content,
+          expectedHash: expectedHash,
+          maxCount: maxCount,
+          maxTotalBytes: maxTotalBytes,
+        ),
+  );
+
+  @override
   Future<WorkspacePairWriteResult> writeBinaryPair(
     WorkspaceBinaryFile first,
     WorkspaceBinaryFile second,
@@ -90,43 +164,17 @@ class PathMemoryFileStore
     second.validate();
     final firstParts = MemoryFileValidation.subPath(first.relativePath)!;
     final secondParts = MemoryFileValidation.subPath(second.relativePath)!;
-    return _withCanonicalRoot((guard) async {
-      var firstStatus = WorkspaceSiblingWriteStatus.definitelyNotWritten;
-      var writeAttempted = false;
-      try {
-        final firstParent = await guard.parent(firstParts, create: true);
-        final secondParent = await guard.parent(secondParts, create: true);
-        if (firstParent == null ||
-            secondParent == null ||
-            !_samePath(firstParent.path, secondParent.path)) {
-          throw _unsafeParent();
-        }
-        await guard.revalidateParent(firstParts, firstParent.path);
-        for (final parts in [firstParts, secondParts]) {
-          final type = await FileSystemEntity.type(
-            _join(firstParent.path, parts.last),
-            followLinks: false,
-          );
-          if (type == FileSystemEntityType.file) {
-            return const WorkspacePairWriteResult(
-              firstStatus: WorkspaceSiblingWriteStatus.collision,
-              secondStatus: WorkspaceSiblingWriteStatus.collision,
-            );
-          }
-          if (type != FileSystemEntityType.notFound) throw _unsafeFile();
-        }
-        await guard.revalidateParent(firstParts, firstParent.path);
-        for (final entry in [(firstParts, first), (secondParts, second)]) {
-          final parts = entry.$1;
-          final payload = entry.$2;
+    return _withCanonicalRoot(
+      (guard) => PathBinaryPairWriter(
+        resolveParent: (parts) async =>
+            (await guard.parent(parts, create: true))?.path,
+        revalidateParent: guard.revalidateParent,
+        targetType: (parent, leaf) =>
+            FileSystemEntity.type(_join(parent, leaf), followLinks: false),
+        samePath: _samePath,
+        write: (parts, payload) async {
           final parent = await guard.parent(parts, create: true);
-          if (parent == null) {
-            return WorkspacePairWriteResult(
-              firstStatus: firstStatus,
-              secondStatus: WorkspaceSiblingWriteStatus.definitelyNotWritten,
-            );
-          }
-          writeAttempted = true;
+          if (parent == null) throw _unsafeParent();
           await _atomicWrite(
             guard: guard,
             parentParts: parts,
@@ -135,39 +183,9 @@ class PathMemoryFileStore
             bytes: payload.bytes,
             overwrite: false,
           );
-          if (firstStatus != WorkspaceSiblingWriteStatus.verifiedWritten) {
-            firstStatus = WorkspaceSiblingWriteStatus.verifiedWritten;
-            writeAttempted = false;
-          } else {
-            return const WorkspacePairWriteResult(
-              firstStatus: WorkspaceSiblingWriteStatus.verifiedWritten,
-              secondStatus: WorkspaceSiblingWriteStatus.verifiedWritten,
-            );
-          }
-        }
-      } catch (_) {
-        if (writeAttempted) {
-          return WorkspacePairWriteResult(
-            firstStatus:
-                firstStatus == WorkspaceSiblingWriteStatus.verifiedWritten
-                ? firstStatus
-                : WorkspaceSiblingWriteStatus.indeterminate,
-            secondStatus:
-                firstStatus == WorkspaceSiblingWriteStatus.verifiedWritten
-                ? WorkspaceSiblingWriteStatus.indeterminate
-                : WorkspaceSiblingWriteStatus.definitelyNotWritten,
-          );
-        }
-        return WorkspacePairWriteResult(
-          firstStatus: WorkspaceSiblingWriteStatus.indeterminate,
-          secondStatus: WorkspaceSiblingWriteStatus.indeterminate,
-        );
-      }
-      return WorkspacePairWriteResult(
-        firstStatus: firstStatus,
-        secondStatus: WorkspaceSiblingWriteStatus.definitelyNotWritten,
-      );
-    });
+        },
+      ).run(firstParts, first, secondParts, second),
+    );
   }
 
   @override

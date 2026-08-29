@@ -6,6 +6,8 @@ import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/chat_stream_event.dart';
 import 'package:mobilka/features/chat/domain/chat_tool.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
+import 'package:mobilka/features/chat/data/chat_repository.dart';
+import 'package:mobilka/features/memory/application/workspace_paths.dart';
 
 import 'support/chat_streaming_coordinator_fakes.dart';
 
@@ -45,6 +47,71 @@ void main() {
     expect(fixture.conversation.pendingRequestMessageId, isNull);
     expect(fixture.conversation.usage?.totalTokens, 5);
     expect(fixture.errors, isEmpty);
+  });
+
+  test(
+    'post-success reflection runs once and preserves exact final answer',
+    () async {
+      final streamer = _RecordingSequencedStreamer(const [
+        [
+          ChatStreamEvent(
+            isTerminal: true,
+            finishReason: 'tool_calls',
+            toolCallDeltas: [
+              ChatToolCallDelta(
+                index: 0,
+                id: 'material',
+                name: 'material_tool',
+                arguments: '{}',
+              ),
+            ],
+          ),
+        ],
+        [ChatStreamEvent(delta: 'Exact answer', isTerminal: true)],
+        [ChatStreamEvent(delta: 'internal no-op', isTerminal: true)],
+      ]);
+      final fixture = CoordinatorFixture(
+        streamer: streamer,
+        toolRuntime: _ReflectionRuntime(),
+      );
+      await fixture.run(
+        workspaceBinding: const WorkspaceBinding.fakeForTest(),
+        allowedTools: const {
+          'material_tool',
+          'list_skills',
+          'read_skill',
+          'propose_skill',
+        },
+      );
+      expect(fixture.assistant.content, 'Exact answer');
+      expect(fixture.assistant.status, ChatMessageStatus.complete);
+      expect(streamer.toolNames.last, {
+        'list_skills',
+        'read_skill',
+        'propose_skill',
+      });
+      expect(streamer.calls, 3);
+    },
+  );
+
+  test('pure chat never starts skill reflection', () async {
+    final streamer = _RecordingSequencedStreamer(const [
+      [ChatStreamEvent(delta: 'Chat only', isTerminal: true)],
+    ]);
+    final fixture = CoordinatorFixture(
+      streamer: streamer,
+      toolRuntime: _ReflectionRuntime(),
+    );
+    await fixture.run(
+      allowedTools: const {
+        'material_tool',
+        'list_skills',
+        'read_skill',
+        'propose_skill',
+      },
+    );
+    expect(streamer.calls, 1);
+    expect(fixture.assistant.content, 'Chat only');
   });
 
   test(
@@ -517,6 +584,65 @@ void main() {
     expect(retry.conversation.messages.last.status, ChatMessageStatus.pending);
     expect(retry.request.history.map((message) => message.id), ['user-1']);
   });
+}
+
+class _RecordingSequencedStreamer implements ChatCompletionStreamer {
+  _RecordingSequencedStreamer(this.responses);
+  final List<List<ChatStreamEvent>> responses;
+  final List<Set<String>> toolNames = [];
+  var calls = 0;
+
+  @override
+  Stream<ChatStreamEvent> streamCompletion({
+    required String model,
+    required List<ChatMessage> messages,
+    required CancelToken cancelToken,
+    List<ChatToolDefinition> tools = const [],
+  }) {
+    toolNames.add(tools.map((tool) => tool.name).toSet());
+    return Stream.fromIterable(responses[calls++]);
+  }
+}
+
+class _ReflectionRuntime implements ChatToolRuntime {
+  static const definitions = [
+    ChatToolDefinition(
+      name: 'material_tool',
+      description: 'material',
+      parameters: {'type': 'object'},
+    ),
+    ChatToolDefinition(
+      effect: ChatToolEffect.readOnly,
+      name: 'list_skills',
+      description: 'list',
+      parameters: {'type': 'object'},
+    ),
+    ChatToolDefinition(
+      effect: ChatToolEffect.readOnly,
+      name: 'read_skill',
+      description: 'read',
+      parameters: {'type': 'object'},
+    ),
+    ChatToolDefinition(
+      effect: ChatToolEffect.runtimeConfirmed,
+      name: 'propose_skill',
+      description: 'propose',
+      parameters: {'type': 'object'},
+    ),
+  ];
+
+  @override
+  Future<List<ChatToolDefinition>> availableTools(
+    Set<String> allowedTools,
+  ) async =>
+      definitions.where((tool) => allowedTools.contains(tool.name)).toList();
+
+  @override
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) async => '{"ok":true}';
 }
 
 class _SequencingRuntime implements ChatToolRuntime {

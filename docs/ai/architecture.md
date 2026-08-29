@@ -97,7 +97,40 @@ The stable session key derives from conversation creation date, title, and
 conversation ID. Session tools require request context. Artifact mirror writes
 use the opaque request-captured `WorkspaceBinding`, so changing the selected
 folder cannot retarget an in-flight request. SAF/path boundaries validate
-access and reject unsafe subpaths.
+ access and reject unsafe subpaths.
+
+The skills folder is the only catalog (no second index). Agents list compact
+filenames and read only likely matches. Skill candidates are bounded stable
+procedures, at most one per immutable request. Every model-authored create and
+update requires persisted exact confirmation and a current-content hash recheck
+so manual edits survive; there is no confirmation-free model write path.
+Request capture retains an immutable operational workspace binding: canonical
+path boundary on desktop or exact SAF tree identity on Android. Reflection I/O
+uses that binding rather than resolving mutable current settings. Path CAS is
+serialized with no-follow revalidation; SAF CAS is serialized in-process,
+re-reads immediately before write and fails closed when provider identity or
+read-back verification cannot be established.
+The conversation persists the newest 32 active-request execution entries with
+only request ID, tool name, success, and trust class—never arguments or output.
+A sticky aggregate records discarded successful untrusted/unknown outcomes;
+tool trust uses an explicit allowlist and unknown tools are never trusted.
+Reflection verifies that exact persisted identity and records it for inspection.
+Public-source, `read_skill`, unknown, stale, or forged evidence never grants
+write authority. Since transitive semantic provenance of arbitrary model prose
+cannot be proven, no model-authored candidate is automatically created.
+Proposals persist a non-secret `WorkspaceBindingSnapshot` and reconstruct that
+exact path/SAF boundary after restart while also requiring current location and
+grant equality. Store-owned `commitSkillCandidate` performs quota calculation,
+hash comparison, conditional write, and read-back under one root lock. Desktop
+creation reserves the final name exclusively; portable update replacement keeps
+the documented tiny external-process rename window. SAF returns unsupported or
+failed unless exact child identity and bytes can be verified.
+The path store acquires its existing process-wide canonical-root lock before
+calling `PathSkillCommit`; that helper owns no lock and receives only the
+already lock-owned parent resolver and atomic-update callback. There is no
+second lock or alternate mutation authority.
+Explicit confirmation performs hash, quota, identity, and read-back checks; SAF
+still fails closed when provider identity/read-back cannot be established.
 
 Typed general workspace file operations are **future**, not current. There is
 no arbitrary shell, broad filesystem root, or current `list_files`/`read_file`/

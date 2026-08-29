@@ -32,6 +32,34 @@ class WorkspaceStore {
     );
   }
 
+  Future<WorkspaceBinding> restoreBinding(
+    WorkspaceBindingSnapshot snapshot,
+  ) async {
+    final current = repository.savedLocation();
+    if (current == null ||
+        current.isContentUri != snapshot.isContentUri ||
+        current.value != snapshot.value) {
+      throw StateError('Configured workspace differs from proposal workspace');
+    }
+    final location = MemoryLocation(
+      value: snapshot.value,
+      isContentUri: snapshot.isContentUri,
+    );
+    await repository.validateSavedLocationAccess(location);
+    final boundary = repository.boundaryFor(location);
+    if (boundary is! BinarySubPathMemoryFileBoundary) {
+      throw StateError('Proposal workspace is unavailable');
+    }
+    final binding = WorkspaceBinding._(
+      location,
+      boundary as BinarySubPathMemoryFileBoundary,
+    );
+    if (binding.snapshot.identity != snapshot.identity) {
+      throw StateError('Proposal workspace identity changed');
+    }
+    return binding;
+  }
+
   /// Returns the path-backed store for a configured location, or null when
   /// unconfigured or SAF-backed.
   Future<PathMemoryFileStore?> pathStore() async {
@@ -83,6 +111,24 @@ class WorkspaceStore {
       relativePath,
       content,
     );
+  }
+
+  Future<WorkspaceCompareWriteResult> compareWriteText(
+    String relativePath,
+    String? expectedContent,
+    String content,
+  ) async {
+    final location = repository.savedLocation();
+    if (location == null) throw const WorkspaceStorageException.unconfigured();
+    await repository.validateSavedLocationAccess(location);
+    final boundary = repository.boundaryFor(location);
+    if (boundary is! CompareWriteSubPathMemoryFileBoundary) {
+      throw const WorkspaceStorageException.io(
+        'Atomic workspace writes are unavailable.',
+      );
+    }
+    return (boundary as CompareWriteSubPathMemoryFileBoundary)
+        .compareWriteSubPath(relativePath, expectedContent, content);
   }
 
   /// Lists safe regular files in a supported workspace directory.
@@ -183,6 +229,94 @@ class WorkspaceBinding {
 
   String get permissionSnapshot =>
       '${_location.isContentUri}:${_location.value}';
+  WorkspaceBindingSnapshot get snapshot => WorkspaceBindingSnapshot(
+    isContentUri: _location.isContentUri,
+    value: _location.value,
+    identity: permissionSnapshot,
+  );
+  bool get supportsAutomaticSkillCreate =>
+      _boundary is ExclusiveSkillCreateBoundary &&
+      (_boundary as ExclusiveSkillCreateBoundary)
+          .supportsExclusiveCreateAndVerifiedReadback;
+
+  Future<String?> readText(String relativePath) async {
+    final boundary = _boundary;
+    if (boundary is! SubPathMemoryFileBoundary) {
+      throw const WorkspaceStorageException.io(
+        'Bound workspace is unavailable.',
+      );
+    }
+    return (boundary as SubPathMemoryFileBoundary).readSubPath(relativePath);
+  }
+
+  Future<List<String>> listTextFiles(String relativeDirectory) async {
+    final boundary = _boundary;
+    if (boundary is! SubPathMemoryFileBoundary) {
+      throw const WorkspaceStorageException.io(
+        'Bound workspace is unavailable.',
+      );
+    }
+    return (boundary as SubPathMemoryFileBoundary).listSubPath(
+      relativeDirectory,
+    );
+  }
+
+  Future<WorkspaceCompareWriteResult> compareWriteText(
+    String relativePath,
+    String? expectedContent,
+    String content,
+  ) async {
+    final boundary = _boundary;
+    if (boundary is! CompareWriteSubPathMemoryFileBoundary) {
+      throw const WorkspaceStorageException.io(
+        'Bound atomic writes are unavailable.',
+      );
+    }
+    return (boundary as CompareWriteSubPathMemoryFileBoundary)
+        .compareWriteSubPath(relativePath, expectedContent, content);
+  }
+
+  Future<SkillCommitResult> commitSkillCandidate({
+    required String name,
+    required String content,
+    required String? expectedHash,
+    required int maxCount,
+    required int maxTotalBytes,
+  }) async {
+    final boundary = _boundary;
+    if (boundary is! SkillCandidateCommitBoundary) {
+      return SkillCommitResult.unsupported;
+    }
+    return (boundary as SkillCandidateCommitBoundary).commitSkillCandidate(
+      name: name,
+      content: content,
+      expectedHash: expectedHash,
+      maxCount: maxCount,
+      maxTotalBytes: maxTotalBytes,
+    );
+  }
+}
+
+class WorkspaceBindingSnapshot {
+  const WorkspaceBindingSnapshot({
+    required this.isContentUri,
+    required this.value,
+    required this.identity,
+  });
+  final bool isContentUri;
+  final String value;
+  final String identity;
+  Map<String, Object?> toJson() => {
+    'isContentUri': isContentUri,
+    'value': value,
+    'identity': identity,
+  };
+  factory WorkspaceBindingSnapshot.fromJson(Map<dynamic, dynamic> json) =>
+      WorkspaceBindingSnapshot(
+        isContentUri: json['isContentUri'] == true,
+        value: json['value'].toString(),
+        identity: json['identity'].toString(),
+      );
 }
 
 class _UnavailableBinaryBoundary implements BinarySubPathMemoryFileBoundary {

@@ -45,6 +45,7 @@ format: dart format .
 - Context Injector must deterministically prepend one atomic snapshot of the selected `.md` memory files and active Agent system prompts into System Prompt before sending requests.
 - Native `update_memory_file` proposals must target approved filenames, persist the exact diff plus permission snapshot, require explicit confirm or reject, and revalidate current permissions before mutation.
 - User retains 100% full control and manual editing capabilities over memory files and agent prompt files.
+- Post-success skill learning is request-scoped and bounded to one stable reusable procedure. New trusted-local skills may be create-if-absent automatically; public-source-derived creates and every overwrite require persisted exact confirmation. Re-read and hash-check existing content at confirmation so manual edits are never overwritten.
 - Agents use dynamically discovered structured `.md` definitions whose frontmatter declares identity, primary/subagent mode, model preference, subagents, and tools; users can create, import, edit, and select them.
 - Subagent delegation has bounded depth and does not mutate parent conversation history or memory.
 - OpenAI-compatible model discovery uses `/v1/models`; settings support model search, visibility, and favorites, while chat provides quick model selection.

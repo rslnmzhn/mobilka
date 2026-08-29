@@ -10,6 +10,7 @@ class ChatState {
     this.showArchived = false,
     this.confirmingMemoryToolCallId,
     this.confirmingToolCallId,
+    this.confirmingSkillName,
   });
 
   final List<Conversation> conversations;
@@ -19,6 +20,7 @@ class ChatState {
   final bool showArchived;
   final String? confirmingMemoryToolCallId;
   final String? confirmingToolCallId;
+  final String? confirmingSkillName;
 
   Conversation? get activeConversation =>
       conversationById(activeConversationId);
@@ -52,6 +54,8 @@ class ChatState {
     bool clearConfirmingMemory = false,
     String? confirmingToolCallId,
     bool clearConfirmingTool = false,
+    String? confirmingSkillName,
+    bool clearConfirmingSkill = false,
   }) => ChatState(
     conversations: conversations ?? this.conversations,
     activeConversationId: clearActiveConversation
@@ -66,6 +70,9 @@ class ChatState {
     confirmingToolCallId: clearConfirmingTool
         ? null
         : (confirmingToolCallId ?? this.confirmingToolCallId),
+    confirmingSkillName: clearConfirmingSkill
+        ? null
+        : (confirmingSkillName ?? this.confirmingSkillName),
   );
 }
 

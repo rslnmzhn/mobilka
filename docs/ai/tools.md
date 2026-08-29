@@ -7,12 +7,21 @@ is advertised only when its name is in the immutable allowed-tool set captured
 from the selected agent. The default agent definition is
 [`general-assistant.md`](../../assets/agents/general-assistant.md).
 
-The current registry and default agent both contain exactly these 12 names:
+The registry retains 13 compatibility definitions; the bundled default agent
+allows exactly 12 and omits legacy `write_skill` in favor of `propose_skill`.
+
+Model-authored skill creation is never confirmation-free. Reflection reliably
+produces one inspectable persisted proposal, and every create or update requires
+explicit user confirmation. JWT/PAT/provider
+tokens, authorization values, URL userinfo, private keys, secret/password/token
+assignments, and raw tool/source blocks are rejected rather than proposed. This
+is a conservative heuristic; users retain direct manual control of skill files.
 
 | Tool | JSON arguments (`additionalProperties: false` where declared) | Runtime owner | Confirmation/effect |
 |---|---|---|---|
 | `generate_docx` | `title: string`, `markdown: string` (both required) | `ArtifactsChatToolRuntime` | Additive; no confirmation. Validates document/quotas, creates app-private MD+DOCX, then best-effort session mirror. |
-| `write_skill` | `name: string`, `content: string` (both required) | `SkillsChatTools` | Immediate write to `skills/<name>.md`; kebab-case name up to 64 characters, content limit 256 KiB. |
+| `write_skill` | `name: string`, `content: string` (both required) | `SkillsChatTools` | Legacy create-only compatibility path; refuses existing files and applies count/total-byte quotas. |
+| `propose_skill` | `name`, `content` | `SkillsChatTools` | Reflection-only safe API. Provenance comes from persisted request state; every valid create/update persists an exact dedicated confirmation proposal and never writes directly. |
 | `read_skill` | `name: string` (required) | `SkillsChatTools` | Reads one skill. |
 | `list_skills` | empty object | `SkillsChatTools` | Lists skill files. |
 | `write_session_notes` | `content: string` (required) | `SessionNotesTools` | Immediate write to the bound session's `session.md`; requires valid session context. |
@@ -102,3 +111,8 @@ execution. If the app restarts while it is executing, recovery records an
 Public-source cache misses conservatively reserve up to 1 MiB from the persisted
 8 MiB budget before opening transport; unused reservation is refunded normally,
 while a crash leaves the reservation charged.
+
+Public-source citations in final answers must use meaningful Markdown labels and
+the absolute `final_url` actually read. The UI independently canonicalizes only
+absolute HTTP(S) links and launches them in an external browser; it never falls
+back to a local-file opener.
