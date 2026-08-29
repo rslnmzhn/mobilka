@@ -45,7 +45,8 @@ final List<RouteBase> appRoutes = [
     ),
   ),
   StatefulShellRoute.indexedStack(
-    builder: (context, state, shell) => AppShell(shell: shell),
+    builder: (context, state, shell) =>
+        AppShell(shell: shell, currentPath: state.uri.path),
     branches: [
       StatefulShellBranch(
         routes: [

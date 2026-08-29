@@ -3,14 +3,52 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
+import 'mobile_dock.dart';
 
 const double compactShellBreakpoint = 760;
 const double expandedShellBreakpoint = 1100;
 
-class AppShell extends StatelessWidget {
-  const AppShell({super.key, required this.shell});
+bool isCollapsedMobileDockPath(String path) => path == '/chat';
+
+class AppShell extends StatefulWidget {
+  const AppShell({super.key, required this.shell, required this.currentPath});
 
   final StatefulNavigationShell shell;
+  final String currentPath;
+
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  late bool _mobileDockExpanded;
+  bool? _wasNarrow;
+
+  bool get _isChatRoot => isCollapsedMobileDockPath(widget.currentPath);
+
+  @override
+  void initState() {
+    super.initState();
+    _mobileDockExpanded = !_isChatRoot;
+  }
+
+  @override
+  void didUpdateWidget(covariant AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentPath != widget.currentPath) {
+      _mobileDockExpanded = !_isChatRoot;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final narrow = MediaQuery.sizeOf(context).width < compactShellBreakpoint;
+    if (_wasNarrow == false && narrow) {
+      _mobileDockExpanded = !_isChatRoot;
+    }
+    _wasNarrow = narrow;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -21,8 +59,15 @@ class AppShell extends StatelessWidget {
       (Icons.folder_copy_outlined, Icons.folder_copy, 'nav.memory'.tr()),
       (Icons.tune_outlined, Icons.tune, 'nav.settings'.tr()),
     ];
-    void select(int index) =>
-        shell.goBranch(index, initialLocation: index == shell.currentIndex);
+    void select(int index) {
+      if (index == 0 && _mobileDockExpanded) {
+        setState(() => _mobileDockExpanded = false);
+      }
+      widget.shell.goBranch(
+        index,
+        initialLocation: index == widget.shell.currentIndex,
+      );
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -30,17 +75,17 @@ class AppShell extends StatelessWidget {
           return _DesktopFrame(
             navigation: _ExpandedNavigation(
               destinations: destinations,
-              selectedIndex: shell.currentIndex,
+              selectedIndex: widget.shell.currentIndex,
               onSelect: select,
             ),
-            child: shell,
+            child: widget.shell,
           );
         }
         if (constraints.maxWidth >= compactShellBreakpoint) {
           return _DesktopFrame(
             navigation: NavigationRail(
               backgroundColor: Colors.transparent,
-              selectedIndex: shell.currentIndex,
+              selectedIndex: widget.shell.currentIndex,
               onDestinationSelected: select,
               labelType: NavigationRailLabelType.none,
               groupAlignment: -0.72,
@@ -58,32 +103,19 @@ class AppShell extends StatelessWidget {
                   )
                   .toList(),
             ),
-            child: shell,
+            child: widget.shell,
           );
         }
         return Scaffold(
-          body: shell,
-          bottomNavigationBar: DecoratedBox(
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(color: _workbench(context).divider, width: 0.7),
-              ),
-            ),
-            child: NavigationBar(
-              height: 52,
-              selectedIndex: shell.currentIndex,
-              onDestinationSelected: select,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
-              destinations: destinations
-                  .map(
-                    (destination) => NavigationDestination(
-                      icon: Icon(destination.$1),
-                      selectedIcon: Icon(destination.$2),
-                      label: destination.$3,
-                    ),
-                  )
-                  .toList(),
-            ),
+          body: widget.shell,
+          bottomNavigationBar: MobileDock(
+            expanded: _mobileDockExpanded || !_isChatRoot,
+            canCollapse: _isChatRoot,
+            destinations: destinations,
+            selectedIndex: widget.shell.currentIndex,
+            onSelect: select,
+            onShow: () => setState(() => _mobileDockExpanded = true),
+            onHide: () => setState(() => _mobileDockExpanded = false),
           ),
         );
       },
