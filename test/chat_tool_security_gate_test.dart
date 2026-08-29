@@ -6,6 +6,7 @@ import 'package:mobilka/features/chat/application/request_tool_security_state.da
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/chat_tool.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
+import 'package:mobilka/features/chat/domain/request_execution_ledger.dart';
 
 void main() {
   test('successful source taints request and gates later mutation', () async {
@@ -20,10 +21,18 @@ void main() {
         return updated;
       },
     );
-    await executor.execute(_request(), 'assistant', const [
-      ChatToolCall(id: 'source', name: 'read_public_source', arguments: '{}'),
-      ChatToolCall(id: 'write', name: 'write_skill', arguments: '{"x":1}'),
-    ], securityState: _security());
+    await executor.execute(
+      _request(),
+      'assistant',
+      const [
+        ChatToolCall(id: 'source', name: 'read_public_source', arguments: '{}'),
+        ChatToolCall(id: 'write', name: 'write_skill', arguments: '{"x":1}'),
+      ],
+      securityState: _security(
+        () => conversation,
+        (value) => conversation = value,
+      ),
+    );
     expect(runtime.executed, ['read_public_source']);
     expect(conversation.pendingToolProposal?.call.name, 'write_skill');
     expect(conversation.pendingToolProposal?.call.arguments, '{"x":1}');
@@ -44,11 +53,23 @@ void main() {
           return updated;
         },
       );
-      await executor.execute(_request(), 'assistant', const [
-        ChatToolCall(id: 'write', name: 'write_skill', arguments: '{}'),
-        ChatToolCall(id: 'source', name: 'read_public_source', arguments: '{}'),
-        ChatToolCall(id: 'read', name: 'read_skill', arguments: '{}'),
-      ], securityState: _security());
+      await executor.execute(
+        _request(),
+        'assistant',
+        const [
+          ChatToolCall(id: 'write', name: 'write_skill', arguments: '{}'),
+          ChatToolCall(
+            id: 'source',
+            name: 'read_public_source',
+            arguments: '{}',
+          ),
+          ChatToolCall(id: 'read', name: 'read_skill', arguments: '{}'),
+        ],
+        securityState: _security(
+          () => conversation,
+          (value) => conversation = value,
+        ),
+      );
       expect(runtime.executed, [
         'write_skill',
         'read_public_source',
@@ -70,10 +91,18 @@ void main() {
         return updated;
       },
     );
-    await executor.execute(_request(), 'assistant', const [
-      ChatToolCall(id: 'source', name: 'read_public_source', arguments: '{}'),
-      ChatToolCall(id: 'future', name: 'future_tool', arguments: '{}'),
-    ], securityState: _security());
+    await executor.execute(
+      _request(),
+      'assistant',
+      const [
+        ChatToolCall(id: 'source', name: 'read_public_source', arguments: '{}'),
+        ChatToolCall(id: 'future', name: 'future_tool', arguments: '{}'),
+      ],
+      securityState: _security(
+        () => conversation,
+        (value) => conversation = value,
+      ),
+    );
     expect(runtime.executed, ['read_public_source']);
     expect(conversation.pendingToolProposal?.effect, ChatToolEffect.sensitive);
   });
@@ -86,8 +115,11 @@ void main() {
       final executor = _executor(runtime, () => conversation, (value) {
         conversation = value;
       });
-      final security = _security()
-        ..markSourceTainted(conversationId: 'c', requestId: 'request');
+      conversation = _tainted(conversation);
+      final security = _security(
+        () => conversation,
+        (value) => conversation = value,
+      );
       await executor.execute(_request(), 'assistant', const [
         ChatToolCall(id: 'first', name: 'write_skill', arguments: '{"n":1}'),
         ChatToolCall(id: 'second', name: 'write_skill', arguments: '{"n":2}'),
@@ -109,10 +141,22 @@ void main() {
       final executor = _executor(runtime, () => conversation, (value) {
         conversation = value;
       });
-      await executor.execute(_request(), 'assistant', const [
-        ChatToolCall(id: 'switch', name: 'switch_persona', arguments: '{}'),
-        ChatToolCall(id: 'memory', name: 'update_memory_file', arguments: '{}'),
-      ], securityState: _security());
+      await executor.execute(
+        _request(),
+        'assistant',
+        const [
+          ChatToolCall(id: 'switch', name: 'switch_persona', arguments: '{}'),
+          ChatToolCall(
+            id: 'memory',
+            name: 'update_memory_file',
+            arguments: '{}',
+          ),
+        ],
+        securityState: _security(
+          () => conversation,
+          (value) => conversation = value,
+        ),
+      );
       expect(runtime.executed, contains('switch_persona'));
       expect(conversation.pendingToolProposal, isNull);
     },
@@ -124,8 +168,11 @@ void main() {
     final executor = _executor(runtime, () => conversation, (value) {
       conversation = value;
     });
-    final security = _security()
-      ..markSourceTainted(conversationId: 'c', requestId: 'request');
+    conversation = _tainted(conversation);
+    final security = _security(
+      () => conversation,
+      (value) => conversation = value,
+    );
     await executor.execute(_request(), 'assistant', const [
       ChatToolCall(
         id: 'memory',
@@ -170,8 +217,38 @@ Conversation _conversation() => Conversation(
   ],
 );
 
-RequestToolSecurityState _security() =>
-    RequestToolSecurityState(conversationId: 'c', requestId: 'request');
+RequestToolSecurityState _security(
+  Conversation Function() get,
+  void Function(Conversation) set,
+) => RequestToolSecurityState(
+  conversationId: 'c',
+  requestId: 'request',
+  readLedger: () =>
+      get().requestExecutionLedger ??
+      const RequestExecutionLedger(requestId: 'request', entries: []),
+  appendLedgerEntry: (entry) async {
+    final current =
+        get().requestExecutionLedger ??
+        const RequestExecutionLedger(requestId: 'request', entries: []);
+    final ledger = current.append(entry);
+    set(get().copyWith(requestExecutionLedger: ledger));
+    return ledger;
+  },
+);
+
+Conversation _tainted(Conversation conversation) => conversation.copyWith(
+  requestExecutionLedger: const RequestExecutionLedger(
+    requestId: 'request',
+    entries: [
+      ToolExecutionLedgerEntry(
+        requestId: 'request',
+        toolName: 'read_public_source',
+        succeeded: true,
+        trust: ToolOutcomeTrust.publicSource,
+      ),
+    ],
+  ),
+);
 
 ChatStreamRequest _request() => ChatStreamRequest(
   conversationId: 'c',

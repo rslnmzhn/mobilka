@@ -2,6 +2,8 @@ import '../domain/chat_message.dart';
 import '../domain/chat_tool.dart';
 import '../domain/pending_memory_proposal.dart';
 import '../../memory/application/workspace_paths.dart';
+import '../domain/pending_skill_proposal.dart';
+import 'request_tool_security_state.dart';
 
 abstract interface class ChatToolRuntime {
   Future<List<ChatToolDefinition>> availableTools(Set<String> allowedTools);
@@ -22,6 +24,7 @@ class ChatToolExecutionContext {
     this.consumePublicSourceWireBytes,
     this.reservePublicSourceWireBytes,
     this.refundPublicSourceWireBytes,
+    this.skillReflection,
   });
 
   final String conversationId;
@@ -31,6 +34,33 @@ class ChatToolExecutionContext {
   final Future<void> Function(int bytes)? consumePublicSourceWireBytes;
   final Future<int> Function(int maximum)? reservePublicSourceWireBytes;
   final Future<void> Function(int unused)? refundPublicSourceWireBytes;
+  final SkillReflectionToolContext? skillReflection;
+}
+
+class SkillReflectionToolContext {
+  SkillReflectionToolContext({
+    required this.conversationId,
+    required this.requestId,
+    required this.assistantMessageId,
+    required this.provenance,
+    required this.permissionSnapshot,
+    required this.workspaceBindingSnapshot,
+    required this.selectedAgentId,
+    required this.persistProposal,
+  });
+
+  final String conversationId;
+  final String requestId;
+  final String assistantMessageId;
+  final SkillLearningProvenance provenance;
+  bool get sourceDerived => provenance.sourceDerived;
+  final String? permissionSnapshot;
+  final WorkspaceBindingSnapshot workspaceBindingSnapshot;
+  final String? selectedAgentId;
+  final Future<bool> Function(PendingSkillProposal proposal) persistProposal;
+  bool listed = false;
+  final Set<String> readNames = {};
+  bool proposed = false;
 }
 
 abstract interface class ChatToolCancellation {

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import 'package:synchronized/synchronized.dart';
 
 import 'memory_file_store_contracts.dart';
@@ -8,11 +11,16 @@ class SafMemoryFileStore
     implements
         MemoryFileStore,
         SubPathMemoryFileBoundary,
+        CompareWriteSubPathMemoryFileBoundary,
+        SkillCandidateCommitBoundary,
+        ExclusiveSkillCreateBoundary,
         BinarySubPathMemoryFileBoundary {
   SafMemoryFileStore(this.directoryUri, this._access);
 
   final String directoryUri;
   final SafMemoryAccess _access;
+  @override
+  bool get supportsExclusiveCreateAndVerifiedReadback => false;
   static final Map<String, Lock> _directoryLocks = {};
   Lock get _lock => _directoryLocks.putIfAbsent(directoryUri, Lock.new);
 
@@ -111,6 +119,126 @@ class SafMemoryFileStore
       );
       return true;
     });
+  }
+
+  @override
+  Future<WorkspaceCompareWriteResult> compareWriteSubPath(
+    String relativePath,
+    String? expectedContent,
+    String content,
+  ) async {
+    final parts = MemoryFileValidation.subPath(relativePath);
+    if (parts == null) return WorkspaceCompareWriteResult.failed;
+    return _lock.synchronized(() async {
+      final parent = await _resolveOrCreateDirectories(
+        parts.sublist(0, parts.length - 1),
+      );
+      final leaf = await _resolveExactChild(
+        parent,
+        parts.last,
+        expectedDirectory: false,
+        allowMissing: true,
+      );
+      final current = leaf == null
+          ? null
+          : MemoryFileCodec.decode(await _access.read(leaf.uri));
+      if (current != expectedContent) {
+        return WorkspaceCompareWriteResult.conflict;
+      }
+      await _access.write(
+        parent,
+        parts.last,
+        MemoryFileCodec.encode(content),
+        overwrite: expectedContent != null,
+      );
+      return WorkspaceCompareWriteResult.written;
+    });
+  }
+
+  @override
+  Future<SkillCommitResult> commitSkillCandidate({
+    required String name,
+    required String content,
+    required String? expectedHash,
+    required int maxCount,
+    required int maxTotalBytes,
+  }) async {
+    if (!MemoryFileValidation.isSafeSkillFileName(name)) {
+      return SkillCommitResult.failed;
+    }
+    return _lock.synchronized(
+      () => _commitSkillLocked(
+        name: name,
+        content: content,
+        expectedHash: expectedHash,
+        maxCount: maxCount,
+        maxTotalBytes: maxTotalBytes,
+      ),
+    );
+  }
+
+  Future<SkillCommitResult> _commitSkillLocked({
+    required String name,
+    required String content,
+    required String? expectedHash,
+    required int maxCount,
+    required int maxTotalBytes,
+  }) async {
+    final parent = await _resolveOrCreateDirectories(const ['skills']);
+    final safe = (await _access.list(parent))
+        .where((item) => MemoryFileValidation.isSafeSkillFileName(item.name))
+        .toList();
+    if (safe.any((item) => item.isDirectory)) {
+      return SkillCommitResult.unsupported;
+    }
+    final matches = safe.where((item) => item.name == name).toList();
+    if (matches.length > 1) return SkillCommitResult.unsupported;
+    final current = matches.singleOrNull;
+    final bytes = current == null ? null : await _access.read(current.uri);
+    if ((bytes == null ? null : sha256.convert(bytes).toString()) !=
+        expectedHash) {
+      return SkillCommitResult.conflict;
+    }
+    final incoming = utf8.encode(content);
+    final total = await _skillBytes(safe, name, incoming.length);
+    if ((current == null && safe.length >= maxCount) || total > maxTotalBytes) {
+      return SkillCommitResult.quotaExceeded;
+    }
+    return _writeAndVerifySkill(parent, name, incoming, current);
+  }
+
+  Future<SkillCommitResult> _writeAndVerifySkill(
+    String parent,
+    String name,
+    Uint8List incoming,
+    SafMemoryDocument? current,
+  ) async {
+    await _access.write(parent, name, incoming, overwrite: current != null);
+    final verified = await _resolveExactChild(
+      parent,
+      name,
+      expectedDirectory: false,
+      allowMissing: false,
+    );
+    if (verified == null || (current != null && verified.uri != current.uri)) {
+      return SkillCommitResult.unsupported;
+    }
+    return sha256.convert(await _access.read(verified.uri)) ==
+            sha256.convert(incoming)
+        ? SkillCommitResult.written
+        : SkillCommitResult.failed;
+  }
+
+  Future<int> _skillBytes(
+    List<SafMemoryDocument> safe,
+    String name,
+    int incomingBytes,
+  ) async {
+    var total = incomingBytes;
+    for (final item in safe.where((item) => item.name != name)) {
+      total += (await _access.read(item.uri)).length;
+    }
+    return total;
   }
 
   @override

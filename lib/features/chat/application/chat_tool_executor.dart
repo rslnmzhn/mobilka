@@ -64,6 +64,35 @@ class ChatToolExecutor {
     ChatToolCancellation? cancellation,
     required RequestToolSecurityState securityState,
   }) async {
+    if (!await _prepare(request, assistantId, calls)) return false;
+    final state = _ToolExecutionState(
+      context: _executionContext(request, cancellation),
+    );
+    for (final indexedCall in calls.indexed) {
+      await _dispatchCall(
+        request,
+        assistantId,
+        calls,
+        indexedCall.$1,
+        state,
+        securityState,
+      );
+    }
+    if (!await _persistResults(request, assistantId, state)) return false;
+    if (state.budgetExceeded) {
+      throw const PublicSourceFailure('conversation_wire_budget_exceeded');
+    }
+    if (state.memoryProposal != null) {
+      _onPendingMemoryProposal?.call(state.memoryProposal!);
+    }
+    return state.memoryProposal == null && state.toolProposal == null;
+  }
+
+  Future<bool> _prepare(
+    ChatStreamRequest request,
+    String assistantId,
+    List<ChatToolCall> calls,
+  ) async {
     final prepared = await persistMutation(request.conversationId, (latest) {
       if (latest.pendingRequestMessageId != request.requestMessageId) {
         return null;
@@ -86,122 +115,178 @@ class ChatToolExecutor {
         prepared.pendingRequestMessageId != request.requestMessageId) {
       return false;
     }
-    PendingMemoryProposal? pendingProposal;
-    final results = <ChatMessage>[];
-    var budgetExceeded = false;
-    final executionContext = ChatToolExecutionContext(
+    return true;
+  }
+
+  ChatToolExecutionContext _executionContext(
+    ChatStreamRequest request,
+    ChatToolCancellation? cancellation,
+  ) {
+    return ChatToolExecutionContext(
       conversationId: request.conversationId,
       sessionKey: request.sessionKey,
       workspaceBinding: request.workspaceBinding,
       cancellation: cancellation,
       consumePublicSourceWireBytes: (bytes) =>
-          _consumeWireBytes(request, bytes).catchError((error) {
-            if (error is PublicSourceFailure &&
-                error.code == 'conversation_wire_budget_exceeded') {
-              budgetExceeded = true;
-            }
-            throw error;
-          }),
+          _consumeWireBytes(request, bytes),
       reservePublicSourceWireBytes: (maximum) =>
           _reserveWireBytes(request, maximum),
       refundPublicSourceWireBytes: (unused) =>
           _refundWireBytes(request, unused),
     );
-    PendingToolProposal? pendingToolProposal;
-    for (final indexedCall in calls.indexed) {
-      final call = indexedCall.$2;
-      final occurrence = calls
-          .take(indexedCall.$1)
-          .where((candidate) => candidate.id == call.id)
-          .length;
-      final definition = await _definitionFor(call, request.allowedTools);
-      final effect = resolveChatToolEffect(definition, call);
-      if (securityState.sourceTainted &&
-          effect != ChatToolEffect.readOnly &&
-          effect != ChatToolEffect.runtimeConfirmed) {
-        pendingToolProposal ??= PendingToolProposal(
-          conversationId: request.conversationId,
-          requestId: request.requestMessageId,
-          assistantMessageId: assistantId,
-          callOccurrence: occurrence,
-          call: call,
-          selectedAgentId: request.selectedAgentId,
-          allowedTools: request.allowedTools,
-          effect: effect,
-          sourceTainted: true,
-          permissionSnapshot: request.workspaceBinding?.permissionSnapshot,
-          createdAt: DateTime.now(),
-        );
-        if (pendingToolProposal.call.id != call.id) {
-          results.add(
-            _toolErrorResult(call, 'confirmation_pending', results.length),
-          );
-        }
-        continue;
-      }
-      if (_memoryDispatcher.handles(call)) {
-        if (pendingProposal != null) {
-          results.add(
-            _toolErrorResult(
-              call,
-              'Only one memory proposal can be active per response.',
-              results.length,
-            ),
-          );
-          continue;
-        }
-        final dispatched = await _memoryDispatcher.dispatch(
-          runtime: runtime,
-          call: call,
-          assistantId: assistantId,
-          selectedAgentId: request.selectedAgentId,
-          allowedTools: request.allowedTools,
-          occurrence: occurrence,
-          resultIndex: results.length,
-        );
-        pendingProposal = dispatched.proposal;
-        if (dispatched.result != null) results.add(dispatched.result!);
-        continue;
-      }
-      if (pendingProposal != null) {
-        results.add(
-          _toolErrorResult(
-            call,
-            'Tool call was not executed while a memory proposal awaits confirmation.',
-            results.length,
-          ),
-        );
-        continue;
-      }
-      try {
-        final output = await runtime.executeTool(
-          call,
-          request.allowedTools,
-          context: executionContext,
-        );
-        results.add(_toolResult(call, output, results.length));
-        if (call.name == 'read_public_source' && _isSuccessful(output)) {
-          securityState.markSourceTainted(
-            conversationId: request.conversationId,
-            requestId: request.requestMessageId,
-          );
-        }
-      } on FormatException catch (error) {
-        results.add(_toolErrorResult(call, error.message, results.length));
-      } on Object catch (error) {
-        _logger?.log(
-          event: 'tool.execution',
-          level: AppLogLevel.error,
-          conversationId: request.conversationId,
-          toolCallId: call.id,
-          status: 'failed',
-          error: error,
-        );
-        results.add(
-          _toolErrorResult(call, unexpectedToolError, results.length),
-        );
-      }
+  }
+
+  Future<void> _dispatchCall(
+    ChatStreamRequest request,
+    String assistantId,
+    List<ChatToolCall> calls,
+    int index,
+    _ToolExecutionState state,
+    RequestToolSecurityState security,
+  ) async {
+    final call = calls[index];
+    final occurrence = calls
+        .take(index)
+        .where((candidate) => candidate.id == call.id)
+        .length;
+    final definition = await _definitionFor(call, request.allowedTools);
+    final effect = resolveChatToolEffect(definition, call);
+    if (security.sourceTainted &&
+        effect != ChatToolEffect.readOnly &&
+        effect != ChatToolEffect.runtimeConfirmed) {
+      _gateSourceTainted(request, assistantId, call, occurrence, effect, state);
+      return;
     }
+    if (_memoryDispatcher.handles(call)) {
+      await _dispatchMemory(request, assistantId, call, occurrence, state);
+      return;
+    }
+    if (state.memoryProposal != null) {
+      state.addError(
+        call,
+        'Tool call was not executed while a memory proposal awaits confirmation.',
+        this,
+      );
+      return;
+    }
+    await _executeRuntime(request, call, state, security);
+  }
+
+  void _gateSourceTainted(
+    ChatStreamRequest request,
+    String assistantId,
+    ChatToolCall call,
+    int occurrence,
+    ChatToolEffect effect,
+    _ToolExecutionState state,
+  ) {
+    state.toolProposal ??= PendingToolProposal(
+      conversationId: request.conversationId,
+      requestId: request.requestMessageId,
+      assistantMessageId: assistantId,
+      callOccurrence: occurrence,
+      call: call,
+      selectedAgentId: request.selectedAgentId,
+      allowedTools: request.allowedTools,
+      effect: effect,
+      sourceTainted: true,
+      permissionSnapshot: request.workspaceBinding?.permissionSnapshot,
+      createdAt: DateTime.now(),
+    );
+    if (state.toolProposal!.call.id != call.id) {
+      state.addError(call, 'confirmation_pending', this);
+    }
+  }
+
+  Future<void> _dispatchMemory(
+    ChatStreamRequest request,
+    String assistantId,
+    ChatToolCall call,
+    int occurrence,
+    _ToolExecutionState state,
+  ) async {
+    if (state.memoryProposal != null) {
+      state.addError(
+        call,
+        'Only one memory proposal can be active per response.',
+        this,
+      );
+      return;
+    }
+    final dispatched = await _memoryDispatcher.dispatch(
+      runtime: runtime,
+      call: call,
+      assistantId: assistantId,
+      selectedAgentId: request.selectedAgentId,
+      allowedTools: request.allowedTools,
+      occurrence: occurrence,
+      resultIndex: state.results.length,
+    );
+    state.memoryProposal = dispatched.proposal;
+    if (dispatched.result != null) state.results.add(dispatched.result!);
+  }
+
+  Future<void> _executeRuntime(
+    ChatStreamRequest request,
+    ChatToolCall call,
+    _ToolExecutionState state,
+    RequestToolSecurityState security,
+  ) async {
+    try {
+      final output = await runtime.executeTool(
+        call,
+        request.allowedTools,
+        context: state.context,
+      );
+      state.results.add(_toolResult(call, output, state.results.length));
+      final succeeded = _isSuccessful(output);
+      await security.recordOutcome(toolName: call.name, succeeded: succeeded);
+    } on FormatException catch (error) {
+      await _recordFailure(request, call, error.message, state, security);
+    } on PublicSourceFailure catch (error) {
+      if (error.code == 'conversation_wire_budget_exceeded') {
+        state.budgetExceeded = true;
+      }
+      await _recordUnexpectedFailure(request, call, error, state, security);
+    } on Object catch (error) {
+      await _recordUnexpectedFailure(request, call, error, state, security);
+    }
+  }
+
+  Future<void> _recordFailure(
+    ChatStreamRequest request,
+    ChatToolCall call,
+    String message,
+    _ToolExecutionState state,
+    RequestToolSecurityState security,
+  ) async {
+    await security.recordOutcome(toolName: call.name, succeeded: false);
+    state.addError(call, message, this);
+  }
+
+  Future<void> _recordUnexpectedFailure(
+    ChatStreamRequest request,
+    ChatToolCall call,
+    Object error,
+    _ToolExecutionState state,
+    RequestToolSecurityState security,
+  ) async {
+    await _recordFailure(request, call, unexpectedToolError, state, security);
+    _logger?.log(
+      event: 'tool.execution',
+      level: AppLogLevel.error,
+      conversationId: request.conversationId,
+      toolCallId: call.id,
+      status: 'failed',
+      error: error,
+    );
+  }
+
+  Future<bool> _persistResults(
+    ChatStreamRequest request,
+    String assistantId,
+    _ToolExecutionState state,
+  ) async {
     final persisted = await persistMutation(request.conversationId, (latest) {
       if (latest.pendingRequestMessageId != request.requestMessageId) {
         return null;
@@ -214,23 +299,17 @@ class ChatToolExecutor {
                 ? message.copyWith(status: ChatMessageStatus.complete)
                 : message,
           ),
-          ...results,
+          ...state.results,
         ],
-        pendingMemoryProposal: pendingProposal,
-        pendingToolProposal: pendingToolProposal,
+        pendingMemoryProposal: state.memoryProposal,
+        pendingToolProposal: state.toolProposal,
       );
     });
     if (persisted == null ||
         persisted.pendingRequestMessageId != request.requestMessageId) {
       return false;
     }
-    if (budgetExceeded) {
-      throw const PublicSourceFailure('conversation_wire_budget_exceeded');
-    }
-    if (pendingProposal != null) {
-      _onPendingMemoryProposal?.call(pendingProposal);
-    }
-    return pendingProposal == null && pendingToolProposal == null;
+    return true;
   }
 
   Future<ChatToolDefinition?> _definitionFor(
@@ -325,4 +404,18 @@ class ChatToolExecutor {
 
   ChatMessage _toolErrorResult(ChatToolCall call, String error, int index) =>
       _toolResult(call, jsonEncode({'ok': false, 'error': error}), index);
+}
+
+class _ToolExecutionState {
+  _ToolExecutionState({required this.context});
+
+  final ChatToolExecutionContext context;
+  final results = <ChatMessage>[];
+  PendingMemoryProposal? memoryProposal;
+  PendingToolProposal? toolProposal;
+  var budgetExceeded = false;
+
+  void addError(ChatToolCall call, String message, ChatToolExecutor executor) {
+    results.add(executor._toolErrorResult(call, message, results.length));
+  }
 }

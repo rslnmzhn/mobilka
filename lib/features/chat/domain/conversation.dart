@@ -2,6 +2,8 @@ import 'chat_message.dart';
 import 'chat_stream_event.dart';
 import 'pending_memory_proposal.dart';
 import 'pending_tool_proposal.dart';
+import 'pending_skill_proposal.dart';
+import 'request_execution_ledger.dart';
 
 enum ConversationTitleState { pendingAutomatic, generated, fallback, manual }
 
@@ -22,6 +24,8 @@ class Conversation {
     this.titleState = ConversationTitleState.manual,
     this.publicSourceWireBytesUsed = 0,
     this.pendingToolProposal,
+    this.pendingSkillProposal,
+    this.requestExecutionLedger,
   });
 
   final String id;
@@ -39,6 +43,8 @@ class Conversation {
   final ConversationTitleState titleState;
   final int publicSourceWireBytesUsed;
   final PendingToolProposal? pendingToolProposal;
+  final PendingSkillProposal? pendingSkillProposal;
+  final RequestExecutionLedger? requestExecutionLedger;
 
   Conversation copyWith({
     String? title,
@@ -56,6 +62,10 @@ class Conversation {
     int? publicSourceWireBytesUsed,
     PendingToolProposal? pendingToolProposal,
     bool clearPendingToolProposal = false,
+    PendingSkillProposal? pendingSkillProposal,
+    bool clearPendingSkillProposal = false,
+    RequestExecutionLedger? requestExecutionLedger,
+    bool clearRequestExecutionLedger = false,
   }) => Conversation(
     id: id,
     title: title ?? this.title,
@@ -79,6 +89,12 @@ class Conversation {
     pendingToolProposal: clearPendingToolProposal
         ? null
         : (pendingToolProposal ?? this.pendingToolProposal),
+    pendingSkillProposal: clearPendingSkillProposal
+        ? null
+        : (pendingSkillProposal ?? this.pendingSkillProposal),
+    requestExecutionLedger: clearRequestExecutionLedger
+        ? null
+        : (requestExecutionLedger ?? this.requestExecutionLedger),
   );
 
   Map<String, dynamic> toJson() => {
@@ -96,6 +112,8 @@ class Conversation {
     'titleState': titleState.name,
     'publicSourceWireBytesUsed': publicSourceWireBytesUsed,
     'pendingToolProposal': pendingToolProposal?.toJson(),
+    'pendingSkillProposal': pendingSkillProposal?.toJson(),
+    'requestExecutionLedger': requestExecutionLedger?.toJson(),
     'messages': messages.map((message) => message.toStorageJson()).toList(),
   };
 
@@ -131,6 +149,14 @@ class Conversation {
       publicSourceWireBytesUsed: _wireBytes(json['publicSourceWireBytesUsed']),
       pendingToolProposal: json['pendingToolProposal'] is Map
           ? PendingToolProposal.fromJson(json['pendingToolProposal'] as Map)
+          : null,
+      pendingSkillProposal: json['pendingSkillProposal'] is Map
+          ? PendingSkillProposal.fromJson(json['pendingSkillProposal'] as Map)
+          : null,
+      requestExecutionLedger: json['requestExecutionLedger'] is Map
+          ? RequestExecutionLedger.fromJson(
+              json['requestExecutionLedger'] as Map,
+            )
           : null,
     );
   }

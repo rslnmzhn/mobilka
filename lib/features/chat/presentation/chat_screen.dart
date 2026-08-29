@@ -8,14 +8,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/route_locations.dart';
 import '../../models/application/models_controller.dart';
-import '../../models/domain/model_capabilities.dart';
 import '../application/chat_controller.dart';
 import '../domain/chat_message.dart';
-import '../domain/tool_execution.dart';
-import 'chat_composer.dart';
 import 'chat_edge_swipe_access.dart';
 import 'chat_header.dart';
-import 'chat_message_widgets.dart';
+import 'chat_screen_body.dart';
 import 'conversations_drawer.dart';
 
 export 'chat_composer.dart' show ChatComposer;
@@ -168,6 +165,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final chat = ref.watch(chatControllerProvider);
     final models = ref.watch(modelsControllerProvider);
+    _listenForVisibleMessages();
+    return _scaffold(chat, models);
+  }
+
+  void _listenForVisibleMessages() {
     ref.listen<AsyncValue<ChatState>>(chatControllerProvider, (previous, next) {
       final before = previous?.valueOrNull?.activeConversation;
       final after = next.valueOrNull?.activeConversation;
@@ -181,23 +183,36 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       }
     });
-    return Scaffold(
-      key: scaffoldKey,
-      appBar: ChatHeaderBar(
-        title:
-            chat.value?.activeConversation?.title ?? 'chatNoConversation'.tr(),
-        modelId:
-            chat.value?.activeConversation?.modelId ??
-            models.value?.selectedModelId,
-        onModelPressed: models.value == null
-            ? () {}
-            : () => _selectModel(models.value!),
-        onNewChat: models.isLoading
-            ? null
-            : () => _createConversation(models.value),
-      ),
-      drawer: ConversationsDrawer(chat: chat),
-      body: Builder(
+  }
+
+  Widget _scaffold(
+    AsyncValue<ChatState> chat,
+    AsyncValue<ModelsState> models,
+  ) => Scaffold(
+    key: scaffoldKey,
+    appBar: _appBar(chat, models),
+    drawer: ConversationsDrawer(chat: chat),
+    body: _body(chat, models),
+  );
+
+  PreferredSizeWidget _appBar(
+    AsyncValue<ChatState> chat,
+    AsyncValue<ModelsState> models,
+  ) => ChatHeaderBar(
+    title: chat.value?.activeConversation?.title ?? 'chatNoConversation'.tr(),
+    modelId:
+        chat.value?.activeConversation?.modelId ??
+        models.value?.selectedModelId,
+    onModelPressed: models.value == null
+        ? () {}
+        : () => _selectModel(models.value!),
+    onNewChat: models.isLoading
+        ? null
+        : () => _createConversation(models.value),
+  );
+
+  Widget _body(AsyncValue<ChatState> chat, AsyncValue<ModelsState> models) =>
+      Builder(
         builder: (_) => CallbackShortcuts(
           bindings: {
             const SingleActivator(LogicalKeyboardKey.keyH, control: true):
@@ -217,157 +232,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 canPresent: _canPresentRoute,
                 onHistory: _showHistory,
                 onArtifacts: _showArtifacts,
-                child: chat.when(
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (error, _) => Center(child: Text(error.toString())),
-                  data: (state) {
-                    final conversation = state.activeConversation;
-                    final toolExecutions = projectToolExecutions(conversation);
-                    final messages = conversation?.messages
-                        .where((message) => message.role != ChatRole.tool)
-                        .toList();
-                    return Column(
-                      children: [
-                        if (state.errorMessage != null)
-                          MaterialBanner(
-                            content: Text(state.errorMessage!),
-                            actions: [
-                              TextButton(
-                                onPressed: ref
-                                    .read(chatControllerProvider.notifier)
-                                    .dismissError,
-                                child: Text('common.close'.tr()),
-                              ),
-                            ],
-                          ),
-                        Expanded(
-                          child:
-                              conversation == null ||
-                                  conversation.messages.isEmpty
-                              ? EmptyChat(
-                                  onCreate: () =>
-                                      _createConversation(models.value),
-                                )
-                              : Center(
-                                  child: ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 920,
-                                    ),
-                                    child: Listener(
-                                      onPointerSignal: _onPointerSignal,
-                                      child: NotificationListener<ScrollNotification>(
-                                        onNotification: _onScrollNotification,
-                                        child: ListView.builder(
-                                          controller: scrollController,
-                                          reverse: true,
-                                          padding: const EdgeInsets.fromLTRB(
-                                            20,
-                                            20,
-                                            20,
-                                            12,
-                                          ),
-                                          itemCount: messages!.length,
-                                          itemBuilder: (context, index) {
-                                            final message =
-                                                messages[messages.length -
-                                                    1 -
-                                                    index];
-                                            return MessageCard(
-                                              key: ValueKey(message.id),
-                                              message: message,
-                                              onSendAgain:
-                                                  message.role == ChatRole.user
-                                                  ? () => ref
-                                                        .read(
-                                                          chatControllerProvider
-                                                              .notifier,
-                                                        )
-                                                        .sendAgain(
-                                                          conversation.id,
-                                                          message.id,
-                                                        )
-                                                  : null,
-                                              toolExecutions: toolExecutions
-                                                  .where(
-                                                    (execution) =>
-                                                        execution
-                                                            .assistantMessageId ==
-                                                        message.id,
-                                                  )
-                                                  .toList(growable: false),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                        ),
-                        if (conversation?.pendingMemoryProposal
-                            case final proposal?)
-                          PendingMemoryProposalCard(
-                            fileName: proposal.fileName,
-                            diff: proposal.diff,
-                            isBusy:
-                                state.confirmingMemoryToolCallId ==
-                                proposal.toolCallId,
-                            onConfirm: ref
-                                .read(chatControllerProvider.notifier)
-                                .confirmPendingMemoryProposal,
-                            onReject: ref
-                                .read(chatControllerProvider.notifier)
-                                .rejectPendingMemoryProposal,
-                          ),
-                        if (conversation?.pendingToolProposal
-                            case final proposal?)
-                          PendingToolProposalCard(
-                            toolName: proposal.call.name,
-                            isBusy:
-                                state.confirmingToolCallId == proposal.call.id,
-                            onConfirm: ref
-                                .read(chatControllerProvider.notifier)
-                                .confirmPendingToolProposal,
-                            onReject: ref
-                                .read(chatControllerProvider.notifier)
-                                .rejectPendingToolProposal,
-                          ),
-                        ChatComposer(
-                          controller: composer,
-                          isStreaming: state.isStreaming,
-                          canSend:
-                              models.value?.selectedModelId != null ||
-                              conversation != null,
-                          visionSupported: ModelCapabilityResolver.resolve(
-                            conversation?.modelId ??
-                                models.value?.selectedModelId ??
-                                '',
-                          ).vision,
-                          visionNote: 'chat.visionUnsupported'.tr(),
-                          onCancel: ref
-                              .read(chatControllerProvider.notifier)
-                              .cancel,
-                          onSend: (text, attachments) {
-                            composer.clear();
-                            _pinnedToBottom = true;
-                            WidgetsBinding.instance.addPostFrameCallback(
-                              (_) => _scrollToBottom(),
-                            );
-                            ref
-                                .read(chatControllerProvider.notifier)
-                                .send(text, attachments: attachments);
-                          },
-                        ),
-                      ],
-                    );
-                  },
+                child: ChatScreenBody(
+                  chat: chat,
+                  models: models,
+                  composer: composer,
+                  scrollController: scrollController,
+                  onCreateConversation: () => _createConversation(models.value),
+                  onPointerSignal: _onPointerSignal,
+                  onScrollNotification: _onScrollNotification,
+                  onSend: _send,
                 ),
               ),
             ),
           ),
         ),
-      ),
-    );
+      );
+
+  void _send(String text, List<ChatAttachment> attachments) {
+    composer.clear();
+    _pinnedToBottom = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    ref
+        .read(chatControllerProvider.notifier)
+        .send(text, attachments: attachments);
   }
 }
 
