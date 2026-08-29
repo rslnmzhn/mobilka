@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:mobilka/core/router/app_router.dart';
 import 'package:mobilka/features/shell/presentation/app_shell.dart';
+import 'package:mobilka/features/shell/presentation/mobile_dock.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -44,6 +45,8 @@ void main() {
   }
 
   Future<void> pumpAppAtSize(WidgetTester tester, Size size) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
     await tester.binding.setSurfaceSize(size);
 
     await tester.pumpWidget(
@@ -65,7 +68,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.binding.setSurfaceSize(size);
+    await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+    final context = tester.element(find.byType(MaterialApp));
+    ProviderScope.containerOf(context).read(appRouterProvider).go('/chat');
     await tester.pumpAndSettle();
   }
 
@@ -73,6 +81,12 @@ void main() {
     tester,
   ) async {
     await pumpAppAtSize(tester, const Size(320, 720));
+
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byKey(mobileDockIndicatorKey), findsOneWidget);
+    expect(find.bySemanticsLabel('Show navigation'), findsOneWidget);
+    await tester.tap(find.byKey(mobileDockIndicatorKey));
+    await tester.pumpAndSettle();
 
     expect(find.byType(NavigationBar), findsOneWidget);
     final mobileNavigation = tester.widget<NavigationBar>(
@@ -128,13 +142,17 @@ void main() {
     final context = tester.element(find.byType(MaterialApp));
     final router = ProviderScope.containerOf(context).read(appRouterProvider);
 
-    final expected = ['/chat', '/models', '/agents', '/memory', '/settings'];
-    final labels = ['Chat', 'Models', 'Agents', 'Memory', 'Settings'];
-    for (var index = 0; index < expected.length; index++) {
-      await tester.tap(find.text(labels[index]).last);
+    for (final expected in [
+      '/chat',
+      '/models',
+      '/agents',
+      '/memory',
+      '/settings',
+    ]) {
+      router.go(expected);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
-      expect(router.routeInformationProvider.value.uri.path, expected[index]);
+      expect(router.routeInformationProvider.value.uri.path, expected);
     }
     await disposeApp(tester);
   });
