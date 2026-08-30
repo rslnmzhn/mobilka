@@ -62,7 +62,6 @@ class MemoryRepository {
     'soul.md': '',
     'memory.md':
         '# Память агента\n\nРабочие заметки: находки об инструментах, решения, повторяющиеся паттерны.\n',
-    'personas.yaml': 'personas: {}\n',
   };
 
   /// Migrates historical aliases without merging content. A modern empty or

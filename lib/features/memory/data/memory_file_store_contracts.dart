@@ -24,6 +24,12 @@ abstract interface class DeletingMemoryFileTransaction {
   Future<void> delete(String fileName);
 }
 
+/// One-level dynamic persona tree capability, available inside the same root
+/// transaction used by the recovery journal.
+abstract interface class PersonaTreeTransaction {
+  Future<List<String>> listPersonaFiles();
+}
+
 abstract interface class MemoryFileStore implements MemoryFileBoundary {
   Future<void> createIfMissing(String fileName, String content);
 }
@@ -161,14 +167,29 @@ final class MemoryFileValidation {
     r'^[a-z0-9][a-z0-9_.-]*\.(md|yaml|bak)$',
   );
   static final RegExp _skillFile = RegExp(r'^[a-z0-9][a-z0-9-]{0,63}\.md$');
+  static final RegExp _personaSlug = RegExp(
+    r'^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$',
+  );
 
   static void validateFileName(String fileName) {
-    if (!_memoryFile.hasMatch(fileName) || fileName.contains('..')) {
+    if ((!_memoryFile.hasMatch(fileName) && !isPersonaPath(fileName)) ||
+        fileName.contains('..')) {
       throw const FormatException('Invalid memory file name');
     }
   }
 
   static bool isSafeSkillFileName(String name) => _skillFile.hasMatch(name);
+
+  static bool isPersonaSlug(String slug) => _personaSlug.hasMatch(slug);
+
+  static bool isPersonaPath(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final parts = normalized.split('/');
+    return parts.length == 2 &&
+        parts.first == 'personas' &&
+        parts.last.endsWith('.md') &&
+        isPersonaSlug(parts.last.substring(0, parts.last.length - 3));
+  }
 
   /// Accepts only `skills/{name}.md`, `sessions/{key}/session.md`, and
   /// `sessions/{key}/artifacts/{file}`.

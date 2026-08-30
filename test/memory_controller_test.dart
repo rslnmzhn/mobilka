@@ -144,7 +144,7 @@ void main() {
 
       await repository.ensureCurrentTemplatesAt(original);
 
-      expect(boundary.files['personas.yaml'], 'personas: {}\n');
+      expect(boundary.files, isNot(contains('personas.yaml')));
       expect(
         boundary.files.keys,
         unorderedEquals(MemoryRepository.templates.keys),
@@ -209,13 +209,10 @@ void main() {
       addTearDown(container.dispose);
 
       final before = container.read(personaRegistryProvider);
-      expect(await before.refresh(), isEmpty);
+      expect(before, isNull);
       await container.read(memoryControllerProvider.future);
       await container.read(memoryControllerProvider.notifier).chooseFolder();
-      final after = container.read(personaRegistryProvider);
-
-      expect(after, isNot(same(before)));
-      expect((await after.refresh()).single.name, 'reviewer');
+      expect(container.read(memoryLocationRevisionProvider), 1);
     },
   );
 }

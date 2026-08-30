@@ -7,10 +7,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../agents/application/agents_controller.dart';
 import '../../settings/data/settings_repository.dart';
 import '../../memory/application/context_injector.dart';
-import '../../memory/application/memory_mutation_coordinator.dart';
-import '../../memory/application/persona_registry.dart';
-import '../../memory/data/context_sources.dart';
-import '../../memory/data/memory_repository.dart';
+import '../../memory/application/memory_context_snapshot_service.dart';
 import '../../models/domain/model_capabilities.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_stream_event.dart';
@@ -31,16 +28,9 @@ ChatRepository chatRepository(Ref ref) => ChatRepository(
     ),
   ),
   ref.watch(settingsRepositoryProvider),
-  ContextInjector(
-    StoredMemoryContextSource(
-      ref.watch(memoryRepositoryProvider),
-      // Read per request: the coordinator is invalidated when the memory
-      // folder changes, and this keepAlive repository must not pin a stale
-      // null captured before configuration.
-      () => ref.read(memoryMutationCoordinatorProvider),
-    ),
+  ContextInjector.atomic(
+    ref.watch(memoryContextSnapshotServiceProvider),
     ref.watch(selectedAgentPromptAdapterProvider),
-    () async => ref.read(personaRegistryProvider).overlayText(),
   ),
 );
 

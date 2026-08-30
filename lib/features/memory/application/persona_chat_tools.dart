@@ -5,12 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../chat/application/chat_tool_runtime.dart';
 import '../../chat/domain/chat_message.dart';
 import '../../chat/domain/chat_tool.dart';
+import '../domain/persona.dart';
+import '../domain/strict_json_object_parser.dart';
 import 'persona_registry.dart';
 
 /// Lets the model switch personality overlays by natural request and create
 /// or rewrite personas on demand. save_persona/delete_persona go through the
 /// standard confirmation flow: the model prepares a proposal for
-/// personas.yaml, the owner reviews the diff in the memory dialog. The
+/// canonical persona Markdown file, the owner reviews the diff in the memory dialog. The
 /// coordinator intercepts these calls before executeTool and routes them
 /// through the standard proposal flow.
 class PersonaChatTools implements ChatToolRuntime {
@@ -22,7 +24,7 @@ class PersonaChatTools implements ChatToolRuntime {
     effect: ChatToolEffect.readOnly,
     name: 'list_personas',
     description:
-        'List available personality overlays (personas.yaml). Use when the '
+        'List available persona metadata. Persona prompts are never returned. '
         'user asks which personas exist.',
     parameters: {'type': 'object', 'properties': {}},
   );
@@ -31,16 +33,15 @@ class PersonaChatTools implements ChatToolRuntime {
     effect: ChatToolEffect.mutating,
     name: 'switch_persona',
     description:
-        'Activate a persona overlay for this session (applied on top of '
-        'soul.md), or clear the overlay with name "none". Use when the user '
+        'Activate a persona overlay by canonical id (applied on top of '
+        'soul.md), or clear the overlay with id null. Use when the user '
         'asks to become/enable a persona or to turn it off.',
     parameters: {
       'type': 'object',
       'properties': {
-        'name': {
+        'id': {
           'type': ['string', 'null'],
-          'description':
-              'Persona name from list_personas, or null/none to reset.',
+          'description': 'Persona id from list_personas, or null to reset.',
         },
       },
       'required': [],
@@ -52,18 +53,21 @@ class PersonaChatTools implements ChatToolRuntime {
     effect: ChatToolEffect.runtimeConfirmed,
     name: 'save_persona',
     description:
-        'Create or update a named personality overlay in personas.yaml. The '
+        'Create or update a persona Markdown document. The '
         'user must confirm the exact diff before it is written.',
     parameters: {
       'type': 'object',
       'properties': {
-        'name': {'type': 'string'},
-        'text': {
+        'id': {'type': 'string'},
+        'title': {'type': 'string'},
+        'description': {'type': 'string'},
+        'params': {'type': 'object'},
+        'prompt': {
           'type': 'string',
           'description': 'Full overlay instructions for this persona.',
         },
       },
-      'required': ['name', 'text'],
+      'required': ['id', 'title', 'description', 'params', 'prompt'],
       'additionalProperties': false,
     },
   );
@@ -72,14 +76,14 @@ class PersonaChatTools implements ChatToolRuntime {
     effect: ChatToolEffect.runtimeConfirmed,
     name: 'delete_persona',
     description:
-        'Remove a named persona from personas.yaml. Requires user '
+        'Remove a persona Markdown document. Requires user '
         'confirmation of the diff.',
     parameters: {
       'type': 'object',
       'properties': {
-        'name': {'type': 'string'},
+        'id': {'type': 'string'},
       },
-      'required': ['name'],
+      'required': ['id'],
       'additionalProperties': false,
     },
   );
@@ -110,18 +114,26 @@ class PersonaChatTools implements ChatToolRuntime {
     try {
       final args = call.arguments.trim().isEmpty
           ? const <String, Object?>{}
-          : jsonDecode(call.arguments) as Map;
+          : StrictJsonObjectParser.decode(call.arguments);
       switch (call.name) {
         case 'list_personas':
-          final entries = await registry.refresh();
+          _keys(args, const {});
+          final catalog = await registry.refresh();
           return jsonEncode({
             'ok': true,
-            'active': registry.activeName,
-            'personas': [for (final e in entries) e.name],
+            'active_id': registry.activeId,
+            'personas': [for (final e in catalog.personas) e.toJson()],
           });
         case 'switch_persona':
-          final name = args['name']?.toString();
-          final status = await registry.switchTo(name);
+          _keys(args, const {'id'}, allowEmpty: true);
+          final rawId = args['id'];
+          if (rawId != null && rawId is! String) {
+            throw const FormatException(
+              'switch_persona id must be string or null',
+            );
+          }
+          final id = rawId as String?;
+          final status = await registry.switchTo(id);
           return jsonEncode({'ok': true, 'status': status});
         default:
           // save_persona/delete_persona are intercepted by the coordinator
@@ -132,9 +144,46 @@ class PersonaChatTools implements ChatToolRuntime {
       return jsonEncode({'ok': false, 'error': error.message});
     }
   }
+
+  static void _keys(
+    Map<String, Object?> args,
+    Set<String> expected, {
+    bool allowEmpty = false,
+  }) {
+    if ((allowEmpty && args.isEmpty) ||
+        (args.length == expected.length &&
+            args.keys.toSet().containsAll(expected))) {
+      return;
+    }
+    throw const FormatException('Persona tool arguments do not match schema');
+  }
 }
 
-final personaChatToolsProvider = Provider<PersonaChatTools>(
-  (ref) =>
-      PersonaChatTools(registry: ref.watch(personaRegistryAdapterProvider)),
-);
+final personaChatToolsProvider = Provider<PersonaChatTools>((ref) {
+  final registry = ref.watch(personaRegistryAdapterProvider);
+  return PersonaChatTools(
+    registry: registry ?? const UnavailablePersonaRegistry(),
+  );
+});
+
+class UnavailablePersonaRegistry implements PersonaRegistryAdapter {
+  const UnavailablePersonaRegistry();
+  static StateError _error() => StateError('Memory storage is not configured');
+  @override
+  String? get activeId => null;
+  @override
+  Future<PersonaCatalog> refresh() async => throw _error();
+  @override
+  Future<String> switchTo(String? id) async => throw _error();
+  @override
+  Future<PersonaMutationPreview> previewDelete(String id) async =>
+      throw _error();
+  @override
+  Future<PersonaMutationPreview> previewSave({
+    required String id,
+    required String title,
+    required String description,
+    required Map<String, Object?> params,
+    required String prompt,
+  }) async => throw _error();
+}

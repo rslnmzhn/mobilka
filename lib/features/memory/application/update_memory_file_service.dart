@@ -10,6 +10,8 @@ import '../data/memory_repository.dart';
 import '../domain/memory_file_names.dart';
 import 'memory_mutation_coordinator.dart';
 import 'memory_update_proposal_authority.dart';
+import 'memory_readiness_service.dart';
+import 'persona_registry.dart';
 
 typedef ConfirmationTokenFactory = String Function();
 
@@ -24,6 +26,11 @@ final updateMemoryFileProvider = Provider<UpdateMemoryFileService?>((ref) {
     proposals: ref.read(memoryUpdateProposalAuthorityProvider),
     locationId: checksum(location.value),
     logger: ref.read(appLoggerProvider),
+    ready: () => ref.read(memoryLocationReadyProvider.future),
+    personaDeleted: (id) async {
+      final registry = ref.read(personaRegistryProvider);
+      if (registry?.activeId == id) await registry!.switchTo(null);
+    },
   );
 }, name: 'update_memory_file');
 
@@ -40,10 +47,14 @@ class UpdateMemoryFileService {
     MemoryUpdateProposalAuthority? proposals,
     String locationId = 'test-location',
     AppLogger? logger,
+    Future<void> Function()? ready,
+    Future<void> Function(String id)? personaDeleted,
   }) : _tokenFactory = tokenFactory ?? _secureToken,
        _proposals = proposals ?? InMemoryMemoryUpdateProposalAuthority(),
        _locationId = locationId,
-       _logger = logger ?? AppLogger();
+       _logger = logger ?? AppLogger(),
+       _ready = ready ?? (() => Future<void>.value()),
+       _personaDeleted = personaDeleted ?? ((_) async {});
 
   /// Owner-editable files (Memory screen). Model-facing rejection of
   /// soul.md happens in MemoryChatToolRuntime.prepareMemoryProposal.
@@ -54,6 +65,8 @@ class UpdateMemoryFileService {
   final MemoryUpdateProposalAuthority _proposals;
   final String _locationId;
   final AppLogger _logger;
+  final Future<void> Function() _ready;
+  final Future<void> Function(String id) _personaDeleted;
 
   MemoryUpdateProposalAuthority get proposalAuthority => _proposals;
 
@@ -66,6 +79,7 @@ class UpdateMemoryFileService {
     String fileName,
     String proposedContent,
   ) async {
+    await _ready();
     _validate(fileName);
     final current = await _mutations.readIfExists(fileName);
     final isCreate = current == null;
@@ -141,6 +155,7 @@ class UpdateMemoryFileService {
     required String version,
     required DateTime createdAt,
   }) async {
+    await _ready();
     final stopwatch = Stopwatch()..start();
     _logger.log(event: 'memory.apply', status: 'started');
     var claimed = false;
@@ -163,7 +178,16 @@ class UpdateMemoryFileService {
           createdAt.toUtc() != binding.createdAt.toUtc()) {
         throw const UnknownMemoryConfirmationException();
       }
+      final isCreate = version == missingVersion;
+      final deletingPersona =
+          fileName.startsWith('personas/') &&
+          proposedContent.isEmpty &&
+          !isCreate;
       if (claim case MemoryProposalAlreadyApplied(:final result)) {
+        if (deletingPersona &&
+            await _mutations.readIfExists(fileName) != null) {
+          throw const StaleMemoryPreviewException();
+        }
         return MemoryUpdateResult(
           fileName: binding.fileName,
           previousVersion: result.previousVersion,
@@ -172,7 +196,9 @@ class UpdateMemoryFileService {
       }
       final current = await _mutations.readIfExists(fileName);
       final proposedVersion = checksum(proposedContent);
-      if (current != null && checksum(current) == proposedVersion) {
+      if (!deletingPersona &&
+          current != null &&
+          checksum(current) == proposedVersion) {
         final result = MemoryUpdateResult(
           fileName: fileName,
           previousVersion: version,
@@ -193,13 +219,15 @@ class UpdateMemoryFileService {
         );
         return result;
       }
-      final isCreate = version == missingVersion;
       try {
         await _mutations.mutate(
           event: 'update_memory_file',
-          replacements: {fileName: proposedContent},
+          replacements: deletingPersona
+              ? const {}
+              : {fileName: proposedContent},
           expectedVersions: isCreate ? const {} : {fileName: version},
           createIfMissing: isCreate ? {fileName} : const {},
+          deletions: deletingPersona ? {fileName} : const {},
         );
       } on StaleMemoryMutationException {
         throw const StaleMemoryPreviewException();
@@ -221,6 +249,9 @@ class UpdateMemoryFileService {
           version: result.version,
         ),
       );
+      if (fileName.startsWith('personas/') && proposedContent.isEmpty) {
+        await _personaDeleted(fileName.substring(9, fileName.length - 3));
+      }
       _logger.log(
         event: 'memory.apply',
         fileName: fileName,
@@ -258,7 +289,10 @@ class UpdateMemoryFileService {
   );
 
   static void _validate(String fileName) {
-    if (!approvedFileNames.contains(fileName)) {
+    if (!approvedFileNames.contains(fileName) &&
+        !RegExp(
+          r'^personas/[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.md$',
+        ).hasMatch(fileName)) {
       throw FormatException('Memory file is not approved: $fileName');
     }
   }

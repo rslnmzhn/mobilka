@@ -57,14 +57,11 @@ void main() {
         expect(find.byKey(const Key('persona-clear')), findsNothing);
 
         await tester.scrollUntilVisible(
-          find.byKey(const Key('memory-inclusion-personas.yaml')),
+          find.byKey(const Key('memory-personas-folder')),
           200,
           scrollable: find.byType(Scrollable).first,
         );
-        expect(
-          find.byKey(const Key('memory-inclusion-personas.yaml')),
-          findsOneWidget,
-        );
+        expect(find.byKey(const Key('memory-personas-folder')), findsOneWidget);
 
         final editButton = find.byKey(const Key('memory-edit-$fileName'));
         expect(editButton, findsOneWidget);

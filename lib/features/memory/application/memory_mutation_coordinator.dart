@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/logging/app_logger.dart';
@@ -10,6 +9,9 @@ import '../domain/memory_file_names.dart';
 import '../data/memory_file_store.dart';
 import '../data/memory_repository.dart';
 import 'memory_recovery_journal.dart';
+import 'persona_mutation_preflight.dart';
+
+export 'persona_mutation_preflight.dart' show checksum;
 
 part 'memory_mutation_recovery_helpers.dart';
 
@@ -27,11 +29,6 @@ final memoryMutationCoordinatorProvider = Provider<MemoryMutationCoordinator?>((
 }, name: 'memory_mutation_coordinator');
 
 /// Builds a coordinator for an already-configured [location].
-///
-/// Used both by [memoryMutationCoordinatorProvider] and as a defensive
-/// fallback when a long-lived consumer captured the provider value before the
-/// memory folder was configured (previously surfaced as "Memory recovery is
-/// unavailable for configured storage").
 MemoryMutationCoordinator createMemoryMutationCoordinator({
   required MemoryRepository repository,
   required MemoryLocation location,
@@ -71,12 +68,18 @@ class MemoryMutationCoordinator {
     Map<String, String> expectedVersions = const {},
     Set<String> createIfMissing = const {},
     String? operationId,
+    Set<String> deletions = const {},
+    Set<String> additionallyAllowed = const {},
+    String? expectedPersonaMembership,
   }) => _mutate(
     event: event,
     replacements: replacements,
     expectedVersions: expectedVersions,
     createIfMissing: createIfMissing,
     operationId: operationId,
+    deletions: deletions,
+    additionallyAllowed: additionallyAllowed,
+    expectedPersonaMembership: expectedPersonaMembership,
   );
 
   Future<void> migrateLegacyAlias({
@@ -114,8 +117,16 @@ class MemoryMutationCoordinator {
     Set<String> additionallyAllowed = const {},
     bool deferTerminalAudit = false,
     String? operationId,
+    String? expectedPersonaMembership,
   }) => _boundary.transaction((files) async {
     await _recover(files);
+    if (expectedPersonaMembership != null) {
+      await validateExpectedPersonaMembership(
+        files: files,
+        expectedMembership: expectedPersonaMembership,
+        stale: () => throw const StaleMemoryMutationException(),
+      );
+    }
     _validate(replacements.keys, additionallyAllowed: additionallyAllowed);
     if (deletions.isNotEmpty) {
       _validate(deletions, additionallyAllowed: additionallyAllowed);
@@ -124,7 +135,12 @@ class MemoryMutationCoordinator {
       throw const FormatException('Create targets must be replacements');
     }
     final before = <String, String>{};
-    for (final name in {...replacements.keys, ...deletions, auditFile}) {
+    for (final name in {
+      ...replacements.keys,
+      ...deletions,
+      ...expectedVersions.keys,
+      auditFile,
+    }) {
       before[name] = createIfMissing.contains(name)
           ? (await _readIfExists(files, name) ?? '')
           : await files.read(name);
@@ -139,7 +155,11 @@ class MemoryMutationCoordinator {
         throw const StaleMemoryMutationException();
       }
     }
-
+    await validatePersonaQuotaProjection(
+      files: files,
+      replacements: replacements,
+      deletions: deletions,
+    );
     final id = operationId ?? _operationId();
     final after = Map<String, String>.of(replacements);
     final record = <String, dynamic>{
@@ -228,6 +248,13 @@ class MemoryMutationCoordinator {
         }
         return Map.unmodifiable(snapshot);
       });
+
+  Future<T> transaction<T>(
+    Future<T> Function(MemoryFileTransaction files) action,
+  ) => _boundary.transaction((files) async {
+    await _recover(files);
+    return action(files);
+  });
 
   Future<String?> _readIfExists(
     MemoryFileTransaction files,
@@ -417,12 +444,12 @@ class MemoryMutationCoordinator {
     Iterable<String> names, {
     Set<String> additionallyAllowed = const {},
   }) {
-    if (names.isEmpty ||
-        names.any(
-          (name) =>
-              !MemoryFiles.mutationFiles.contains(name) &&
-              !additionallyAllowed.contains(name),
-        )) {
+    if (names.any(
+      (name) =>
+          !MemoryFiles.mutationFiles.contains(name) &&
+          !MemoryFileValidation.isPersonaPath(name) &&
+          !additionallyAllowed.contains(name),
+    )) {
       throw const FormatException('Memory mutation contains an unsafe file');
     }
   }
@@ -470,6 +497,3 @@ class MemoryAuditCapacityException implements Exception {
       'memory.md has insufficient space for the required mutation audit. '
       'Compact memory.md and retry; no content was written or truncated.';
 }
-
-String checksum(String content) =>
-    sha256.convert(utf8.encode(content)).toString();

@@ -233,14 +233,30 @@ void main() {
 
   for (final operation in ['save_persona', 'delete_persona']) {
     test(
-      '$operation after a location change uses the new persona YAML',
+      '$operation after a location change uses canonical persona files',
       () async {
         final oldBoundary = _Boundary()
-          ..files['personas.yaml'] =
-              'personas:\n  stale_old_folder: Old.\n  target: Old target.\n';
+          ..files['personas/stale-old-folder.md'] = _personaDocument(
+            'stale-old-folder',
+            'Stale old folder',
+            'Old.',
+          )
+          ..files['personas/target.md'] = _personaDocument(
+            'target',
+            'Target',
+            'Old target.',
+          );
         final newBoundary = _Boundary()
-          ..files['personas.yaml'] =
-              'personas:\n  fresh_new_folder: New.\n  target: New target.\n';
+          ..files['personas/fresh-new-folder.md'] = _personaDocument(
+            'fresh-new-folder',
+            'Fresh new folder',
+            'New.',
+          )
+          ..files['personas/target.md'] = _personaDocument(
+            'target',
+            'Target',
+            'New target.',
+          );
         final boundaries = {
           'old-folder': oldBoundary,
           'new-folder': newBoundary,
@@ -269,10 +285,9 @@ void main() {
         await container.read(chatControllerProvider.notifier).send('first');
         expect(streamer.requests, 1);
         expect(
-          (await container.read(personaRegistryProvider).refresh()).map(
-            (entry) => entry.name,
-          ),
-          contains('stale_old_folder'),
+          (await container.read(personaRegistryProvider)!.refresh()).personas
+              .map((entry) => entry.id),
+          contains('stale-old-folder'),
         );
 
         await preferencesBox.put('memoryLocation', 'new-folder');
@@ -289,19 +304,24 @@ void main() {
             .activeConversation!
             .pendingMemoryProposal!;
         expect(proposal.requiredToolPermission, operation);
-        expect(proposal.proposedContent, contains('fresh_new_folder'));
-        expect(proposal.proposedContent, isNot(contains('stale_old_folder')));
+        expect(proposal.fileName, 'personas/target.md');
         if (operation == 'save_persona') {
           expect(proposal.proposedContent, contains('Updated target.'));
         } else {
-          expect(proposal.proposedContent, isNot(contains('target')));
+          expect(proposal.proposedContent, isEmpty);
         }
-        expect(proposal.version, checksum(newBoundary.files['personas.yaml']!));
-        expect(oldBoundary.files['personas.yaml'], contains('Old target.'));
+        expect(proposal.version, isNotEmpty);
+        expect(
+          oldBoundary.files['personas/target.md'],
+          contains('Old target.'),
+        );
       },
     );
   }
 }
+
+String _personaDocument(String id, String title, String prompt) =>
+    '---\nid: "$id"\ntitle: "$title"\ndescription: ""\nparams: {}\n---\n$prompt\n';
 
 ProviderContainer _container(
   UpdateMemoryFileService? updates, {
@@ -432,8 +452,9 @@ class _LocationChangeStreamer implements ChatCompletionStreamer {
       );
     }
     final arguments = operation == 'save_persona'
-        ? '{"name":"target","text":"Updated target."}'
-        : '{"name":"target"}';
+        ? '{"id":"target","title":"Target","description":"",'
+              '"params":{},"prompt":"Updated target."}'
+        : '{"id":"target"}';
     return Stream.fromIterable([
       ChatStreamEvent(
         toolCallDeltas: [
@@ -483,7 +504,11 @@ class _Boundary with MemoryBoundaryDelete implements MemoryFileBoundary {
 }
 
 class _Transaction
-    implements MemoryFileTransaction, MissingAwareMemoryFileTransaction {
+    implements
+        MemoryFileTransaction,
+        MissingAwareMemoryFileTransaction,
+        PersonaTreeTransaction,
+        DeletingMemoryFileTransaction {
   const _Transaction(this.boundary);
 
   final _Boundary boundary;
@@ -498,4 +523,15 @@ class _Transaction
   @override
   Future<void> write(String fileName, String content) =>
       boundary.write(fileName, content);
+
+  @override
+  Future<void> delete(String fileName) => boundary.delete(fileName);
+
+  @override
+  Future<List<String>> listPersonaFiles() async =>
+      (boundary.files.keys
+          .where((name) => name.startsWith('personas/') && name.endsWith('.md'))
+          .map((name) => name.substring(9))
+          .toList()
+        ..sort());
 }

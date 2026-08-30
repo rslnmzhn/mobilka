@@ -27,9 +27,9 @@ is a conservative heuristic; users retain direct manual control of skill files.
 | `write_session_notes` | `content: string` (required) | `SessionNotesTools` | Immediate write to the bound session's `session.md`; requires valid session context. |
 | `read_session_notes` | empty object | `SessionNotesTools` | Reads bound session notes; requires valid session context. |
 | `list_personas` | empty object | `PersonaChatTools` | Reads names and active persona. |
-| `switch_persona` | optional `name: string|null`; null/`none` clears | `PersonaChatTools` / `PersonaRegistry` | Immediate active-overlay selection for the session. |
-| `save_persona` | `name: string`, `text: string` (both required) | `MemoryToolDispatcher` + memory proposal runtime | Rewrites `personas.yaml` only after explicit exact-diff confirmation. |
-| `delete_persona` | `name: string` (required) | `MemoryToolDispatcher` + memory proposal runtime | Rewrites `personas.yaml` only after explicit exact-diff confirmation. |
+| `switch_persona` | optional `id: string|null`; null clears | `PersonaChatTools` / `PersonaRegistry` | Selects a canonical persona ID; exact unique title is temporary compatibility. |
+| `save_persona` | `id`, `title`, `description`, `params`, `prompt` | `MemoryToolDispatcher` + memory proposal runtime | Creates/updates `personas/<id>.md` only after exact confirmation. |
+| `delete_persona` | `id: string` | `MemoryToolDispatcher` + memory proposal runtime | Deletes `personas/<id>.md` only after exact confirmation. |
 | `update_memory_file` | `file_name: "user.md"|"memory.md"`, `content: string` (both required; complete file content) | `MemoryToolDispatcher` + `MemoryChatToolRuntime` | `user.md`: exact-diff proposal and explicit confirmation. `memory.md`: bounded instant write. `soul.md` is prohibited. |
 | `read_public_source` | `url: string` required, `offset: integer` 0..1 MiB optional | `PublicSourceChatToolRuntime` | Reads at most 1 MiB cumulatively per call through a DNS-validated, address-pinned HTTPS transport and returns at most 256 KiB including explicit untrusted-data delimiters. PromptGuard is heuristic marking, not proof of safety. |
 

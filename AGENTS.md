@@ -20,7 +20,7 @@ format: dart format .
 - Context injection performs pending-memory recovery before taking one atomic snapshot of the selected memory files.
 - Current local persistence is Hive for chat history, favorites, model cache, and artifacts; retain Isar as a future architecture option and use `flutter_secure_storage` for API keys.
 - Agent catalog/controller state owns active-agent selection and user-authored agent files in the app sandbox.
-- Personas are presented under Agents, while the memory domain remains the owner of `personas.yaml` and its mutation safety.
+- Personas are presented under Agents, while memory owns canonical `personas/<slug>.md` files and mutation safety; no mutable persona index exists.
 - Chat / Advanced Coding mode and a separate coding-agent catalog are future architecture, not current product behavior.
 - The chat application separates model/catalog state in the catalog controller from request streaming lifecycle in the streaming coordinator.
 - Streaming coordination is bound to immutable conversation, request, and assistant-message IDs rather than mutable active-chat state.
@@ -41,7 +41,7 @@ format: dart format .
 - `guide.md`: Architectural specification and future architecture guidance.
 
 ## Business rules
-- RLM Markdown memory uses the current human-readable files `user.md`, `soul.md`, `memory.md`, and `personas.yaml`; the app-private Hive journal is the recovery authority for coordinated mutations.
+- RLM Markdown memory uses `user.md`, `soul.md`, `memory.md`, and canonical `personas/<slug>.md`; the app-private Hive journal is the recovery authority for coordinated mutations.
 - Context Injector must deterministically prepend one atomic snapshot of the selected `.md` memory files and active Agent system prompts into System Prompt before sending requests.
 - Native `update_memory_file` proposals must target approved filenames, persist the exact diff plus permission snapshot, require explicit confirm or reject, and revalidate current permissions before mutation.
 - User retains 100% full control and manual editing capabilities over memory files and agent prompt files.

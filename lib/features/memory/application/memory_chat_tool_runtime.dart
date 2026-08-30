@@ -243,8 +243,10 @@ class MemoryChatToolRuntime implements ChatToolRuntime, MemoryProposalRuntime {
       }
       return;
     }
-    if (fileName != MemoryFiles.personas) {
-      throw FormatException('$toolName may only target personas.yaml');
+    if (!RegExp(
+      r'^personas/[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.md$',
+    ).hasMatch(fileName)) {
+      throw FormatException('$toolName requires a canonical persona path');
     }
   }
 

@@ -7,17 +7,19 @@
 /// - `memory.md`   — the agent's working notebook; applied instantly without
 ///                   confirmation and intentionally excluded from the prompt
 ///                   until the next session/context rebuild.
-/// - `personas.yaml` — named personality overlays switched on request.
+/// Personas are dynamic `personas/<slug>.md` documents and are intentionally
+/// absent from these fixed core-file sets.
 abstract final class MemoryFiles {
   static const user = 'user.md';
   static const soul = 'soul.md';
   static const memory = 'memory.md';
-  static const personas = 'personas.yaml';
+  static const legacyPersonas = 'personas.yaml';
+  static const legacyPersonasBackup = 'personas.yaml.migrated.bak';
 
   /// Authoritative role sets. Keep context selection independent from files
   /// that are initialized, edited, mutated, or backed up.
   static const contextFiles = {soul, user};
-  static const initializedFiles = {user, soul, memory, personas};
+  static const initializedFiles = {user, soul, memory};
   static const ownerEditableFiles = initializedFiles;
   static const mutationFiles = initializedFiles;
   static const coreBackupFiles = {user, soul, memory};

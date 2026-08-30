@@ -8,6 +8,8 @@ import '../data/memory_repository.dart';
 import 'memory_backup_service.dart';
 import 'memory_controller.dart';
 import 'memory_mutation_coordinator.dart';
+import 'memory_readiness_service.dart';
+import 'persona_registry.dart';
 
 part 'memory_backup_controller.g.dart';
 
@@ -22,7 +24,17 @@ final memoryBackupServiceProvider = Provider<MemoryBackupService?>((ref) {
   final location = repository.savedLocation();
   final mutations = ref.watch(memoryMutationCoordinatorProvider);
   if (location == null || mutations == null) return null;
-  return MemoryBackupService(repository.boundaryFor(location), mutations);
+  return MemoryBackupService(
+    repository.boundaryFor(location),
+    mutations,
+    ready: () => ref.read(memoryLocationReadyProvider.future),
+    personasDeleted: (ids) async {
+      final registry = ref.read(personaRegistryProvider);
+      if (registry != null && ids.contains(registry.activeId)) {
+        await registry.switchTo(null);
+      }
+    },
+  );
 }, name: 'memory_backup_service');
 
 @riverpod

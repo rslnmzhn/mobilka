@@ -149,6 +149,14 @@ class MemoryScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+              Card(
+                child: ListTile(
+                  key: const Key('memory-personas-folder'),
+                  leading: const Icon(Icons.folder_outlined),
+                  title: const Text('personas/'),
+                  subtitle: Text('memory.personasHint'.tr()),
+                ),
+              ),
               const SizedBox(height: 16),
               MemoryBackupCard(enabled: memory.valueOrNull != null),
             ],

@@ -115,7 +115,9 @@ void validateMemoryProposalPermissionBinding(
 void _validatePermissionBinding(String permission, String fileName) {
   final valid = switch (permission) {
     'update_memory_file' => fileName == 'user.md',
-    'save_persona' || 'delete_persona' => fileName == 'personas.yaml',
+    'save_persona' || 'delete_persona' => RegExp(
+      r'^personas/[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.md$',
+    ).hasMatch(fileName),
     _ => false,
   };
   if (!valid) {

@@ -1,257 +1,130 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
+import 'package:mobilka/features/memory/application/persona_active_selection_store.dart';
 import 'package:mobilka/features/memory/application/persona_registry.dart';
-import 'package:yaml/yaml.dart';
-
-class _FakeAdapter implements PersonaRegistryAdapter {
-  _FakeAdapter(this.yaml);
-
-  String yaml;
-  final List<({String operation, String name, String text})> edits = [];
-
-  @override
-  String? get activeName => null;
-
-  @override
-  Future<List<PersonaEntry>> refresh() async {
-    if (yaml.trim().isEmpty) return const [];
-    final doc = loadYaml(yaml) as Map;
-    final personas = doc['personas'] as Map? ?? const {};
-    return [
-      for (final entry in personas.entries)
-        PersonaEntry(
-          name: entry.key.toString(),
-          text: entry.value?.toString() ?? '',
-        ),
-    ];
-  }
-
-  @override
-  Future<String> switchTo(String? name) async => 'switched: $name';
-
-  @override
-  Future<String> yamlAfter({
-    required String operation,
-    required String name,
-    required String text,
-  }) async {
-    edits.add((operation: operation, name: name, text: text));
-    final entries = await refresh();
-    final map = {for (final e in entries) e.name: e.text};
-    if (operation == 'save_persona') {
-      map[name] = text;
-    } else {
-      map.remove(name);
-    }
-    final buf = StringBuffer('personas:\n');
-    map.forEach((key, value) {
-      buf.writeln('  $key: >-');
-      for (final line in value.split('\n')) {
-        buf.writeln(line.isEmpty ? '' : '    $line');
-      }
-    });
-    yaml = buf.toString();
-    return yaml;
-  }
-}
+import 'package:mobilka/features/memory/data/memory_file_store.dart';
 
 void main() {
-  test('production adapter round-trips names and multiline Unicode', () async {
-    var yaml = 'personas: {}\n';
-    final registry = PersonaRegistry(
-      readYaml: () async => yaml,
-      readActive: () => null,
-      writeActive: (_) {},
-    );
-    final adapter = PersonaRegistryAdapterImpl(registry);
-
-    yaml = await adapter.yamlAfter(
-      operation: 'save_persona',
-      name: 'ревью: #1 "safe"',
-      text: 'Первая\n\n  indented\n',
-    );
-    final entries = await registry.refresh();
-    expect(entries.single.name, 'ревью: #1 "safe"');
-    expect(entries.single.text, 'Первая\n\n  indented\n');
-  });
-
   test(
-    'production adapter refuses malformed source and invalid edits',
+    'catalog is canonical metadata and selected prompt loads by id',
     () async {
-      var yaml = 'personas: [broken';
+      final boundary = _Boundary({
+        'memory.md': '# Memory\n',
+        'personas/reviewer.md': _persona(
+          'reviewer',
+          'Reviewer',
+          'Review carefully.',
+        ),
+      });
+      String? active = 'reviewer';
       final registry = PersonaRegistry(
-        readYaml: () async => yaml,
-        readActive: () => null,
-        writeActive: (_) {},
+        mutations: MemoryMutationCoordinator(boundary),
+        activeSelection: CallbackPersonaActiveSelectionStore(
+          () => active,
+          (value) => active = value,
+        ),
       );
-      final adapter = PersonaRegistryAdapterImpl(registry);
-      await expectLater(
-        adapter.yamlAfter(operation: 'save_persona', name: 'x', text: 'y'),
-        throwsFormatException,
-      );
-      await expectLater(
-        adapter.yamlAfter(operation: 'unknown', name: 'x', text: 'y'),
-        throwsFormatException,
-      );
-      await expectLater(
-        adapter.yamlAfter(operation: 'save_persona', name: '', text: 'y'),
-        throwsFormatException,
-      );
-      yaml = 'personas: {}\n';
-      expect(await registry.refresh(), isEmpty);
-      expect(registry.lastError, isNull);
+
+      final catalog = await registry.refresh();
+      expect(catalog.personas.single.id, 'reviewer');
+      expect(catalog.personas.single.title, 'Reviewer');
+      expect(catalog.personas.single.toJson(), isNot(contains('prompt')));
+      expect(await registry.overlayText(), 'Review carefully.\n');
     },
   );
 
-  test('yamlAfter upserts and deletes personas', () async {
-    final adapter = _FakeAdapter('personas:\n');
-
-    final y1 = await adapter.yamlAfter(
-      operation: 'save_persona',
-      name: 'reviewer',
-      text: 'Line one\nLine two',
-    );
-    expect(y1, contains('  reviewer: >-'));
-    expect(y1, contains('    Line one'));
-    expect(y1, contains('    Line two'));
-
-    await adapter.yamlAfter(
-      operation: 'save_persona',
-      name: 'concise',
-      text: 'Кратко.',
-    );
-    final y2 = await adapter.yamlAfter(
-      operation: 'delete_persona',
-      name: 'reviewer',
-      text: '',
-    );
-    expect(y2, isNot(contains('reviewer')));
-    expect(y2, contains('concise'));
-
-    // Result must remain parseable.
-    final entries = await adapter.refresh();
-    expect(entries.map((e) => e.name), ['concise']);
-  });
-
-  test('registry parses personas.yaml content', () async {
+  test('invalid safe files are issues and cannot be selected', () async {
+    final boundary = _Boundary({
+      'memory.md': '# Memory\n',
+      'personas/broken.md': 'not frontmatter',
+    });
     final registry = PersonaRegistry(
-      readYaml: () async =>
-          'personas:\n  reviewer: >-\n    Ты ревьюер.\n  concise: Кратко.',
-      readActive: () => null,
-      writeActive: (_) {},
+      mutations: MemoryMutationCoordinator(boundary),
+      activeSelection: CallbackPersonaActiveSelectionStore(() => null, (_) {}),
     );
-
-    final entries = await registry.refresh();
-    expect(entries.map((e) => e.name), ['reviewer', 'concise']);
-    expect(entries.first.text, 'Ты ревьюер.');
-  });
-
-  test('registry rejects non-string scalars and empty names', () async {
-    for (final yaml in [
-      'personas:\n  1: text\n',
-      'personas:\n  name: 1\n',
-      'personas:\n  "": text\n',
-      'personas:\n  "  ": text\n',
-    ]) {
-      final registry = PersonaRegistry(
-        readYaml: () async => yaml,
-        readActive: () => null,
-        writeActive: (_) {},
-      );
-      expect(await registry.refresh(), isEmpty, reason: yaml);
-      expect(registry.lastError, isNotNull, reason: yaml);
-    }
-  });
-
-  test('registry rejects duplicate names and unsupported controls', () async {
-    for (final yaml in [
-      'personas:\n  duplicate: one\n  duplicate: two\n',
-      'personas:\n  "bad\\u007f": text\n',
-      'personas:\n  safe: "bad\\u0001"\n',
-    ]) {
-      final registry = PersonaRegistry(
-        readYaml: () async => yaml,
-        readActive: () => null,
-        writeActive: (_) {},
-      );
-      expect(await registry.refresh(), isEmpty, reason: yaml);
-      expect(registry.lastError, isNotNull, reason: yaml);
-    }
-  });
-
-  test('unknown active persona yields no overlay', () async {
-    final registry = PersonaRegistry(
-      readYaml: () async => 'personas:\n  reviewer: x\n',
-      readActive: () => 'gone',
-      writeActive: (_) {},
-    );
-
-    expect(registry.activeName, 'gone');
-    expect(await registry.overlayText(), isNull);
-  });
-
-  test('valid external deletion clears the active persona', () async {
-    var yaml = 'personas:\n  reviewer: x\n';
-    String? active = 'reviewer';
-    final registry = PersonaRegistry(
-      readYaml: () async => yaml,
-      readActive: () => active,
-      writeActive: (value) => active = value,
-    );
-    await registry.refresh();
-
-    yaml = 'personas: {}\n';
-    await registry.refresh();
-
-    expect(active, isNull);
+    final catalog = await registry.refresh();
+    expect(catalog.personas, isEmpty);
+    expect(catalog.issues.single.fileName, 'broken.md');
+    await expectLater(registry.switchTo('broken'), throwsStateError);
   });
 
   test(
-    'valid refresh after manual edit or restore reconciles active',
+    'transient catalog failure throws and never returns stale metadata',
     () async {
-      var yaml = 'personas:\n  restored: x\n';
-      String? active = 'restored';
+      final boundary = _Boundary({
+        'memory.md': '# Memory\n',
+        'personas/one.md': _persona('one', 'One', 'Prompt'),
+      });
       final registry = PersonaRegistry(
-        readYaml: () async => yaml,
-        readActive: () => active,
-        writeActive: (value) => active = value,
+        mutations: MemoryMutationCoordinator(boundary),
+        activeSelection: CallbackPersonaActiveSelectionStore(
+          () => null,
+          (_) {},
+        ),
       );
-      expect((await registry.refresh()).single.name, 'restored');
-
-      yaml = 'personas:\n  manually_added: y\n';
-      expect((await registry.refresh()).single.name, 'manually_added');
-      expect(active, isNull);
+      expect((await registry.refresh()).personas, hasLength(1));
+      boundary.failList = true;
+      await expectLater(registry.refresh(), throwsStateError);
     },
   );
 
-  test('malformed YAML does not clear the active persona', () async {
-    String? active = 'reviewer';
+  test('legacy YAML migrates once with byte-exact backup', () async {
+    const legacy = 'personas:\n  Reviewer: Review.\n';
+    final boundary = _Boundary({
+      'memory.md': '# Memory\n',
+      'personas.yaml': legacy,
+    });
     final registry = PersonaRegistry(
-      readYaml: () async => 'personas: [broken',
-      readActive: () => active,
-      writeActive: (value) => active = value,
+      mutations: MemoryMutationCoordinator(boundary),
+      activeSelection: CallbackPersonaActiveSelectionStore(() => null, (_) {}),
     );
-
-    expect(await registry.refresh(), isEmpty);
-    expect(registry.lastError, isNotNull);
-    expect(active, 'reviewer');
-  });
-
-  test('transient read failure preserves cache and active persona', () async {
-    var fail = false;
-    String? active = 'reviewer';
-    final registry = PersonaRegistry(
-      readYaml: () async {
-        if (fail) throw StateError('temporary read failure');
-        return 'personas:\n  reviewer: x\n';
-      },
-      readActive: () => active,
-      writeActive: (value) => active = value,
-    );
+    final catalog = await registry.refresh();
+    expect(catalog.personas.single.id, 'reviewer');
+    expect(boundary.files['personas.yaml.migrated.bak'], legacy);
+    expect(boundary.files, isNot(contains('personas.yaml')));
+    final after = Map.of(boundary.files);
     await registry.refresh();
-    fail = true;
-
-    expect((await registry.refresh()).single.name, 'reviewer');
-    expect(active, 'reviewer');
-    expect(registry.lastError, contains('temporary read failure'));
+    expect(boundary.files, after);
   });
+}
+
+String _persona(String id, String title, String prompt) =>
+    '---\nid: "$id"\ntitle: "$title"\ndescription: ""\nparams: {}\n---\n$prompt\n';
+
+class _Boundary
+    implements
+        MemoryFileBoundary,
+        MemoryFileTransaction,
+        MissingAwareMemoryFileTransaction,
+        DeletingMemoryFileTransaction,
+        PersonaTreeTransaction {
+  _Boundary(this.files);
+  final Map<String, String> files;
+  bool failList = false;
+  @override
+  Future<String> read(String fileName) async => files[fileName]!;
+  @override
+  Future<String?> readIfExists(String fileName) async => files[fileName];
+  @override
+  Future<void> write(String fileName, String content) async =>
+      files[fileName] = content;
+  @override
+  Future<void> delete(String fileName) async => files.remove(fileName);
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function(MemoryFileTransaction files) action,
+  ) => action(this);
+  @override
+  Future<List<String>> listPersonaFiles() async {
+    if (failList) throw StateError('transient list failure');
+    final names =
+        files.keys
+            .where(
+              (name) => name.startsWith('personas/') && name.endsWith('.md'),
+            )
+            .map((name) => name.substring(9))
+            .toList()
+          ..sort();
+    return names;
+  }
 }
