@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:synchronized/synchronized.dart';
 
 import '../domain/artifact_file_name.dart';
 
@@ -18,6 +19,7 @@ class LocalArtifactFiles {
     : _baseDirectory = baseDirectory;
 
   final Directory? Function()? _baseDirectory;
+  final Lock _operationLock = Lock();
 
   Future<Directory> _resolveBase() async {
     final override = _baseDirectory?.call();
@@ -81,6 +83,17 @@ class LocalArtifactFiles {
     }
   }
 
+  Future<void> deleteRepresentation(
+    String artifactId, {
+    required String extension,
+  }) async {
+    final target = await fileFor(artifactId, extension: extension);
+    if (await FileSystemEntity.type(target.path, followLinks: false) ==
+        FileSystemEntityType.file) {
+      await target.delete();
+    }
+  }
+
   Future<bool> exists(String artifactId, {required String extension}) async {
     final target = await fileFor(artifactId, extension: extension);
     return target.exists();
@@ -124,4 +137,83 @@ class LocalArtifactFiles {
       return null;
     }
   }
+
+  /// Resolves an existing regular file without creating directories. The
+  /// returned identity must be rechecked immediately before native opening.
+  Future<VerifiedArtifactFile?> resolveVerified(
+    String artifactId, {
+    required String extension,
+  }) async {
+    try {
+      final name = ArtifactFileName.fromId(artifactId, extension: extension);
+      final base = await _resolveBase();
+      if (await FileSystemEntity.type(base.path, followLinks: false) !=
+          FileSystemEntityType.directory) {
+        return null;
+      }
+      final basePath = p.normalize(p.absolute(base.path));
+      final targetPath = p.normalize(p.join(basePath, name.value));
+      if (!p.isWithin(basePath, targetPath)) return null;
+      final canonicalBase = await base.resolveSymbolicLinks();
+      if (await FileSystemEntity.type(targetPath, followLinks: false) !=
+          FileSystemEntityType.file) {
+        return null;
+      }
+      final canonicalTarget = await File(targetPath).resolveSymbolicLinks();
+      if (!p.isWithin(canonicalBase, canonicalTarget)) return null;
+      return VerifiedArtifactFile._(
+        path: targetPath,
+        canonicalBase: canonicalBase,
+        canonicalPath: canonicalTarget,
+      );
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<String?> recheckVerified(VerifiedArtifactFile verified) async {
+    try {
+      if (await FileSystemEntity.type(verified.path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        return null;
+      }
+      final canonical = await File(verified.path).resolveSymbolicLinks();
+      final stat = await File(verified.path).stat();
+      if (canonical != verified.canonicalPath ||
+          !p.isWithin(verified.canonicalBase, canonical) ||
+          stat.type != FileSystemEntityType.file) {
+        return null;
+      }
+      return verified.path;
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Performs the final identity check and native handoff as one serialized
+  /// app operation. A same-user process may still replace a path after OS
+  /// handoff; Dart offers no portable descriptor-based native viewer API.
+  Future<T?> withVerifiedFileForOpen<T>(
+    String artifactId, {
+    required String extension,
+    required Future<T> Function(String path) callback,
+  }) => _operationLock.synchronized(() async {
+    final verified = await resolveVerified(artifactId, extension: extension);
+    if (verified == null) return null;
+    final path = await recheckVerified(verified);
+    if (path == null) return null;
+    return callback(path);
+  });
+}
+
+class VerifiedArtifactFile {
+  const VerifiedArtifactFile._({
+    required this.path,
+    required this.canonicalBase,
+    required this.canonicalPath,
+  });
+
+  final String path;
+  final String canonicalBase;
+  final String canonicalPath;
 }

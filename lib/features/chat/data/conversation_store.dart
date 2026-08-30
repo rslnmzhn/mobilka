@@ -26,6 +26,17 @@ class ConversationStore {
 
   Future<void> delete(String id) => conversationsBox.delete(id);
 
+  Conversation? loadById(String id) {
+    final raw = conversationsBox.get(id);
+    if (raw is! Map) return null;
+    try {
+      final conversation = Conversation.fromJson(raw);
+      return conversation.id == id ? conversation : null;
+    } on Object {
+      return null;
+    }
+  }
+
   Future<void> recoverInterrupted() async {
     for (final conversation in loadAll()) {
       final recovered = _recoverExecutingProposal(conversation);

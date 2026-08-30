@@ -61,7 +61,8 @@ error while details remain in privacy-safe app logging.
 
 Notable success fields include:
 
-- `generate_docx`: `artifact_id`, `file_name`, `workspace_saved`, and optional
+- `generate_docx`: `artifact_id`, canonical internal `artifact_uri`, ready-to-use
+  `artifact_markdown`, `file_name`, `workspace_saved`, and optional
   `workspace_status` (the app-private artifact remains valid if mirroring fails).
 - skill tools: `file`, `name`/`content`, or `skills`.
 - session tools: `file` or `content`.
@@ -114,5 +115,11 @@ while a crash leaves the reservation charged.
 
 Public-source citations in final answers must use meaningful Markdown labels and
 the absolute `final_url` actually read. The UI independently canonicalizes only
-absolute HTTP(S) links and launches them in an external browser; it never falls
-back to a local-file opener.
+absolute HTTP(S) links and launches them in an external browser. Canonical
+`mobilka-artifact:<id>?representation=md|docx` links remain internal and resolve
+only authoritative app-private files after ownership and no-follow checks.
+DOCX opening additionally requires persisted SHA-256 freshness against the
+current authoritative Markdown bytes. Legacy DOCX without this hash must be
+re-exported. The final path identity is rechecked immediately before the native
+bridge; portable Dart APIs cannot prevent a same-user replacement after OS
+handoff.

@@ -10,6 +10,7 @@ import '../../memory/application/workspace_paths.dart';
 import '../../memory/data/memory_repository.dart';
 import 'artifacts_controller.dart';
 import 'artifact_policy.dart';
+import '../domain/artifact_link.dart';
 
 class ArtifactsToolPermissionException extends StateError {
   ArtifactsToolPermissionException(super.message);
@@ -123,48 +124,62 @@ class ArtifactsChatToolRuntime implements ChatToolRuntime {
         conversationId: context?.conversationId,
         sessionKey: context?.sessionKey,
       );
-      var workspaceSaved = false;
-      String? workspaceStatus;
-      final sessionKey = context?.sessionKey;
-      final binding = context?.workspaceBinding;
-      if (sessionKey == null || sessionKey.isEmpty || binding == null) {
-        workspaceStatus =
-            'Workspace mirror skipped: session context unavailable.';
-      } else {
-        try {
-          final mirrored = await _workspace.writeArtifactPair(
-            binding: binding,
-            sessionKey: sessionKey,
-            artifactId: generated.artifact.id,
-            markdown: markdown,
-            docxBytes: generated.docxBytes,
-          );
-          workspaceSaved = mirrored.complete;
-          if (!workspaceSaved) {
-            workspaceStatus = mirrored.hasCollision
-                ? 'Workspace mirror collision: existing artifact siblings were preserved.'
-                : mirrored.hasIndeterminate
-                ? 'Workspace mirror outcome is indeterminate; app artifact remains available.'
-                : mirrored.firstWritten
-                ? 'Workspace mirror incomplete: Markdown saved but DOCX was not saved.'
-                : 'Workspace mirror was not saved; app artifact remains available.';
-          }
-        } catch (_) {
-          workspaceStatus =
-              'Workspace mirror unavailable; app artifact remains available.';
-        }
-      }
+      final mirror = await _mirror(generated, markdown, context);
+      final link = ArtifactLink(
+        artifactId: generated.artifact.id,
+        representation: ArtifactRepresentation.docx,
+      );
       return jsonEncode({
         'ok': true,
         'artifact_id': generated.artifact.id,
         'file_name': '${generated.artifact.id}.docx',
-        'workspace_saved': workspaceSaved,
-        'workspace_status': ?workspaceStatus,
+        'artifact_uri': link.toString(),
+        'artifact_markdown': '[${generated.artifact.title}]($link)',
+        'workspace_saved': mirror.saved,
+        'workspace_status': ?mirror.status,
       });
     } on ArtifactPolicyException catch (error) {
       return jsonEncode({'ok': false, 'error': error.messageKey});
     } on FormatException catch (error) {
       return jsonEncode({'ok': false, 'error': error.message});
+    }
+  }
+
+  Future<({bool saved, String? status})> _mirror(
+    CreatedDocxArtifact generated,
+    String markdown,
+    ChatToolExecutionContext? context,
+  ) async {
+    final sessionKey = context?.sessionKey;
+    final binding = context?.workspaceBinding;
+    if (sessionKey == null || sessionKey.isEmpty || binding == null) {
+      return (
+        saved: false,
+        status: 'Workspace mirror skipped: session context unavailable.',
+      );
+    }
+    try {
+      final result = await _workspace.writeArtifactPair(
+        binding: binding,
+        sessionKey: sessionKey,
+        artifactId: generated.artifact.id,
+        markdown: markdown,
+        docxBytes: generated.docxBytes,
+      );
+      if (result.complete) return (saved: true, status: null);
+      final status = result.hasCollision
+          ? 'Workspace mirror collision: existing artifact siblings were preserved.'
+          : result.hasIndeterminate
+          ? 'Workspace mirror outcome is indeterminate; app artifact remains available.'
+          : result.firstWritten
+          ? 'Workspace mirror incomplete: Markdown saved but DOCX was not saved.'
+          : 'Workspace mirror was not saved; app artifact remains available.';
+      return (saved: false, status: status);
+    } on Object {
+      return (
+        saved: false,
+        status: 'Workspace mirror unavailable; app artifact remains available.',
+      );
     }
   }
 }

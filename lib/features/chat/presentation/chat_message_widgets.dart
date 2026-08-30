@@ -10,6 +10,9 @@ import 'package:highlight/highlight.dart' as hl;
 
 import '../../../core/links/external_link_launcher.dart';
 import '../../../core/links/external_link_policy.dart';
+import '../../artifacts/application/artifact_link_opener.dart';
+import '../../artifacts/domain/artifact_link.dart';
+import '../../artifacts/presentation/artifact_feedback.dart';
 import '../domain/chat_message.dart';
 import '../domain/tool_execution.dart';
 import 'tool_call_card.dart';
@@ -23,12 +26,18 @@ class MessageCard extends StatelessWidget {
     this.toolExecutions = const [],
     this.onSendAgain,
     this.externalLinkLauncher = const UrlExternalLinkLauncher(),
+    this.artifactLinkOpener,
+    this.artifactLinkOpen,
+    this.renderingConversationId,
   });
 
   final ChatMessage message;
   final List<ToolExecution> toolExecutions;
   final VoidCallback? onSendAgain;
   final ExternalLinkLauncher externalLinkLauncher;
+  final ArtifactLinkOpener? artifactLinkOpener;
+  final ArtifactLinkOpenCallback? artifactLinkOpen;
+  final String? renderingConversationId;
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +87,7 @@ class MessageCard extends StatelessWidget {
             canCopy: canCopy,
             toolExecutions: toolExecutions,
             onActions: () => _showActions(context),
-            onLink: (href) => _openExternalLink(context, href),
+            onLink: (href) => _dispatchLink(context, href),
           ),
         ),
       ),
@@ -91,7 +100,23 @@ class MessageCard extends StatelessWidget {
     onSendAgain: message.role == ChatRole.user ? onSendAgain : null,
   );
 
-  Future<void> _openExternalLink(BuildContext context, String? href) async {
+  Future<void> _dispatchLink(BuildContext context, String? href) async {
+    if (href != null && ArtifactLink.claimsScheme(href)) {
+      final link = ArtifactLink.tryParse(href);
+      final open = artifactLinkOpen ?? artifactLinkOpener?.open;
+      if (link == null || open == null) {
+        _showLinkFeedback(context, 'artifacts.link.invalid'.tr());
+        return;
+      }
+      final result = await open(
+        link,
+        scope: ArtifactOpenScope.chat,
+        conversationId: renderingConversationId,
+      );
+      if (!context.mounted || result == ArtifactLinkOpenResult.opened) return;
+      _showLinkFeedback(context, artifactOpenMessageKey(result).tr());
+      return;
+    }
     final uri = href == null
         ? null
         : const ExternalLinkPolicy().canonicalize(href);

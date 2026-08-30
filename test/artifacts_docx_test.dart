@@ -198,6 +198,12 @@ void main() {
       final md = File(p.join(filesDir.path, '${decoded['artifact_id']}.md'));
       expect(md.readAsStringSync(), startsWith('# Report'));
       expect(decoded['workspace_saved'], false);
+      expect(
+        decoded['artifact_uri'],
+        'mobilka-artifact:${decoded['artifact_id']}?representation=docx',
+      );
+      expect(decoded['artifact_markdown'], contains(decoded['artifact_uri']));
+      expect(result, isNot(contains(filesDir.path)));
     });
 
     test('mirrors exact siblings into immutable supplied session', () async {

@@ -14,7 +14,7 @@ ArtifactOpen artifactOpenBridge(Ref ref) {
   return (filePath) async {
     final result = await OpenFilex.open(filePath);
     if (result.type != ResultType.done) {
-      throw StateError('Could not open file: ${result.message}');
+      throw StateError('Native artifact viewer rejected the request');
     }
   };
 }

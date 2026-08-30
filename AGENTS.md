@@ -54,6 +54,7 @@ format: dart format .
 - SSE completion requires an explicit terminal event; a stream that closes prematurely remains interrupted and retryable.
 - Token usage is owned by the `Conversation` domain model.
 - Chat artifacts are immutably owned by their originating conversation ID and stable session key. Legacy ownerless artifacts remain global/unowned only; never infer ownership. Conversation deletion retains artifacts.
+- Chat artifact links authorize against the immutable rendering conversation ID and freshly loaded metadata; only explicit app-private MD/DOCX representations may open. Legacy/unowned or unavailable-owner artifacts are catalog-only, and internal links never use external launchers or workspace/SAF mirrors.
 - Artifact representation types and sizes are derived from actual app-private files. A chat artifact may also have its existing session-workspace mirror; do not create a third copy or scan sessions/workspaces to build the global catalog.
 - Android backups remain disabled because chat history is unencrypted local data.
 - Android release APKs must have the sole signer SHA-256 fingerprint `4A:76:9B:92:8D:47:82:77:30:E3:C5:E1:5A:E3:86:5C:D8:B8:99:93:13:A3:E5:79:BA:A9:B7:34:56:46:55:CD`.

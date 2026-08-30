@@ -3,11 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/artifacts_controller.dart';
-import '../data/artifact_open_bridge.dart';
+import '../application/artifact_link_opener.dart';
 import '../data/artifact_share_bridge.dart';
-import '../data/artifact_store.dart';
 import '../domain/artifact.dart';
+import '../domain/artifact_link.dart';
 import 'document_editor_sheet.dart';
+import 'artifact_feedback.dart';
 
 Future<void> openArtifactEditor(
   BuildContext context,
@@ -24,22 +25,37 @@ Future<void> openArtifactEditor(
           .read(artifactsControllerProvider.notifier)
           .update(artifact, title: title, content: content),
       onOpen: () async {
-        final file = await ref
-            .read(localArtifactFilesProvider)
-            .fileFor(artifact.id);
-        await ref.read(artifactOpenBridgeProvider)(file.path);
+        final result = await ref
+            .read(artifactLinkOpenerProvider)
+            .open(
+              ArtifactLink(
+                artifactId: artifact.id,
+                representation: ArtifactRepresentation.md,
+              ),
+              scope: ArtifactOpenScope.catalog,
+            );
+        if (context.mounted) showArtifactOpenResult(context, result);
       },
-      onExportDocx: () async {
-        final file = await ref
-            .read(artifactsControllerProvider.notifier)
-            .exportDocx(artifact);
-        await ref.read(artifactShareBridgeProvider)(
-          file.path,
-          mimeType: docxMime,
-        );
-      },
+      onExportDocx: () => _safeExport(context, ref, artifact),
     ),
   );
+}
+
+Future<void> _safeExport(
+  BuildContext context,
+  WidgetRef ref,
+  Artifact artifact,
+) async {
+  try {
+    final file = await ref
+        .read(artifactsControllerProvider.notifier)
+        .exportDocx(artifact);
+    await ref.read(artifactShareBridgeProvider)(file.path, mimeType: docxMime);
+  } on Object {
+    if (context.mounted) {
+      showArtifactFeedback(context, 'artifacts.exportFailed');
+    }
+  }
 }
 
 Future<void> shareArtifact(WidgetRef ref, Artifact artifact) async {
@@ -47,6 +63,20 @@ Future<void> shareArtifact(WidgetRef ref, Artifact artifact) async {
       .read(artifactsControllerProvider.notifier)
       .shareablePath(artifact);
   await ref.read(artifactShareBridgeProvider)(path);
+}
+
+Future<void> safeShareArtifact(
+  BuildContext context,
+  WidgetRef ref,
+  Artifact artifact,
+) async {
+  try {
+    await shareArtifact(ref, artifact);
+  } on Object {
+    if (context.mounted) {
+      showArtifactFeedback(context, 'artifacts.shareFailed');
+    }
+  }
 }
 
 Future<void> confirmDeleteArtifact(
