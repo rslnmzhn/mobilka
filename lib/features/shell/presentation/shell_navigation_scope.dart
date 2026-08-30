@@ -1,20 +1,26 @@
 import 'package:flutter/widgets.dart';
 
+import 'chat_navigation_controller.dart';
+
 class ShellNavigationScope extends InheritedWidget {
   const ShellNavigationScope({
-    required this.showNavigation,
+    required this.controller,
+    required this.chatNavigationVisible,
     required super.child,
     super.key,
   });
 
-  final Future<void> Function()? showNavigation;
+  final ChatNavigationController controller;
 
-  static Future<void> Function()? maybeShowNavigation(BuildContext context) =>
-      context
-          .dependOnInheritedWidgetOfExactType<ShellNavigationScope>()
-          ?.showNavigation;
+  final bool chatNavigationVisible;
+  VoidCallback get showNavigation => controller.show;
+  VoidCallback get hideNavigation => controller.hide;
+
+  static ShellNavigationScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ShellNavigationScope>();
 
   @override
   bool updateShouldNotify(ShellNavigationScope oldWidget) =>
-      showNavigation != oldWidget.showNavigation;
+      chatNavigationVisible != oldWidget.chatNavigationVisible ||
+      controller != oldWidget.controller;
 }

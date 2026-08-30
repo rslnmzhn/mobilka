@@ -3,10 +3,13 @@ import 'dart:io';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:mobilka/core/router/app_router.dart';
 import 'package:mobilka/features/chat/application/chat_controller.dart';
+import 'package:mobilka/features/chat/domain/chat_message.dart';
+import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:mobilka/features/models/application/models_controller.dart';
 import 'package:mobilka/features/models/domain/ai_model.dart';
 import 'package:mobilka/features/shell/presentation/app_shell.dart';
@@ -91,6 +94,58 @@ void main() {
     expect(find.byType(NavigationBar), findsNothing);
     final context = tester.element(find.byType(MaterialApp));
     final router = ProviderScope.containerOf(context).read(appRouterProvider);
+
+    final list = find.byType(ListView).last;
+    expect(list, findsOneWidget);
+    expect(_chatPosition(tester).pixels, 0);
+    final messageRegion = find.byKey(const Key('chat-navigation-swipe-access'));
+    final region = tester.getRect(messageRegion);
+    await tester.dragFrom(region.center, const Offset(0, -110));
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(_chatPosition(tester).pixels, 0);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(router.routeInformationProvider.value.uri.path, '/chat');
+
+    await tester.drag(list, const Offset(0, 300));
+    await tester.pumpAndSettle();
+    expect(_chatPosition(tester).pixels, greaterThan(20));
+    await tester.drag(find.byType(NavigationBar), const Offset(0, 40));
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsNothing);
+
+    await tester.drag(list, const Offset(0, 300));
+    await tester.pumpAndSettle();
+    expect(_chatPosition(tester).pixels, greaterThan(40));
+
+    final showAction = _semanticsAction(tester, 'Show navigation');
+    showAction();
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget);
+    final hideAction = _semanticsAction(tester, 'Hide navigation');
+    hideAction();
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsNothing);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(tester.getSize(find.byType(NavigationBar)).height, 52);
+
+    tester
+        .widget<NavigationBar>(find.byType(NavigationBar))
+        .onDestinationSelected!(1);
+    await tester.pumpAndSettle();
+    expect(router.routeInformationProvider.value.uri.path, '/models');
+    expect(find.byType(NavigationBar), findsOneWidget);
+    router.go('/chat');
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsNothing);
+
     router.go('/models');
     await tester.pumpAndSettle();
 
@@ -180,7 +235,29 @@ void main() {
 
 class _RouterChatController extends ChatController {
   @override
-  Future<ChatState> build() async => const ChatState(conversations: []);
+  Future<ChatState> build() async {
+    final conversation = Conversation(
+      id: 'shell-chat',
+      title: 'Shell chat',
+      modelId: 'model',
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      messages: List.generate(
+        24,
+        (index) => ChatMessage(
+          id: 'shell-$index',
+          role: ChatRole.assistant,
+          content: List.filled(4, 'message $index').join('\n'),
+          createdAt: DateTime(2026),
+          status: ChatMessageStatus.complete,
+        ),
+      ),
+    );
+    return ChatState(
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+    );
+  }
 }
 
 class _RouterModelsController extends ModelsController {
@@ -191,4 +268,20 @@ class _RouterModelsController extends ModelsController {
     hidden: {},
     selectedModelId: 'model',
   );
+}
+
+ScrollPosition _chatPosition(WidgetTester tester) =>
+    tester.widget<ListView>(find.byType(ListView).last).controller!.position;
+
+VoidCallback _semanticsAction(WidgetTester tester, String label) {
+  for (final semantics in tester.widgetList<Semantics>(
+    find.byType(Semantics),
+  )) {
+    final actions = semantics.properties.customSemanticsActions;
+    if (actions == null) continue;
+    for (final entry in actions.entries) {
+      if (entry.key.label == label) return entry.value;
+    }
+  }
+  throw TestFailure('Missing semantics action: $label');
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
+import 'chat_navigation_controller.dart';
 import 'mobile_dock.dart';
 import 'shell_navigation_scope.dart';
 
@@ -22,9 +23,35 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  bool _presentingNavigation = false;
+  late final ChatNavigationController _chatNavigation;
 
-  bool get _isChatRoot => isZeroFootprintChatPath(widget.currentPath);
+  @override
+  void initState() {
+    super.initState();
+    _chatNavigation = ChatNavigationController()
+      ..updatePath(widget.currentPath)
+      ..addListener(_rebuild);
+  }
+
+  @override
+  void didUpdateWidget(AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentPath != widget.currentPath) {
+      _chatNavigation.updatePath(widget.currentPath, notify: false);
+    }
+  }
+
+  void _rebuild() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _chatNavigation
+      ..removeListener(_rebuild)
+      ..dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +63,7 @@ class _AppShellState extends State<AppShell> {
       (Icons.tune_outlined, Icons.tune, 'nav.settings'.tr()),
     ];
     void select(int index) {
+      _chatNavigation.onDestination(index, widget.shell.currentIndex);
       widget.shell.goBranch(
         index,
         initialLocation: index == widget.shell.currentIndex,
@@ -44,7 +72,10 @@ class _AppShellState extends State<AppShell> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth >= expandedShellBreakpoint) {
+        final width = constraints.maxWidth;
+        final narrow = width < compactShellBreakpoint;
+        _chatNavigation.updateWidth(narrow, notify: false);
+        if (width >= expandedShellBreakpoint) {
           return _DesktopFrame(
             navigation: _ExpandedNavigation(
               destinations: destinations,
@@ -54,7 +85,7 @@ class _AppShellState extends State<AppShell> {
             child: widget.shell,
           );
         }
-        if (constraints.maxWidth >= compactShellBreakpoint) {
+        if (width >= compactShellBreakpoint) {
           return _DesktopFrame(
             navigation: NavigationRail(
               backgroundColor: Colors.transparent,
@@ -79,80 +110,60 @@ class _AppShellState extends State<AppShell> {
             child: widget.shell,
           );
         }
-        return Scaffold(
-          body: ShellNavigationScope(
-            showNavigation: _isChatRoot
-                ? () => _showNavigation(destinations, select)
-                : null,
-            child: widget.shell,
+        final isChatRoot = isZeroFootprintChatPath(widget.currentPath);
+        final showChatDock = isChatRoot && _chatNavigation.visible;
+        return ShellNavigationScope(
+          controller: _chatNavigation,
+          chatNavigationVisible: showChatDock,
+          child: Scaffold(
+            body: widget.shell,
+            bottomNavigationBar: isChatRoot && !showChatDock
+                ? null
+                : _ChatDockHideGesture(
+                    enabled: showChatDock,
+                    onHide: _chatNavigation.hide,
+                    child: MobileDock(
+                      destinations: destinations,
+                      selectedIndex: widget.shell.currentIndex,
+                      onSelect: select,
+                    ),
+                  ),
           ),
-          bottomNavigationBar: _isChatRoot
-              ? null
-              : MobileDock(
-                  destinations: destinations,
-                  selectedIndex: widget.shell.currentIndex,
-                  onSelect: select,
-                ),
         );
       },
     );
   }
-
-  Future<void> _showNavigation(
-    List<(IconData, IconData, String)> destinations,
-    ValueChanged<int> select,
-  ) async {
-    if (_presentingNavigation || !_isChatRoot || !mounted) return;
-    if (MediaQuery.sizeOf(context).width >= compactShellBreakpoint) return;
-    _presentingNavigation = true;
-    FocusManager.instance.primaryFocus?.unfocus();
-    try {
-      final selected = await showModalBottomSheet<int>(
-        context: context,
-        useSafeArea: true,
-        showDragHandle: false,
-        builder: (context) => _MobileNavigationSheet(
-          destinations: destinations,
-          selectedIndex: widget.shell.currentIndex,
-        ),
-      );
-      if (selected != null && selected != 0 && mounted) select(selected);
-    } finally {
-      _presentingNavigation = false;
-    }
-  }
 }
 
-class _MobileNavigationSheet extends StatelessWidget {
-  const _MobileNavigationSheet({
-    required this.destinations,
-    required this.selectedIndex,
+class _ChatDockHideGesture extends StatefulWidget {
+  const _ChatDockHideGesture({
+    required this.enabled,
+    required this.onHide,
+    required this.child,
   });
 
-  final List<(IconData, IconData, String)> destinations;
-  final int selectedIndex;
+  final bool enabled;
+  final VoidCallback onHide;
+  final Widget child;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: NavigationBar(
-        height: 64,
-        selectedIndex: selectedIndex,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
-        onDestinationSelected: (index) => Navigator.pop(context, index),
-        destinations: destinations
-            .map(
-              (destination) => NavigationDestination(
-                icon: Icon(destination.$1),
-                selectedIcon: Icon(destination.$2),
-                label: destination.$3,
-              ),
-            )
-            .toList(),
-      ),
-    ),
+  State<_ChatDockHideGesture> createState() => _ChatDockHideGestureState();
+}
+
+class _ChatDockHideGestureState extends State<_ChatDockHideGesture> {
+  double _drag = 0;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: HitTestBehavior.translucent,
+    onVerticalDragStart: widget.enabled ? (_) => _drag = 0 : null,
+    onVerticalDragUpdate: widget.enabled
+        ? (details) {
+            _drag += details.delta.dy;
+            if (_drag >= 20) widget.onHide();
+          }
+        : null,
+    child: widget.child,
   );
 }
 
