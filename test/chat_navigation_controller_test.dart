@@ -68,4 +68,21 @@ void main() {
     expect(controller.visible, isFalse);
     expect(notifications, 2);
   });
+
+  test('duplicate show and hide requests do not duplicate state changes', () {
+    final controller = ChatNavigationController();
+    addTearDown(controller.dispose);
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    controller.updatePath('/chat');
+    controller.updateWidth(true);
+
+    controller.show();
+    controller.show();
+    controller.hide();
+    controller.hide();
+
+    expect(controller.visible, isFalse);
+    expect(notifications, 2);
+  });
 }

@@ -117,16 +117,23 @@ class _AppShellState extends State<AppShell> {
           chatNavigationVisible: showChatDock,
           child: Scaffold(
             body: widget.shell,
-            bottomNavigationBar: isChatRoot && !showChatDock
-                ? null
-                : _ChatDockHideGesture(
-                    enabled: showChatDock,
-                    onHide: _chatNavigation.hide,
-                    child: MobileDock(
-                      destinations: destinations,
-                      selectedIndex: widget.shell.currentIndex,
-                      onSelect: select,
+            bottomNavigationBar: isChatRoot
+                ? AnimatedChatDockHost(
+                    visible: showChatDock,
+                    child: ChatDockHideGesture(
+                      enabled: showChatDock,
+                      onHide: _chatNavigation.hide,
+                      child: MobileDock(
+                        destinations: destinations,
+                        selectedIndex: widget.shell.currentIndex,
+                        onSelect: select,
+                      ),
                     ),
+                  )
+                : MobileDock(
+                    destinations: destinations,
+                    selectedIndex: widget.shell.currentIndex,
+                    onSelect: select,
                   ),
           ),
         );
@@ -135,11 +142,97 @@ class _AppShellState extends State<AppShell> {
   }
 }
 
-class _ChatDockHideGesture extends StatefulWidget {
-  const _ChatDockHideGesture({
+@visibleForTesting
+class AnimatedChatDockHost extends StatefulWidget {
+  const AnimatedChatDockHost({
+    required this.visible,
+    required this.child,
+    super.key,
+  });
+
+  static const height = 52.0;
+  static const duration = Duration(milliseconds: 220);
+
+  final bool visible;
+  final Widget child;
+
+  @override
+  State<AnimatedChatDockHost> createState() => _AnimatedChatDockHostState();
+}
+
+class _AnimatedChatDockHostState extends State<AnimatedChatDockHost>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: AnimatedChatDockHost.duration,
+      value: widget.visible ? 1 : 0,
+    );
+    _animation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+  }
+
+  @override
+  void didUpdateWidget(AnimatedChatDockHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visible == oldWidget.visible) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.value = widget.visible ? 1 : 0;
+    } else if (widget.visible) {
+      _controller.forward();
+    } else {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _animation,
+    child: SizedBox(height: AnimatedChatDockHost.height, child: widget.child),
+    builder: (context, child) {
+      final progress = _animation.value;
+      if (progress == 0) {
+        return const SizedBox(
+          key: Key('animated-chat-dock-footprint'),
+          height: 0,
+        );
+      }
+      return SizedBox(
+        key: const Key('animated-chat-dock-footprint'),
+        height: AnimatedChatDockHost.height * progress,
+        child: ClipRect(
+          child: Transform.translate(
+            key: const Key('animated-chat-dock-slide'),
+            offset: Offset(0, AnimatedChatDockHost.height * (1 - progress)),
+            child: child,
+          ),
+        ),
+      );
+    },
+  );
+}
+
+@visibleForTesting
+class ChatDockHideGesture extends StatefulWidget {
+  const ChatDockHideGesture({
     required this.enabled,
     required this.onHide,
     required this.child,
+    super.key,
   });
 
   final bool enabled;
@@ -147,20 +240,29 @@ class _ChatDockHideGesture extends StatefulWidget {
   final Widget child;
 
   @override
-  State<_ChatDockHideGesture> createState() => _ChatDockHideGestureState();
+  State<ChatDockHideGesture> createState() => _ChatDockHideGestureState();
 }
 
-class _ChatDockHideGestureState extends State<_ChatDockHideGesture> {
+class _ChatDockHideGestureState extends State<ChatDockHideGesture> {
   double _drag = 0;
+  bool _triggered = false;
 
   @override
   Widget build(BuildContext context) => GestureDetector(
     behavior: HitTestBehavior.translucent,
-    onVerticalDragStart: widget.enabled ? (_) => _drag = 0 : null,
+    onVerticalDragStart: widget.enabled
+        ? (_) {
+            _drag = 0;
+            _triggered = false;
+          }
+        : null,
     onVerticalDragUpdate: widget.enabled
         ? (details) {
             _drag += details.delta.dy;
-            if (_drag >= 20) widget.onHide();
+            if (_drag >= 20 && !_triggered) {
+              _triggered = true;
+              widget.onHide();
+            }
           }
         : null,
     child: widget.child,

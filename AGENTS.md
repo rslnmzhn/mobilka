@@ -66,6 +66,7 @@ format: dart format .
 - Use warm paper, clay, and ink surfaces in light mode, and charcoal and ink surfaces in dark mode.
 - Favor fine technical dividers, clear editorial hierarchy, and compact desktop density.
 - Use a custom adaptive shell with side navigation on desktop and a persistent 52px bottom bar on narrow non-chat routes. Exact narrow `/chat` starts with zero persistent shell footprint and reveals that same inline 52px bottom bar through an eligible broad message-region upward gesture, localized semantics action, or keyboard shortcut; no modal navigation is used. At the newest boundary any upward swipe intentionally reveals navigation and consumes that first attempt to browse older; while navigation is visible or once the list is already older, normal list scrolling wins immediately.
+- Exact narrow `/chat` reveals and hides its inline 52px navigation with a synchronized slide and layout-footprint animation; user scrolling a reverse message feed toward older messages hides a visible bar without consuming that list movement. Programmatic scrolling and streamed inserts never drive navigation visibility.
 - Avoid generic default Material/MUI appearance, glassmorphism, decorative gradients, and network fonts.
 - Require responsive, overflow-free behavior at 320px and desktop widths; memory Open and Edit actions must remain independently visible.
 - Mobile-first adaptive UI with dark theme priority and customizable theme presets.

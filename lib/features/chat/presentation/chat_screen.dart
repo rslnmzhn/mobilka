@@ -1,7 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -39,6 +39,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   var _presentingRoute = false;
   var _programmaticScroll = false;
   var _userScrollActive = false;
+  var _navigationHideScheduled = false;
 
   @override
   void initState() {
@@ -48,6 +49,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _onScrollNotification(ScrollNotification notification) {
     if (notification is UserScrollNotification) {
       _userScrollActive = notification.direction != ScrollDirection.idle;
+      if (notification.direction == ScrollDirection.reverse &&
+          notification.metrics.axis == Axis.vertical) {
+        _scheduleNavigationHide();
+      }
       if (_userScrollActive) _updatePinned(notification.metrics);
     } else if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
@@ -61,6 +66,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _userScrollActive = false;
     }
     return false;
+  }
+
+  void _scheduleNavigationHide() {
+    if (_navigationHideScheduled) return;
+    final navigation = ShellNavigationScope.maybeOf(context);
+    if (!(navigation?.chatNavigationVisible ?? false)) return;
+    _navigationHideScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _navigationHideScheduled = false;
+      if (!mounted) return;
+      ShellNavigationScope.maybeOf(context)?.hideNavigation();
+    });
   }
 
   void _updatePinned(ScrollMetrics metrics) {
