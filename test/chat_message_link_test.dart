@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:mobilka/core/links/external_link_launcher.dart';
+import 'package:mobilka/features/artifacts/application/artifact_link_opener.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/presentation/chat_message_widgets.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -95,6 +96,72 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('canonical internal link uses captured conversation only', (
+    tester,
+  ) async {
+    final external = _RecordingLauncher();
+    final calls = <({String id, String? conversation})>[];
+    await _pumpMessage(
+      tester,
+      '[Report](mobilka-artifact:1-artifact?representation=docx)',
+      external,
+      conversationId: 'conversation-a',
+      artifactOpen: (link, {required scope, conversationId}) async {
+        calls.add((id: link.artifactId, conversation: conversationId));
+        return ArtifactLinkOpenResult.opened;
+      },
+    );
+    _tapMarkdownLink(
+      tester,
+      'Report',
+      'mobilka-artifact:1-artifact?representation=docx',
+    );
+    await tester.pump();
+    expect(calls, [(id: '1-artifact', conversation: 'conversation-a')]);
+    expect(external.uris, isEmpty);
+  });
+
+  testWidgets('malformed internal variants never launch externally', (
+    tester,
+  ) async {
+    final external = _RecordingLauncher();
+    await _pumpMessage(tester, '[x](https://example.com)', external);
+    for (final href in [
+      'Mobilka-Artifact:1-artifact?representation=md',
+      'mobilka-artifact:1-artifact?representation=md&extra=1',
+      'mobilka-artifact:1-artifact?representation=md#fragment',
+      'mobilka-artifact-lookalike:https://example.com',
+    ]) {
+      _tapMarkdownLink(tester, 'x', href);
+      await tester.pump();
+    }
+    expect(external.uris, isEmpty);
+    expect(find.byType(SnackBar), findsOneWidget);
+  });
+
+  testWidgets('delayed artifact completion after unmount is ignored', (
+    tester,
+  ) async {
+    final completer = Completer<ArtifactLinkOpenResult>();
+    await _pumpMessage(
+      tester,
+      '[Report](mobilka-artifact:1-artifact?representation=md)',
+      _RecordingLauncher(),
+      conversationId: 'conversation-a',
+      artifactOpen: (link, {required scope, conversationId}) =>
+          completer.future,
+    );
+    _tapMarkdownLink(
+      tester,
+      'Report',
+      'mobilka-artifact:1-artifact?representation=md',
+    );
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    completer.complete(ArtifactLinkOpenResult.nativeOpenFailed);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
   test(
     'production adapter always requests external application mode',
     () async {
@@ -114,8 +181,10 @@ void main() {
 Future<void> _pumpMessage(
   WidgetTester tester,
   String content,
-  ExternalLinkLauncher launcher,
-) => tester.pumpWidget(
+  ExternalLinkLauncher launcher, {
+  String? conversationId,
+  ArtifactLinkOpenCallback? artifactOpen,
+}) => tester.pumpWidget(
   MaterialApp(
     home: Scaffold(
       body: MessageCard(
@@ -126,6 +195,8 @@ Future<void> _pumpMessage(
           createdAt: DateTime(2026),
         ),
         externalLinkLauncher: launcher,
+        renderingConversationId: conversationId,
+        artifactLinkOpen: artifactOpen,
       ),
     ),
   ),

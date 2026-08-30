@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/application/models_controller.dart';
 import '../../models/domain/model_capabilities.dart';
+import '../../artifacts/application/artifact_link_opener.dart';
 import '../application/chat_controller.dart';
 import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
@@ -178,6 +179,8 @@ class _MessageList extends ConsumerWidget {
   ) => MessageCard(
     key: ValueKey(message.id),
     message: message,
+    renderingConversationId: conversation!.id,
+    artifactLinkOpener: ref.read(artifactLinkOpenerProvider),
     onSendAgain: message.role == ChatRole.user
         ? () => ref
               .read(chatControllerProvider.notifier)

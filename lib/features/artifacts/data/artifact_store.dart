@@ -18,8 +18,13 @@ ArtifactStore artifactStore(Ref ref) => ArtifactStore();
 
 class ArtifactStore {
   List<Artifact> loadAll() {
-    return artifactsBox.values.whereType<Map>().map(Artifact.fromJson).toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final result = <Artifact>[];
+    for (final key in artifactsBox.keys) {
+      if (key is! String) continue;
+      final artifact = loadById(key);
+      if (artifact != null) result.add(artifact);
+    }
+    return result..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
   Future<void> save(Artifact artifact) =>
@@ -28,4 +33,17 @@ class ArtifactStore {
   Future<void> delete(String id) => artifactsBox.delete(id);
 
   bool contains(String id) => artifactsBox.containsKey(id);
+
+  /// Loads one record and rejects corrupt records whose payload ID does not
+  /// exactly match the authoritative Hive key.
+  Artifact? loadById(String id) {
+    final raw = artifactsBox.get(id);
+    if (raw is! Map) return null;
+    try {
+      final artifact = Artifact.fromJson(raw);
+      return artifact.id == id ? artifact : null;
+    } on Object {
+      return null;
+    }
+  }
 }

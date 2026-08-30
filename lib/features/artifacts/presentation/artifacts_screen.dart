@@ -188,7 +188,7 @@ class _ArtifactTile extends ConsumerWidget {
     trailing: PopupMenuButton<String>(
       onSelected: (value) async {
         if (value == 'share') {
-          await shareArtifact(ref, artifact);
+          await safeShareArtifact(context, ref, artifact);
         } else {
           await confirmDeleteArtifact(context, ref, artifact);
         }

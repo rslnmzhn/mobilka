@@ -7,11 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../chat/domain/conversation.dart';
 import '../../chat/domain/tool_execution.dart';
 import '../application/artifacts_controller.dart';
-import '../data/artifact_open_bridge.dart';
+import '../application/artifact_link_opener.dart';
 import '../data/artifact_share_bridge.dart';
-import '../data/artifact_store.dart';
 import '../domain/artifact.dart';
+import '../domain/artifact_link.dart';
 import 'document_editor_sheet.dart';
+import 'artifact_feedback.dart';
 
 class ArtifactsBottomSheet extends StatelessWidget {
   const ArtifactsBottomSheet({this.conversation, super.key});
@@ -254,10 +255,17 @@ class _DocumentsTab extends ConsumerWidget {
         onOpen: artifact == null
             ? null
             : () async {
-                final file = await ref
-                    .read(localArtifactFilesProvider)
-                    .fileFor(artifact.id);
-                await ref.read(artifactOpenBridgeProvider)(file.path);
+                final result = await ref
+                    .read(artifactLinkOpenerProvider)
+                    .open(
+                      ArtifactLink(
+                        artifactId: artifact.id,
+                        representation: ArtifactRepresentation.md,
+                      ),
+                      scope: ArtifactOpenScope.session,
+                      conversationId: conversation!.id,
+                    );
+                if (context.mounted) showArtifactOpenResult(context, result);
               },
         onExportDocx: artifact == null
             ? null
@@ -280,11 +288,9 @@ class _DocumentsTab extends ConsumerWidget {
         file.path,
         mimeType: docxMime,
       );
-    } on Object catch (error) {
+    } on Object {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
+        showArtifactFeedback(context, 'artifacts.exportFailed');
       }
     }
   }
@@ -299,11 +305,9 @@ class _DocumentsTab extends ConsumerWidget {
           .read(artifactsControllerProvider.notifier)
           .shareablePath(artifact);
       await ref.read(artifactShareBridgeProvider)(path);
-    } on Object catch (error) {
+    } on Object {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
+        showArtifactFeedback(context, 'artifacts.shareFailed');
       }
     }
   }

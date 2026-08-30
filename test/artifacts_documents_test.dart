@@ -13,6 +13,7 @@ import 'package:mobilka/features/artifacts/data/local_artifact_files.dart';
 import 'package:mobilka/features/artifacts/domain/artifact.dart';
 import 'package:mobilka/features/artifacts/domain/artifact_file_name.dart';
 import 'package:mobilka/features/artifacts/presentation/artifacts_bottom_sheet.dart';
+import 'package:mobilka/features/artifacts/presentation/artifact_actions.dart';
 import 'package:mobilka/features/artifacts/presentation/document_editor_sheet.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:path/path.dart' as p;
@@ -63,6 +64,7 @@ void main() {
     expect(restored.updatedAt, artifact.updatedAt);
     expect(restored.conversationId, 'conversation-1');
     expect(restored.sessionKey, '2026-08-23_notes');
+    expect(restored.docxSourceSha256, isNull);
     final edited = restored.copyWith(title: 'Edited');
     expect(edited.conversationId, restored.conversationId);
     expect(edited.sessionKey, restored.sessionKey);
@@ -181,6 +183,153 @@ void main() {
     await container.read(artifactsControllerProvider.notifier).delete(created);
     expect(container.read(artifactsControllerProvider), isEmpty);
     expect(await file.exists(), isFalse);
+  });
+
+  test('stale caller cannot retarget immutable ownership on edit', () async {
+    final container = ProviderContainer(
+      overrides: overrides(files(), (_, {mimeType}) async {}),
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(artifactsControllerProvider.notifier);
+    final canonical = await controller.create(
+      title: 'Original',
+      content: 'old',
+      conversationId: 'owner-a',
+      sessionKey: 'session-a',
+    );
+    final stale = Artifact(
+      id: canonical.id,
+      title: 'Stale',
+      content: 'stale',
+      createdAt: DateTime(1999),
+      updatedAt: DateTime(1999),
+      conversationId: 'owner-b',
+      sessionKey: 'session-b',
+    );
+
+    await controller.update(stale, title: 'Edited', content: 'new');
+    final saved = ArtifactStore().loadById(canonical.id)!;
+    expect(saved.conversationId, 'owner-a');
+    expect(saved.sessionKey, 'session-a');
+    expect(saved.createdAt, canonical.createdAt);
+    expect(saved.title, 'Edited');
+    expect(saved.content, 'new');
+  });
+
+  test(
+    'edit removes stale DOCX and export records current source hash',
+    () async {
+      final container = ProviderContainer(
+        overrides: overrides(files(), (_, {mimeType}) async {}),
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(artifactsControllerProvider.notifier);
+      final created = await controller.create(title: 'One', content: 'old');
+      await controller.exportDocx(created);
+      expect(ArtifactStore().loadById(created.id)!.docxSourceSha256, isNotNull);
+      expect(await files().exists(created.id, extension: 'docx'), true);
+
+      await controller.update(created, title: 'Two', content: 'new');
+      expect(await files().exists(created.id, extension: 'docx'), false);
+      expect(ArtifactStore().loadById(created.id)!.docxSourceSha256, isNull);
+
+      await controller.exportDocx(created);
+      expect(await files().exists(created.id, extension: 'docx'), true);
+      expect(ArtifactStore().loadById(created.id)!.docxSourceSha256, isNotNull);
+    },
+  );
+
+  test('export metadata failure restores prior DOCX bytes and hash', () async {
+    final store = _ToggleSaveStore();
+    final container = ProviderContainer(
+      overrides: [
+        ...overrides(files(), (_, {mimeType}) async {}),
+        artifactStoreProvider.overrideWithValue(store),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(artifactsControllerProvider.notifier);
+    final created = await controller.create(title: 'One', content: 'old');
+    await controller.exportDocx(created);
+    final before = store.loadById(created.id)!;
+    final docx = File(p.join(filesDir.path, '${created.id}.docx'));
+    final beforeBytes = await docx.readAsBytes();
+    await files().write(created.id, 'changed');
+    store.failNextSave = true;
+
+    await expectLater(controller.exportDocx(created), throwsStateError);
+    expect(await docx.readAsBytes(), beforeBytes);
+    expect(
+      store.loadById(created.id)!.docxSourceSha256,
+      before.docxSourceSha256,
+    );
+  });
+
+  test('failed first export restores absent DOCX and hash', () async {
+    final store = _ToggleSaveStore();
+    final container = ProviderContainer(
+      overrides: [
+        ...overrides(files(), (_, {mimeType}) async {}),
+        artifactStoreProvider.overrideWithValue(store),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(artifactsControllerProvider.notifier);
+    final created = await controller.create(title: 'One', content: 'old');
+    store.failNextSave = true;
+
+    await expectLater(controller.exportDocx(created), throwsStateError);
+    expect(await files().exists(created.id, extension: 'docx'), false);
+    expect(store.loadById(created.id)!.docxSourceSha256, isNull);
+  });
+
+  test('rollback metadata failure leaves export fail closed', () async {
+    final store = _MultiFailSaveStore();
+    final container = ProviderContainer(
+      overrides: [
+        ...overrides(files(), (_, {mimeType}) async {}),
+        artifactStoreProvider.overrideWithValue(store),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(artifactsControllerProvider.notifier);
+    final created = await controller.create(title: 'One', content: 'old');
+    store.failuresRemaining = 2;
+
+    await expectLater(
+      controller.exportDocx(created),
+      throwsA(isA<ArtifactMutationException>()),
+    );
+    expect(await files().exists(created.id, extension: 'docx'), false);
+    expect(store.loadById(created.id)!.docxSourceSha256, isNull);
+  });
+
+  testWidgets('catalog share failure is localized and never leaks path', (
+    tester,
+  ) async {
+    final artifact = Artifact(
+      id: 'share-artifact',
+      title: 'Share',
+      content: 'body',
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          artifactsControllerProvider.overrideWith(
+            () => _ThrowingShareController(artifact),
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(body: _ShareFailureHarness(artifact: artifact)),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('safe-share')));
+    await tester.pump();
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(find.textContaining(r'C:\private\secret.md'), findsNothing);
   });
 
   test(
@@ -487,6 +636,56 @@ Conversation _ownedConversation() => Conversation(
 class _SaveFailingStore extends ArtifactStore {
   @override
   Future<void> save(Artifact artifact) => Future.error(StateError('save'));
+}
+
+class _ToggleSaveStore extends ArtifactStore {
+  bool failNextSave = false;
+
+  @override
+  Future<void> save(Artifact artifact) {
+    if (failNextSave) {
+      failNextSave = false;
+      return Future.error(StateError('private metadata failure'));
+    }
+    return super.save(artifact);
+  }
+}
+
+class _MultiFailSaveStore extends ArtifactStore {
+  int failuresRemaining = 0;
+
+  @override
+  Future<void> save(Artifact artifact) {
+    if (failuresRemaining > 0) {
+      failuresRemaining--;
+      return Future.error(StateError('private save failure'));
+    }
+    return super.save(artifact);
+  }
+}
+
+class _ThrowingShareController extends ArtifactsController {
+  _ThrowingShareController(this.artifact);
+  final Artifact artifact;
+
+  @override
+  List<Artifact> build() => [artifact];
+
+  @override
+  Future<String> shareablePath(Artifact artifact) =>
+      Future.error(StateError(r'C:\private\secret.md'));
+}
+
+class _ShareFailureHarness extends ConsumerWidget {
+  const _ShareFailureHarness({required this.artifact});
+  final Artifact artifact;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => TextButton(
+    key: const Key('safe-share'),
+    onPressed: () => safeShareArtifact(context, ref, artifact),
+    child: const Text('Share'),
+  );
 }
 
 class _DeleteFailingStore extends ArtifactStore {
