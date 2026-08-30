@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../chat/application/chat_controller.dart';
+import '../../chat/presentation/conversation_display_title.dart';
 import '../application/artifacts_controller.dart';
 import '../data/artifact_store.dart';
 import '../domain/artifact.dart';
@@ -31,7 +32,7 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
         ref.watch(chatControllerProvider).value?.conversations ?? const [];
     final titles = {
       for (final conversation in conversations)
-        conversation.id: conversation.title,
+        conversation.id: conversationDisplayTitle(conversation),
     };
     final filesKey = '$revision:${artifacts.map((item) => item.id).join(',')}';
     if (_filesKey != filesKey) {

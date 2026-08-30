@@ -10,10 +10,13 @@ import '../../../core/router/route_locations.dart';
 import '../../models/application/models_controller.dart';
 import '../application/chat_controller.dart';
 import '../domain/chat_message.dart';
+import '../domain/conversation.dart';
 import 'chat_edge_swipe_access.dart';
 import 'chat_header.dart';
 import 'chat_screen_body.dart';
 import 'conversations_drawer.dart';
+import '../../shell/presentation/shell_navigation_scope.dart';
+import 'conversation_display_title.dart';
 
 export 'chat_composer.dart' show ChatComposer;
 export 'chat_header.dart' show ModelPickerSheet;
@@ -199,10 +202,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     AsyncValue<ChatState> chat,
     AsyncValue<ModelsState> models,
   ) => ChatHeaderBar(
-    title: chat.value?.activeConversation?.title ?? 'chatNoConversation'.tr(),
-    modelId:
-        chat.value?.activeConversation?.modelId ??
-        models.value?.selectedModelId,
+    title: _displayTitle(chat.value?.activeConversation),
+    modelId: _nonBlank(
+      chat.value?.activeConversation?.modelId ?? models.value?.selectedModelId,
+    ),
     onModelPressed: models.value == null
         ? () {}
         : () => _selectModel(models.value!),
@@ -211,42 +214,60 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         : () => _createConversation(models.value),
   );
 
-  Widget _body(AsyncValue<ChatState> chat, AsyncValue<ModelsState> models) =>
-      Builder(
-        builder: (_) => CallbackShortcuts(
-          bindings: {
-            const SingleActivator(LogicalKeyboardKey.keyH, control: true):
-                _showHistory,
-            const SingleActivator(LogicalKeyboardKey.keyA, control: true):
-                _showArtifacts,
-          },
-          child: Focus(
-            autofocus: true,
-            child: Semantics(
-              customSemanticsActions: {
-                CustomSemanticsAction(label: 'chat.search'.tr()): _showHistory,
-                CustomSemanticsAction(label: 'artifacts.open'.tr()):
-                    _showArtifacts,
-              },
-              child: ChatEdgeSwipeAccess(
-                canPresent: _canPresentRoute,
-                onHistory: _showHistory,
-                onArtifacts: _showArtifacts,
-                child: ChatScreenBody(
-                  chat: chat,
-                  models: models,
-                  composer: composer,
-                  scrollController: scrollController,
-                  onCreateConversation: () => _createConversation(models.value),
-                  onPointerSignal: _onPointerSignal,
-                  onScrollNotification: _onScrollNotification,
-                  onSend: _send,
-                ),
+  Widget _body(
+    AsyncValue<ChatState> chat,
+    AsyncValue<ModelsState> models,
+  ) => Builder(
+    builder: (context) {
+      final showNavigation = ShellNavigationScope.maybeShowNavigation(context);
+      void requestNavigation() {
+        if (_canPresentRoute()) showNavigation?.call();
+      }
+
+      return CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.keyH, control: true):
+              _showHistory,
+          const SingleActivator(LogicalKeyboardKey.keyA, control: true):
+              _showArtifacts,
+          const SingleActivator(
+            LogicalKeyboardKey.keyN,
+            control: true,
+            shift: true,
+          ): requestNavigation,
+        },
+        child: Focus(
+          autofocus: true,
+          child: Semantics(
+            customSemanticsActions: {
+              CustomSemanticsAction(label: 'chat.search'.tr()): _showHistory,
+              CustomSemanticsAction(label: 'artifacts.open'.tr()):
+                  _showArtifacts,
+              if (showNavigation != null)
+                CustomSemanticsAction(label: 'nav.show'.tr()):
+                    requestNavigation,
+            },
+            child: ChatEdgeSwipeAccess(
+              canPresent: _canPresentRoute,
+              onHistory: _showHistory,
+              onArtifacts: _showArtifacts,
+              child: ChatScreenBody(
+                chat: chat,
+                models: models,
+                composer: composer,
+                scrollController: scrollController,
+                onCreateConversation: () => _createConversation(models.value),
+                onPointerSignal: _onPointerSignal,
+                onScrollNotification: _onScrollNotification,
+                onSend: _send,
+                onShowNavigation: requestNavigation,
               ),
             ),
           ),
         ),
       );
+    },
+  );
 
   void _send(String text, List<ChatAttachment> attachments) {
     composer.clear();
@@ -257,6 +278,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .send(text, attachments: attachments);
   }
 }
+
+String? _nonBlank(String? value) =>
+    value == null || value.trim().isEmpty ? null : value;
+
+String _displayTitle(Conversation? conversation) => conversation == null
+    ? 'chatNoConversation'.tr()
+    : conversationDisplayTitle(conversation);
 
 String _messageFingerprint(List<ChatMessage>? messages) =>
     (messages ?? const [])

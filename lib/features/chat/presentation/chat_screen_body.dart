@@ -12,6 +12,7 @@ import '../domain/conversation.dart';
 import '../domain/tool_execution.dart';
 import 'chat_composer.dart';
 import 'chat_message_widgets.dart';
+import 'chat_navigation_swipe_access.dart';
 import 'pending_skill_proposal_card.dart';
 
 class ChatScreenBody extends ConsumerWidget {
@@ -24,6 +25,7 @@ class ChatScreenBody extends ConsumerWidget {
     required this.onPointerSignal,
     required this.onScrollNotification,
     required this.onSend,
+    required this.onShowNavigation,
     super.key,
   });
 
@@ -35,6 +37,7 @@ class ChatScreenBody extends ConsumerWidget {
   final ValueChanged<PointerSignalEvent> onPointerSignal;
   final NotificationListenerCallback<ScrollNotification> onScrollNotification;
   final void Function(String text, List<ChatAttachment> attachments) onSend;
+  final VoidCallback onShowNavigation;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => chat.when(
@@ -49,6 +52,7 @@ class ChatScreenBody extends ConsumerWidget {
       onPointerSignal: onPointerSignal,
       onScrollNotification: onScrollNotification,
       onSend: onSend,
+      onShowNavigation: onShowNavigation,
     ),
   );
 }
@@ -63,6 +67,7 @@ class _ChatContent extends ConsumerWidget {
     required this.onPointerSignal,
     required this.onScrollNotification,
     required this.onSend,
+    required this.onShowNavigation,
   });
 
   final ChatState state;
@@ -73,6 +78,7 @@ class _ChatContent extends ConsumerWidget {
   final ValueChanged<PointerSignalEvent> onPointerSignal;
   final NotificationListenerCallback<ScrollNotification> onScrollNotification;
   final void Function(String text, List<ChatAttachment> attachments) onSend;
+  final VoidCallback onShowNavigation;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -82,12 +88,21 @@ class _ChatContent extends ConsumerWidget {
         if (state.errorMessage != null)
           _ErrorBanner(message: state.errorMessage!),
         Expanded(
-          child: _MessageList(
-            conversation: conversation,
-            scrollController: scrollController,
-            onCreateConversation: onCreateConversation,
-            onPointerSignal: onPointerSignal,
-            onScrollNotification: onScrollNotification,
+          child: ChatNavigationSwipeAccess(
+            isEligible: () =>
+                conversation == null ||
+                conversation.messages.isEmpty ||
+                (scrollController.hasClients &&
+                    scrollController.position.pixels <=
+                        scrollController.position.minScrollExtent + 4),
+            onShowNavigation: onShowNavigation,
+            child: _MessageList(
+              conversation: conversation,
+              scrollController: scrollController,
+              onCreateConversation: onCreateConversation,
+              onPointerSignal: onPointerSignal,
+              onScrollNotification: onScrollNotification,
+            ),
           ),
         ),
         _PendingProposals(state: state),

@@ -6,8 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:mobilka/core/router/app_router.dart';
+import 'package:mobilka/features/chat/application/chat_controller.dart';
+import 'package:mobilka/features/models/application/models_controller.dart';
+import 'package:mobilka/features/models/domain/ai_model.dart';
 import 'package:mobilka/features/shell/presentation/app_shell.dart';
-import 'package:mobilka/features/shell/presentation/mobile_dock.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -56,6 +58,10 @@ void main() {
         path: 'assets/translations',
         fallbackLocale: const Locale('en'),
         child: ProviderScope(
+          overrides: [
+            chatControllerProvider.overrideWith(_RouterChatController.new),
+            modelsControllerProvider.overrideWith(_RouterModelsController.new),
+          ],
           child: Consumer(
             builder: (context, ref, _) => MaterialApp.router(
               routerConfig: ref.watch(appRouterProvider),
@@ -83,9 +89,9 @@ void main() {
     await pumpAppAtSize(tester, const Size(320, 720));
 
     expect(find.byType(NavigationBar), findsNothing);
-    expect(find.byKey(mobileDockIndicatorKey), findsOneWidget);
-    expect(find.bySemanticsLabel('Show navigation'), findsOneWidget);
-    await tester.tap(find.byKey(mobileDockIndicatorKey));
+    final context = tester.element(find.byType(MaterialApp));
+    final router = ProviderScope.containerOf(context).read(appRouterProvider);
+    router.go('/models');
     await tester.pumpAndSettle();
 
     expect(find.byType(NavigationBar), findsOneWidget);
@@ -139,9 +145,6 @@ void main() {
     );
     expect(find.text('H'), findsNothing);
 
-    final context = tester.element(find.byType(MaterialApp));
-    final router = ProviderScope.containerOf(context).read(appRouterProvider);
-
     for (final expected in [
       '/chat',
       '/models',
@@ -172,5 +175,20 @@ void main() {
       expect(global.parentNavigatorKey, isNull);
       expect(session.path, isNot('/chat/artifacts'));
     },
+  );
+}
+
+class _RouterChatController extends ChatController {
+  @override
+  Future<ChatState> build() async => const ChatState(conversations: []);
+}
+
+class _RouterModelsController extends ModelsController {
+  @override
+  Future<ModelsState> build() async => const ModelsState(
+    models: [AiModel(id: 'model')],
+    favorites: {},
+    hidden: {},
+    selectedModelId: 'model',
   );
 }
