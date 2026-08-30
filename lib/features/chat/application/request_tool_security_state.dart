@@ -72,7 +72,7 @@ class RequestToolSecurityState {
     required bool succeeded,
   }) async {
     final trust = switch (toolName) {
-      'read_public_source' => ToolOutcomeTrust.publicSource,
+      'read_public_source' || 'web_search' => ToolOutcomeTrust.publicSource,
       'read_skill' => ToolOutcomeTrust.untrustedLocal,
       'list_skills' ||
       'write_skill' ||

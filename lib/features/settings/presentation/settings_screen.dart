@@ -11,6 +11,7 @@ import 'user_data_section.dart';
 import '../../updater/presentation/update_settings_section.dart';
 import '../../memory/application/memory_controller.dart';
 import '../application/settings_controller.dart';
+import '../../web_search/presentation/searxng_settings_section.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -159,6 +160,8 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 20),
+            const SearxngSettingsSection(),
             const SizedBox(height: 20),
             const UpdateSettingsSection(),
             const SizedBox(height: 20),

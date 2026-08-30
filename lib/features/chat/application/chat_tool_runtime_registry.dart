@@ -12,6 +12,7 @@ import '../../chat/domain/chat_tool.dart';
 import '../../chat/domain/pending_memory_proposal.dart';
 import '../../memory/application/memory_chat_tool_runtime.dart';
 import '../../public_source/application/public_source_chat_tool_runtime.dart';
+import '../../web_search/application/web_search_chat_tool_runtime.dart';
 import 'chat_tool_runtime.dart';
 
 /// Merges every feature tool runtime into the single runtime consumed by the
@@ -44,6 +45,7 @@ final chatToolRuntimeRegistryProvider = Provider<CompositeChatToolRuntime>((
     ref.watch(personaChatToolsProvider),
     ref.watch(memoryChatToolRuntimeProvider),
     ref.watch(publicSourceChatToolRuntimeProvider),
+    ref.watch(webSearchChatToolRuntimeProvider),
   ]);
 });
 

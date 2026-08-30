@@ -28,7 +28,27 @@ class PublicSourcePolicy {
   final PublicSourceResolver resolver;
 
   Future<ValidatedPublicTarget> validate(String rawUrl) async {
-    final uri = _parse(rawUrl);
+    return PublicTargetPolicy(
+      resolver,
+      allowedSchemes: const {'https'},
+    ).validate(rawUrl);
+  }
+
+  static Uri canonicalize(Uri uri) => PublicTargetPolicy.canonicalize(uri);
+
+  static bool isGloballyRoutable(InternetAddress address) =>
+      PublicTargetPolicy.isGloballyRoutable(address);
+}
+
+/// Shared fail-closed policy for direct connections to globally routable hosts.
+/// Callers choose schemes; public-source reading remains HTTPS-only.
+class PublicTargetPolicy {
+  const PublicTargetPolicy(this.resolver, {required this.allowedSchemes});
+  final PublicSourceResolver resolver;
+  final Set<String> allowedSchemes;
+
+  Future<ValidatedPublicTarget> validate(String rawUrl) async {
+    final uri = _parse(rawUrl, allowedSchemes);
     final canonical = canonicalize(uri);
     late final List<InternetAddress> addresses;
     try {
@@ -43,8 +63,8 @@ class PublicSourcePolicy {
     return ValidatedPublicTarget(canonical, List.unmodifiable(addresses));
   }
 
-  static Uri _parse(String raw) {
-    if (raw.length > maxCanonicalUrlBytes ||
+  static Uri _parse(String raw, Set<String> schemes) {
+    if (raw.length > PublicSourcePolicy.maxCanonicalUrlBytes ||
         raw.codeUnits.any((unit) => unit > 127)) {
       throw const PublicSourceFailure('invalid_url');
     }
@@ -57,7 +77,7 @@ class PublicSourcePolicy {
     } on FormatException {
       throw const PublicSourceFailure('invalid_url');
     }
-    if (uri.scheme != 'https' ||
+    if (!schemes.contains(uri.scheme) ||
         !uri.hasAuthority ||
         uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
@@ -72,13 +92,15 @@ class PublicSourcePolicy {
     final literal = InternetAddress.tryParse(uri.host);
     final canonical = uri
         .replace(
-          scheme: 'https',
+          scheme: uri.scheme,
           host: literal?.address ?? uri.host.toLowerCase(),
-          port: uri.hasPort && uri.port != 443 ? uri.port : null,
+          port: uri.hasPort && uri.port != (uri.scheme == 'https' ? 443 : 80)
+              ? uri.port
+              : null,
           path: uri.path.isEmpty ? '/' : uri.path,
         )
         .normalizePath();
-    if (canonical.toString().length > maxCanonicalUrlBytes) {
+    if (canonical.toString().length > PublicSourcePolicy.maxCanonicalUrlBytes) {
       throw const PublicSourceFailure('invalid_url');
     }
     return canonical;
