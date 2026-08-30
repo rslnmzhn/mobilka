@@ -1,6 +1,7 @@
 import '../../chat/domain/chat_message.dart';
 import '../domain/memory_file_names.dart';
 import 'prompt_guard.dart';
+import 'memory_context_snapshot_service.dart';
 
 abstract interface class MemoryContextSource {
   Future<Map<String, String>> readSnapshot(Iterable<String> fileNames);
@@ -20,11 +21,21 @@ class ContextInjector {
     this._agentSource,
     this._personaOverlay, {
     PromptGuard guard = const PromptGuard(),
-  }) : _guard = guard;
+  }) : _snapshotSource = null,
+       _guard = guard;
 
-  final MemoryContextSource _memorySource;
+  const ContextInjector.atomic(
+    this._snapshotSource,
+    this._agentSource, {
+    PromptGuard guard = const PromptGuard(),
+  }) : _memorySource = null,
+       _personaOverlay = null,
+       _guard = guard;
+
+  final MemoryContextSource? _memorySource;
   final AgentPromptSource _agentSource;
-  final PersonaOverlaySource _personaOverlay;
+  final PersonaOverlaySource? _personaOverlay;
+  final MemoryContextSnapshotSource? _snapshotSource;
   final PromptGuard _guard;
 
   /// Fixed role order for the Memory 2.0 scheme. memory.md is deliberately
@@ -38,7 +49,15 @@ class ContextInjector {
       sections.add('<active_agent>\n${agentPrompt.trim()}\n</active_agent>');
     }
 
-    final memory = await _memorySource.readSnapshot(orderedMemoryFiles);
+    final atomic = _snapshotSource == null
+        ? null
+        : await _snapshotSource.read();
+    final memory = atomic == null
+        ? await _memorySource!.readSnapshot(orderedMemoryFiles)
+        : <String, String>{
+            if (atomic.soul != null) 'soul.md': atomic.soul!,
+            if (atomic.user != null) 'user.md': atomic.user!,
+          };
     final soul = memory['soul.md'];
     if (soul != null && soul.trim().isNotEmpty) {
       sections.add('<soul>\n${_guard.sanitize(soul).content.trim()}\n</soul>');
@@ -48,7 +67,7 @@ class ContextInjector {
       sections.add('<soul>\n${MemoryFiles.defaultSoul.trim()}\n</soul>');
     }
 
-    final overlay = await _personaOverlay();
+    final overlay = atomic?.personaPrompt ?? await _personaOverlay?.call();
     if (overlay != null && overlay.trim().isNotEmpty) {
       sections.add(
         '<persona>\n${_guard.sanitize(overlay).content.trim()}\n</persona>',

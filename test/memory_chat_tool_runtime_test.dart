@@ -126,7 +126,7 @@ void main() {
   test(
     'persona tools require personas.yaml and their exact permission',
     () async {
-      boundary.files['personas.yaml'] = 'personas: {}\n';
+      boundary.files['personas/reviewer.md'] = 'old';
       final runtime = _runtime(updates, tools: const ['save_persona']);
 
       await expectLater(
@@ -147,8 +147,7 @@ void main() {
           const ChatToolCall(
             id: 'persona-wrong-permission',
             name: 'save_persona',
-            arguments:
-                '{"file_name":"personas.yaml","content":"personas: {}\\n"}',
+            arguments: '{"file_name":"personas/reviewer.md","content":"new"}',
           ),
           'assistant-1',
           'agent',
@@ -262,7 +261,7 @@ void main() {
   test(
     'persona proposal preserves and revalidates originating permission',
     () async {
-      boundary.files['personas.yaml'] = 'personas: {}\n';
+      boundary.files['personas/reviewer.md'] = 'old';
       var selected = _entry(const ['save_persona']);
       final runtime = MemoryChatToolRuntime(
         agentById: (_) async => selected,
@@ -272,8 +271,7 @@ void main() {
         const ChatToolCall(
           id: 'persona-1',
           name: 'save_persona',
-          arguments:
-              '{"file_name":"personas.yaml","content":"personas: {}\\n"}',
+          arguments: '{"file_name":"personas/reviewer.md","content":"new"}',
         ),
         'assistant-1',
         'agent',
@@ -329,7 +327,10 @@ void main() {
   test('safe persona permission bindings survive persistence', () {
     for (final permission in ['save_persona', 'delete_persona']) {
       final proposal = PendingMemoryProposal.fromJson(
-        _persistedProposal(fileName: 'personas.yaml', permission: permission),
+        _persistedProposal(
+          fileName: 'personas/reviewer.md',
+          permission: permission,
+        ),
       );
       expect(proposal.requiredToolPermission, permission);
       expect(

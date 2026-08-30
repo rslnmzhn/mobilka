@@ -11,6 +11,7 @@ import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
 import 'package:mobilka/features/memory/application/instant_memory_writer.dart';
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
 import 'package:mobilka/features/memory/application/persona_registry.dart';
+import 'package:mobilka/features/memory/domain/persona.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 
 void main() {
@@ -83,34 +84,28 @@ void main() {
     });
   }
 
-  test(
-    'persona YAML validation exposes only approved format message',
-    () async {
-      final dispatcher = MemoryToolDispatcher(
-        personaRegistry: _ThrowingPersonaRegistry(
-          const FormatException('Persona name must not be empty'),
-        ),
-      );
-      final result = await dispatcher.dispatch(
-        runtime: _PermissionRuntime(),
-        call: const ChatToolCall(
-          id: 'persona-1',
-          name: 'save_persona',
-          arguments: '{"name":"","text":"x"}',
-        ),
-        assistantId: 'assistant-1',
-        selectedAgentId: 'agent-1',
-        allowedTools: const {'save_persona'},
-        occurrence: 0,
-        resultIndex: 0,
-      );
+  test('persona validation exposes only a safe validation message', () async {
+    final dispatcher = MemoryToolDispatcher(
+      personaRegistry: _ThrowingPersonaRegistry(
+        const FormatException('Persona name must not be empty'),
+      ),
+    );
+    final result = await dispatcher.dispatch(
+      runtime: _PermissionRuntime(),
+      call: const ChatToolCall(
+        id: 'persona-1',
+        name: 'save_persona',
+        arguments: '{"name":"","text":"x"}',
+      ),
+      assistantId: 'assistant-1',
+      selectedAgentId: 'agent-1',
+      allowedTools: const {'save_persona'},
+      occurrence: 0,
+      resultIndex: 0,
+    );
 
-      expect(
-        result.result!.content,
-        contains('Persona name must not be empty'),
-      );
-    },
-  );
+    expect(result.result!.content, contains('persona_processing_failed'));
+  });
 
   test('permission failure redacts secret path and URI', () async {
     final result = await _dispatch(
@@ -278,15 +273,21 @@ class _ThrowingPersonaRegistry implements PersonaRegistryAdapter {
   final Object failure;
 
   @override
-  String? get activeName => null;
+  String? get activeId => null;
   @override
-  Future<List<PersonaEntry>> refresh() async => const [];
+  Future<PersonaCatalog> refresh() async =>
+      const PersonaCatalog(personas: [], issues: []);
   @override
   Future<String> switchTo(String? name) async => '';
   @override
-  Future<String> yamlAfter({
-    required String operation,
-    required String name,
-    required String text,
+  Future<PersonaMutationPreview> previewSave({
+    required String id,
+    required String title,
+    required String description,
+    required Map<String, Object?> params,
+    required String prompt,
   }) async => throw failure;
+  @override
+  Future<PersonaMutationPreview> previewDelete(String id) async =>
+      throw failure;
 }

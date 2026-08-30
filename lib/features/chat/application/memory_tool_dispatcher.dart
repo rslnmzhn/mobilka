@@ -3,7 +3,7 @@ import 'dart:convert';
 import '../../../core/logging/app_logger.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
-import '../../../features/memory/domain/memory_file_names.dart';
+import '../../../features/memory/domain/strict_json_object_parser.dart';
 import '../domain/chat_message.dart';
 import '../domain/pending_memory_proposal.dart';
 import 'chat_tool_runtime.dart';
@@ -57,18 +57,44 @@ class MemoryToolDispatcher {
       try {
         final args = call.arguments.trim().isEmpty
             ? const <String, Object?>{}
-            : jsonDecode(call.arguments) as Map;
-        final yaml = await registry.yamlAfter(
-          operation: call.name,
-          name: args['name']?.toString() ?? '',
-          text: args['text']?.toString() ?? '',
-        );
+            : StrictJsonObjectParser.decode(call.arguments);
+        final PersonaMutationPreview preview;
+        if (call.name == 'delete_persona') {
+          _requireKeys(args, const {'id'});
+          if (args['id'] is! String) {
+            throw const FormatException('delete_persona requires string id');
+          }
+          preview = await registry.previewDelete(args['id'] as String);
+        } else {
+          _requireKeys(args, const {
+            'id',
+            'title',
+            'description',
+            'params',
+            'prompt',
+          });
+          final rawParams = args['params'];
+          if (args['id'] is! String ||
+              args['title'] is! String ||
+              args['description'] is! String ||
+              args['prompt'] is! String ||
+              rawParams is! Map<String, Object?>) {
+            throw const FormatException('save_persona arguments are invalid');
+          }
+          preview = await registry.previewSave(
+            id: args['id'] as String,
+            title: args['title'] as String,
+            description: args['description'] as String,
+            params: rawParams,
+            prompt: args['prompt'] as String,
+          );
+        }
         effectiveCall = ChatToolCall(
           id: call.id,
           name: call.name,
           arguments: jsonEncode({
-            'file_name': MemoryFiles.personas,
-            'content': yaml,
+            'file_name': preview.path,
+            'content': preview.content ?? '',
           }),
         );
       } on FormatException catch (error) {
@@ -109,7 +135,7 @@ class MemoryToolDispatcher {
         );
       }
     }
-    if (memoryArguments?.fileName == MemoryFiles.memory) {
+    if (memoryArguments?.fileName == 'memory.md') {
       final writer = instantMemoryWriter;
       if (writer == null) {
         return MemoryToolDispatchResult(
@@ -129,11 +155,7 @@ class MemoryToolDispatcher {
         return MemoryToolDispatchResult(
           result: _result(
             call,
-            jsonEncode({
-              'ok': true,
-              'file': MemoryFiles.memory,
-              'status': note,
-            }),
+            jsonEncode({'ok': true, 'file': 'memory.md', 'status': note}),
             resultIndex,
           ),
         );
@@ -181,6 +203,13 @@ class MemoryToolDispatcher {
     }
   }
 
+  static void _requireKeys(Map<String, Object?> args, Set<String> expected) {
+    if (args.length != expected.length ||
+        !args.keys.toSet().containsAll(expected)) {
+      throw const FormatException('Persona tool arguments do not match schema');
+    }
+  }
+
   _SafeToolError _validationError(FormatException error) {
     final message = error.message;
     final bounded = message.length <= 256
@@ -192,8 +221,8 @@ class MemoryToolDispatcher {
   _SafeToolError _personaValidationError(FormatException error) {
     const approved = {
       'Persona name must not be empty',
-      'Cannot modify malformed personas.yaml',
-      'Generated personas.yaml failed validation',
+      'Cannot modify malformed persona document',
+      'Generated persona document failed validation',
     };
     if (!approved.contains(error.message)) {
       return const _SafeToolError(

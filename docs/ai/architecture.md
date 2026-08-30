@@ -57,11 +57,11 @@ the current schema:
 | `user.md` | Durable user facts. Human-editable; model replacement requires exact diff review and explicit confirmation. |
 | `soul.md` | Base personality. Human-owned and model-protected; missing/empty content uses the built-in default. |
 | `memory.md` | Agent working notebook. Model writes use the bounded instant path; changes enter context only on the next session or explicit rebuild. |
-| `personas.yaml` | Named persona overlays. Memory owns parsing and mutation safety; save/delete use confirmable exact-diff proposals. |
+| `personas/<slug>.md` | Canonical persona documents: strict frontmatter metadata and prompt body. No mutable catalog/index. |
 
 `ContextInjector` prepends a deterministic system message in active-agent,
 `soul.md`, active-persona, `user.md` order after pending-memory recovery and an
-atomic snapshot. `memory.md` and `personas.yaml` are not independently injected
+atomic snapshot. `memory.md` and persona frontmatter are not independently injected
 as raw files. `PromptGuard` strips frontmatter and marks suspicious injected
 text. Historical aliases migrate to these names; `project_context.md` is not in
 the current schema.
@@ -79,7 +79,7 @@ primary/subagent mode, preferred model, subagents, and tools; the default is
 are injected separately from memory.
 
 Personas appear in Agents UI but remain memory-owned overlays from
-`personas.yaml`. `PersonaRegistry` owns active persona persistence and parsing.
+canonical `personas/<slug>.md` files. `PersonaRegistry` owns active persona selection while the catalog is derived live from those files.
 Subagent execution follows the declared graph with bounded depth and isolated
 history: delegation does not mutate the parent conversation or memory.
 

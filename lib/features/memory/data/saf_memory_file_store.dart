@@ -7,6 +7,8 @@ import 'memory_file_store_contracts.dart';
 import 'saf_binary_artifact_pair_writer.dart';
 import 'saf_memory_access.dart';
 
+part 'saf_persona_tree_access.dart';
+
 class SafMemoryFileStore
     implements
         MemoryFileStore,
@@ -54,7 +56,7 @@ class SafMemoryFileStore
     Future<T> Function(MemoryFileTransaction files) action,
   ) => _lock.synchronized(() async {
     final documents = await _access.list(directoryUri);
-    return action(_SafMemoryFileTransaction(directoryUri, _access, documents));
+    return action(_SafMemoryFileTransaction(this, documents));
   });
 
   @override
@@ -356,62 +358,5 @@ class SafMemoryFileStore
       throw StateError('Workspace child has an unexpected type: $name');
     }
     return child;
-  }
-}
-
-class _SafMemoryFileTransaction
-    implements
-        MemoryFileTransaction,
-        MissingAwareMemoryFileTransaction,
-        DeletingMemoryFileTransaction {
-  _SafMemoryFileTransaction(this.directoryUri, this.access, this.documents);
-  final String directoryUri;
-  final SafMemoryAccess access;
-  final List<SafMemoryDocument> documents;
-
-  List<SafMemoryDocument> _matches(String fileName) {
-    MemoryFileValidation.validateFileName(fileName);
-    return documents.where((document) => document.name == fileName).toList();
-  }
-
-  @override
-  Future<String> read(String fileName) async {
-    final matches = _matches(fileName);
-    if (matches.length != 1 || matches.single.isDirectory) {
-      throw StateError('Memory file not found or ambiguous: $fileName');
-    }
-    return MemoryFileCodec.decode(await access.read(matches.single.uri));
-  }
-
-  @override
-  Future<String?> readIfExists(String fileName) async {
-    final matches = _matches(fileName);
-    if (matches.isEmpty) return null;
-    if (matches.length != 1 || matches.single.isDirectory) {
-      throw StateError('Memory file is ambiguous or unsafe: $fileName');
-    }
-    return MemoryFileCodec.decode(await access.read(matches.single.uri));
-  }
-
-  @override
-  Future<void> write(String fileName, String content) async {
-    MemoryFileValidation.validateFileName(fileName);
-    await access.write(
-      directoryUri,
-      fileName,
-      MemoryFileCodec.encode(content),
-      overwrite: true,
-    );
-  }
-
-  @override
-  Future<void> delete(String fileName) async {
-    final matches = _matches(fileName);
-    if (matches.isEmpty) return;
-    if (matches.length != 1 || matches.single.isDirectory) {
-      throw StateError('Memory file is ambiguous or unsafe: $fileName');
-    }
-    await access.delete(matches.single.uri);
-    documents.remove(matches.single);
   }
 }

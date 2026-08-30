@@ -554,7 +554,7 @@ void main() {
         const MemoryLocation(value: treeUri, isContentUri: true),
       );
 
-      expect(access.files['personas.yaml'], 'personas: {}\n');
+      expect(access.files, isNot(contains('personas.yaml')));
       expect(
         access.files.keys,
         unorderedEquals(MemoryRepository.templates.keys),

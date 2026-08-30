@@ -298,25 +298,39 @@ class _PathMemoryFileTransaction
     implements
         MemoryFileTransaction,
         MissingAwareMemoryFileTransaction,
-        DeletingMemoryFileTransaction {
+        DeletingMemoryFileTransaction,
+        PersonaTreeTransaction {
   const _PathMemoryFileTransaction(this.guard, this.hooks);
 
   final _CanonicalPathGuard guard;
   final PathMemoryFileStoreHooks? hooks;
 
-  File target(String fileName) {
+  List<String> parts(String fileName) {
     MemoryFileValidation.validateFileName(fileName);
-    return File(_join(guard.canonicalRoot, fileName));
+    return fileName.replaceAll('\\', '/').split('/');
+  }
+
+  Future<File> target(String fileName, {bool createParent = false}) async {
+    final pathParts = parts(fileName);
+    final parent = await guard.parent(pathParts, create: createParent);
+    if (parent == null) throw _unsafeParent();
+    return File(_join(parent.path, pathParts.last));
   }
 
   Future<FileSystemEntityType> targetType(String fileName) async {
     await guard.revalidateRoot();
-    return FileSystemEntity.type(target(fileName).path, followLinks: false);
+    final pathParts = parts(fileName);
+    final parent = await guard.parent(pathParts, create: false);
+    if (parent == null) return FileSystemEntityType.notFound;
+    return FileSystemEntity.type(
+      _join(parent.path, pathParts.last),
+      followLinks: false,
+    );
   }
 
   @override
   Future<String> read(String fileName) async {
-    final file = target(fileName);
+    final file = await target(fileName);
     if (await targetType(fileName) != FileSystemEntityType.file) {
       throw _unsafeFile();
     }
@@ -326,10 +340,10 @@ class _PathMemoryFileTransaction
 
   @override
   Future<String?> readIfExists(String fileName) async {
-    final file = target(fileName);
     final type = await targetType(fileName);
     if (type == FileSystemEntityType.notFound) return null;
     if (type != FileSystemEntityType.file) throw _unsafeFile();
+    final file = await target(fileName);
     await guard.revalidateRoot();
     return MemoryFileCodec.decode(await file.readAsBytes());
   }
@@ -337,23 +351,46 @@ class _PathMemoryFileTransaction
   @override
   Future<void> write(String fileName, String content) async {
     final store = PathMemoryFileStore(guard.configuredRoot, hooks: hooks);
+    final pathParts = parts(fileName);
+    final destination = await target(fileName, createParent: true);
     await store._atomicWrite(
       guard: guard,
-      parentParts: [fileName],
-      canonicalParent: guard.canonicalRoot,
-      destination: target(fileName),
+      parentParts: pathParts,
+      canonicalParent: destination.parent.path,
+      destination: destination,
       bytes: MemoryFileCodec.encode(content),
     );
   }
 
   @override
   Future<void> delete(String fileName) async {
-    final file = target(fileName);
     final type = await targetType(fileName);
     if (type == FileSystemEntityType.notFound) return;
     if (type != FileSystemEntityType.file) throw _unsafeFile();
+    final file = await target(fileName);
     await guard.revalidateRoot();
     await file.delete();
+  }
+
+  @override
+  Future<List<String>> listPersonaFiles() async {
+    final sentinel = const ['personas', 'entry.md'];
+    final directory = await guard.parent(sentinel, create: false);
+    if (directory == null) return const [];
+    final result = <String>[];
+    await for (final entity in directory.list(followLinks: false)) {
+      final type = await FileSystemEntity.type(entity.path, followLinks: false);
+      if (type != FileSystemEntityType.file) continue;
+      final name = entity.uri.pathSegments.last;
+      if (name.endsWith('.md') &&
+          MemoryFileValidation.isPersonaSlug(
+            name.substring(0, name.length - 3),
+          )) {
+        result.add(name);
+      }
+    }
+    result.sort();
+    return result;
   }
 }
 

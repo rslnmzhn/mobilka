@@ -11,7 +11,7 @@ const sessionsFolder = 'sessions';
 /// Resolves agent-workspace paths inside the owner-chosen storage folder:
 ///
 /// storage-root/
-///   user.md  soul.md  memory.md  personas.yaml
+///   user.md  soul.md  memory.md  personas/`slug`.md
 ///   skills/skill-name.md
 ///   sessions/yyyy-MM-DD_title/session.md
 ///   sessions/yyyy-MM-DD_title/artifacts/files

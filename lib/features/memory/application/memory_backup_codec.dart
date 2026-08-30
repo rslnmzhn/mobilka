@@ -8,14 +8,15 @@ class MemoryBackupCodec {
   const MemoryBackupCodec();
 
   static const format = 'mobilka-memory-backup';
-  static const version = 1;
+  static const version = 2;
   static const documentExtension = 'mobilka-memory.json';
   static const maxFileBytes = 1024 * 1024;
   static const maxDocumentBytes = 5 * 1024 * 1024;
 
   String encode(Map<String, String> files, DateTime createdAt) {
     final manifest = <Map<String, Object>>[];
-    for (final name in MemoryFiles.backupFiles) {
+    final backupNames = files.keys.toList()..sort();
+    for (final name in backupNames) {
       final content = files[name];
       if (content == null) {
         throw const MemoryBackupFormatException('Missing required memory file');
@@ -46,7 +47,23 @@ class MemoryBackupCodec {
     final decoded = _decodeDocument(document);
     final (:files, :manifest) = _readPayload(decoded);
     final actual = files.keys.toSet();
-    final supported = [MemoryFiles.coreBackupFiles, MemoryFiles.backupFiles];
+    final isV2 = decoded['version'] == version;
+    final dynamicV2 =
+        isV2 &&
+        actual.containsAll(MemoryFiles.coreBackupFiles) &&
+        actual.every(
+          (name) =>
+              MemoryFiles.coreBackupFiles.contains(name) ||
+              RegExp(
+                r'^personas/[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.md$',
+              ).hasMatch(name),
+        );
+    final supported = isV2
+        ? [if (dynamicV2) actual]
+        : [
+            MemoryFiles.coreBackupFiles,
+            {...MemoryFiles.coreBackupFiles, MemoryFiles.legacyPersonas},
+          ];
     final expected = supported.firstWhere(
       (set) => actual.length == set.length && actual.containsAll(set),
       orElse: () => const <String>{},
@@ -68,7 +85,7 @@ class MemoryBackupCodec {
     }
     if (decoded is! Map<String, dynamic> ||
         decoded['format'] != format ||
-        decoded['version'] != version) {
+        (decoded['version'] != 1 && decoded['version'] != version)) {
       throw const MemoryBackupFormatException('Unsupported backup format');
     }
     return decoded;
