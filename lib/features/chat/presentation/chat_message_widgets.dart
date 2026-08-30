@@ -284,23 +284,38 @@ class EmptyChat extends StatelessWidget {
   final VoidCallback onCreate;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.auto_awesome, size: 52),
-        const SizedBox(height: 12),
-        Text(
-          'chat.title'.tr(),
-          style: Theme.of(context).textTheme.headlineSmall,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight - 32),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.auto_awesome, size: 52),
+                const SizedBox(height: 12),
+                Text(
+                  'chat.title'.tr(),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: onCreate,
+                  icon: const Icon(Icons.add),
+                  label: Text(
+                    'chat.newConversation'.tr(),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        const SizedBox(height: 12),
-        FilledButton.icon(
-          onPressed: onCreate,
-          icon: const Icon(Icons.add),
-          label: Text('chat.newConversation'.tr()),
-        ),
-      ],
+      ),
     ),
   );
 }

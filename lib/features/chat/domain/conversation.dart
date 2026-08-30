@@ -119,7 +119,10 @@ class Conversation {
 
   factory Conversation.fromJson(Map<dynamic, dynamic> json) {
     final id = json['id'].toString();
-    final title = json['title']?.toString() ?? 'New conversation';
+    final rawTitle = json['title'];
+    final hasValidTitle = rawTitle is String && rawTitle.trim().isNotEmpty;
+    final title = hasValidTitle ? rawTitle : 'New conversation';
+    final titleStateValue = json['titleState']?.toString();
     final createdAt = DateTime.parse(json['createdAt'].toString());
     return Conversation(
       id: id,
@@ -144,7 +147,9 @@ class Conversation {
           json['sessionKey']?.toString() ??
           _legacySessionKey(createdAt, title, id),
       titleState: ConversationTitleState.values.byName(
-        json['titleState']?.toString() ?? ConversationTitleState.manual.name,
+        hasValidTitle
+            ? (titleStateValue ?? ConversationTitleState.manual.name)
+            : ConversationTitleState.fallback.name,
       ),
       publicSourceWireBytesUsed: _wireBytes(json['publicSourceWireBytesUsed']),
       pendingToolProposal: json['pendingToolProposal'] is Map

@@ -96,7 +96,7 @@ void main() {
   });
 
   test(
-    'automatic title state persists and legacy titles default to manual',
+    'automatic title state persists and missing legacy titles fall back',
     () {
       final now = DateTime.utc(2026);
       final pending = Conversation(
@@ -117,6 +117,29 @@ void main() {
         Conversation.fromJson(legacy).titleState,
         ConversationTitleState.manual,
       );
+      final missingTitle = pending.toJson()
+        ..remove('titleState')
+        ..remove('title');
+      expect(
+        Conversation.fromJson(missingTitle).titleState,
+        ConversationTitleState.fallback,
+      );
+      for (final invalid in <Object?>[null, '', '   ', 42]) {
+        final json = pending.toJson()
+          ..['title'] = invalid
+          ..['titleState'] = ConversationTitleState.manual.name;
+        final restored = Conversation.fromJson(json);
+        expect(restored.title, 'New conversation');
+        expect(restored.titleState, ConversationTitleState.fallback);
+      }
+      for (final state in ConversationTitleState.values) {
+        final json = pending.toJson()
+          ..['title'] = 'Valid title'
+          ..['titleState'] = state.name;
+        final restored = Conversation.fromJson(json);
+        expect(restored.title, 'Valid title');
+        expect(restored.titleState, state);
+      }
     },
   );
 

@@ -55,7 +55,9 @@ class ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = modelId ?? 'chat.selectModel'.tr();
+    final label = modelId == null || modelId!.trim().isEmpty
+        ? 'chat.selectModel'.tr()
+        : modelId!;
     final primary = Theme.of(context).colorScheme.primary;
     return Column(
       mainAxisSize: MainAxisSize.min,

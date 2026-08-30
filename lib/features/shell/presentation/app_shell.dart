@@ -4,11 +4,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import 'mobile_dock.dart';
+import 'shell_navigation_scope.dart';
 
 const double compactShellBreakpoint = 760;
 const double expandedShellBreakpoint = 1100;
 
-bool isCollapsedMobileDockPath(String path) => path == '/chat';
+bool isZeroFootprintChatPath(String path) => path == '/chat';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.shell, required this.currentPath});
@@ -21,34 +22,9 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  late bool _mobileDockExpanded;
-  bool? _wasNarrow;
+  bool _presentingNavigation = false;
 
-  bool get _isChatRoot => isCollapsedMobileDockPath(widget.currentPath);
-
-  @override
-  void initState() {
-    super.initState();
-    _mobileDockExpanded = !_isChatRoot;
-  }
-
-  @override
-  void didUpdateWidget(covariant AppShell oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.currentPath != widget.currentPath) {
-      _mobileDockExpanded = !_isChatRoot;
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final narrow = MediaQuery.sizeOf(context).width < compactShellBreakpoint;
-    if (_wasNarrow == false && narrow) {
-      _mobileDockExpanded = !_isChatRoot;
-    }
-    _wasNarrow = narrow;
-  }
+  bool get _isChatRoot => isZeroFootprintChatPath(widget.currentPath);
 
   @override
   Widget build(BuildContext context) {
@@ -60,9 +36,6 @@ class _AppShellState extends State<AppShell> {
       (Icons.tune_outlined, Icons.tune, 'nav.settings'.tr()),
     ];
     void select(int index) {
-      if (index == 0 && _mobileDockExpanded) {
-        setState(() => _mobileDockExpanded = false);
-      }
       widget.shell.goBranch(
         index,
         initialLocation: index == widget.shell.currentIndex,
@@ -107,20 +80,80 @@ class _AppShellState extends State<AppShell> {
           );
         }
         return Scaffold(
-          body: widget.shell,
-          bottomNavigationBar: MobileDock(
-            expanded: _mobileDockExpanded || !_isChatRoot,
-            canCollapse: _isChatRoot,
-            destinations: destinations,
-            selectedIndex: widget.shell.currentIndex,
-            onSelect: select,
-            onShow: () => setState(() => _mobileDockExpanded = true),
-            onHide: () => setState(() => _mobileDockExpanded = false),
+          body: ShellNavigationScope(
+            showNavigation: _isChatRoot
+                ? () => _showNavigation(destinations, select)
+                : null,
+            child: widget.shell,
           ),
+          bottomNavigationBar: _isChatRoot
+              ? null
+              : MobileDock(
+                  destinations: destinations,
+                  selectedIndex: widget.shell.currentIndex,
+                  onSelect: select,
+                ),
         );
       },
     );
   }
+
+  Future<void> _showNavigation(
+    List<(IconData, IconData, String)> destinations,
+    ValueChanged<int> select,
+  ) async {
+    if (_presentingNavigation || !_isChatRoot || !mounted) return;
+    if (MediaQuery.sizeOf(context).width >= compactShellBreakpoint) return;
+    _presentingNavigation = true;
+    FocusManager.instance.primaryFocus?.unfocus();
+    try {
+      final selected = await showModalBottomSheet<int>(
+        context: context,
+        useSafeArea: true,
+        showDragHandle: false,
+        builder: (context) => _MobileNavigationSheet(
+          destinations: destinations,
+          selectedIndex: widget.shell.currentIndex,
+        ),
+      );
+      if (selected != null && selected != 0 && mounted) select(selected);
+    } finally {
+      _presentingNavigation = false;
+    }
+  }
+}
+
+class _MobileNavigationSheet extends StatelessWidget {
+  const _MobileNavigationSheet({
+    required this.destinations,
+    required this.selectedIndex,
+  });
+
+  final List<(IconData, IconData, String)> destinations;
+  final int selectedIndex;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: NavigationBar(
+        height: 64,
+        selectedIndex: selectedIndex,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
+        onDestinationSelected: (index) => Navigator.pop(context, index),
+        destinations: destinations
+            .map(
+              (destination) => NavigationDestination(
+                icon: Icon(destination.$1),
+                selectedIcon: Icon(destination.$2),
+                label: destination.$3,
+              ),
+            )
+            .toList(),
+      ),
+    ),
+  );
 }
 
 class _DesktopFrame extends StatelessWidget {

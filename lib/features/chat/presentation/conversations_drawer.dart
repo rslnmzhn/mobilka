@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../application/chat_controller.dart';
 import '../domain/conversation.dart';
+import 'conversation_display_title.dart';
 
 class ConversationsDrawer extends ConsumerWidget {
   const ConversationsDrawer({required this.chat, super.key});
@@ -49,7 +50,7 @@ class ConversationsDrawer extends ConsumerWidget {
                       (conversation) => ListTile(
                         selected: conversation.id == state.activeConversationId,
                         title: Text(
-                          conversation.title,
+                          conversationDisplayTitle(conversation),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -132,7 +133,9 @@ class ConversationsDrawer extends ConsumerWidget {
       await controller.delete(conversation.id);
       return;
     }
-    final text = TextEditingController(text: conversation.title);
+    final text = TextEditingController(
+      text: conversationDisplayTitle(conversation),
+    );
     final title = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
