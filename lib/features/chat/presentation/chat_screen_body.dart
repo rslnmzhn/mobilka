@@ -26,6 +26,7 @@ class ChatScreenBody extends ConsumerWidget {
     required this.onScrollNotification,
     required this.onSend,
     required this.onShowNavigation,
+    required this.isNavigationVisible,
     super.key,
   });
 
@@ -38,6 +39,7 @@ class ChatScreenBody extends ConsumerWidget {
   final NotificationListenerCallback<ScrollNotification> onScrollNotification;
   final void Function(String text, List<ChatAttachment> attachments) onSend;
   final VoidCallback onShowNavigation;
+  final bool isNavigationVisible;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => chat.when(
@@ -53,6 +55,7 @@ class ChatScreenBody extends ConsumerWidget {
       onScrollNotification: onScrollNotification,
       onSend: onSend,
       onShowNavigation: onShowNavigation,
+      isNavigationVisible: isNavigationVisible,
     ),
   );
 }
@@ -68,6 +71,7 @@ class _ChatContent extends ConsumerWidget {
     required this.onScrollNotification,
     required this.onSend,
     required this.onShowNavigation,
+    required this.isNavigationVisible,
   });
 
   final ChatState state;
@@ -79,6 +83,7 @@ class _ChatContent extends ConsumerWidget {
   final NotificationListenerCallback<ScrollNotification> onScrollNotification;
   final void Function(String text, List<ChatAttachment> attachments) onSend;
   final VoidCallback onShowNavigation;
+  final bool isNavigationVisible;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -90,11 +95,12 @@ class _ChatContent extends ConsumerWidget {
         Expanded(
           child: ChatNavigationSwipeAccess(
             isEligible: () =>
-                conversation == null ||
-                conversation.messages.isEmpty ||
-                (scrollController.hasClients &&
-                    scrollController.position.pixels <=
-                        scrollController.position.minScrollExtent + 4),
+                !isNavigationVisible &&
+                (conversation == null ||
+                    conversation.messages.isEmpty ||
+                    (scrollController.hasClients &&
+                        scrollController.position.pixels <=
+                            scrollController.position.minScrollExtent + 4)),
             onShowNavigation: onShowNavigation,
             child: _MessageList(
               conversation: conversation,

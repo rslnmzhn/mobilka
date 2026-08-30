@@ -65,7 +65,7 @@ format: dart format .
 - mobilka Workbench is the default visual language; all existing theme presets remain supported.
 - Use warm paper, clay, and ink surfaces in light mode, and charcoal and ink surfaces in dark mode.
 - Favor fine technical dividers, clear editorial hierarchy, and compact desktop density.
-- Use a custom adaptive shell with side navigation on desktop and a persistent 52px bottom bar on narrow non-chat routes. Exact narrow `/chat` has zero persistent shell footprint and reveals modal navigation only through the eligible central chat-region upward gesture, localized semantics action, or keyboard shortcut.
+- Use a custom adaptive shell with side navigation on desktop and a persistent 52px bottom bar on narrow non-chat routes. Exact narrow `/chat` starts with zero persistent shell footprint and reveals that same inline 52px bottom bar through an eligible broad message-region upward gesture, localized semantics action, or keyboard shortcut; no modal navigation is used. At the newest boundary any upward swipe intentionally reveals navigation and consumes that first attempt to browse older; while navigation is visible or once the list is already older, normal list scrolling wins immediately.
 - Avoid generic default Material/MUI appearance, glassmorphism, decorative gradients, and network fonts.
 - Require responsive, overflow-free behavior at 320px and desktop widths; memory Open and Edit actions must remain independently visible.
 - Mobile-first adaptive UI with dark theme priority and customizable theme presets.

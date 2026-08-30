@@ -219,9 +219,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     AsyncValue<ModelsState> models,
   ) => Builder(
     builder: (context) {
-      final showNavigation = ShellNavigationScope.maybeShowNavigation(context);
+      final navigation = ShellNavigationScope.maybeOf(context);
       void requestNavigation() {
-        if (_canPresentRoute()) showNavigation?.call();
+        if (_canPresentRoute()) navigation?.showNavigation();
+      }
+
+      void hideNavigation() {
+        navigation?.hideNavigation();
       }
 
       return CallbackShortcuts(
@@ -243,7 +247,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               CustomSemanticsAction(label: 'chat.search'.tr()): _showHistory,
               CustomSemanticsAction(label: 'artifacts.open'.tr()):
                   _showArtifacts,
-              if (showNavigation != null)
+              if (navigation?.chatNavigationVisible ?? false)
+                CustomSemanticsAction(label: 'nav.hide'.tr()): hideNavigation
+              else if (navigation != null)
                 CustomSemanticsAction(label: 'nav.show'.tr()):
                     requestNavigation,
             },
@@ -261,6 +267,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 onScrollNotification: _onScrollNotification,
                 onSend: _send,
                 onShowNavigation: requestNavigation,
+                isNavigationVisible: navigation?.chatNavigationVisible ?? false,
               ),
             ),
           ),
