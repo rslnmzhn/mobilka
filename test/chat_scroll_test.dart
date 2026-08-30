@@ -10,6 +10,8 @@ import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:mobilka/features/chat/presentation/chat_screen.dart';
 import 'package:mobilka/features/models/application/models_controller.dart';
 import 'package:mobilka/features/models/domain/ai_model.dart';
+import 'package:mobilka/features/shell/presentation/chat_navigation_controller.dart';
+import 'package:mobilka/features/shell/presentation/shell_navigation_scope.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -206,12 +208,76 @@ void main() {
     expect(_position(tester).pixels, 0);
     expect(find.byKey(const ValueKey('wheel-followed')), findsOneWidget);
   });
+
+  testWidgets('user movement toward older hides nav without consuming scroll', (
+    tester,
+  ) async {
+    final navigation = _visibleNavigation();
+    addTearDown(navigation.dispose);
+    await _pump(
+      tester,
+      _ChatController.data(_state([_longConversation('hide')], 'hide')),
+      navigation: navigation,
+    );
+
+    await tester.drag(find.byType(ListView).last, const Offset(0, 240));
+    await tester.pump();
+
+    expect(navigation.visible, isFalse);
+    expect(_position(tester).pixels, greaterThan(0));
+  });
+
+  testWidgets('movement toward newest does not hide visible nav', (
+    tester,
+  ) async {
+    final navigation = _visibleNavigation();
+    addTearDown(navigation.dispose);
+    await _pump(
+      tester,
+      _ChatController.data(
+        _state([_longConversation('direction')], 'direction'),
+      ),
+      navigation: navigation,
+    );
+    navigation.hide();
+    await _browseOlder(tester);
+    navigation.show();
+    await tester.pump();
+
+    await tester.drag(find.byType(ListView).last, const Offset(0, -80));
+    await tester.pump();
+
+    expect(navigation.visible, isTrue);
+  });
+
+  testWidgets('programmatic message insertion does not hide visible nav', (
+    tester,
+  ) async {
+    final conversation = _longConversation('programmatic');
+    final chat = _ChatController.data(_state([conversation], 'programmatic'));
+    final navigation = _visibleNavigation();
+    addTearDown(navigation.dispose);
+    await _pump(tester, chat, navigation: navigation);
+
+    chat.publish(
+      _state([
+        conversation.copyWith(
+          messages: [...conversation.messages, _message('inserted', 4)],
+        ),
+      ], 'programmatic'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(navigation.visible, isTrue);
+    expect(_position(tester).pixels, 0);
+  });
 }
 
 Future<void> _pump(
   WidgetTester tester,
   _ChatController controller, {
   bool setSize = true,
+  ChatNavigationController? navigation,
 }) async {
   if (setSize) {
     await tester.binding.setSurfaceSize(const Size(420, 720));
@@ -223,7 +289,15 @@ Future<void> _pump(
         chatControllerProvider.overrideWith(() => controller),
         modelsControllerProvider.overrideWith(_ModelsController.new),
       ],
-      child: const MaterialApp(home: ChatScreen()),
+      child: MaterialApp(
+        home: navigation == null
+            ? const ChatScreen()
+            : ShellNavigationScope(
+                controller: navigation,
+                chatNavigationVisible: navigation.visible,
+                child: const ChatScreen(),
+              ),
+      ),
     ),
   );
   if (controller.initial == null) {
@@ -232,6 +306,11 @@ Future<void> _pump(
     await tester.pumpAndSettle();
   }
 }
+
+ChatNavigationController _visibleNavigation() => ChatNavigationController()
+  ..updatePath('/chat')
+  ..updateWidth(true)
+  ..show();
 
 Future<void> _browseOlder(WidgetTester tester) async {
   await tester.drag(find.byType(ListView).last, const Offset(0, 500));

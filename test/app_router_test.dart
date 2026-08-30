@@ -110,8 +110,6 @@ void main() {
     await tester.drag(list, const Offset(0, 300));
     await tester.pumpAndSettle();
     expect(_chatPosition(tester).pixels, greaterThan(20));
-    await tester.drag(find.byType(NavigationBar), const Offset(0, 40));
-    await tester.pumpAndSettle();
     expect(find.byType(NavigationBar), findsNothing);
 
     await tester.drag(list, const Offset(0, 300));
