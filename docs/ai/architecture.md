@@ -177,7 +177,7 @@ data and must never be treated as instructions. Conversation caches are LRU
 bounded to 1 MiB total and are removed with the conversation.
 
 The following are roadmap designs, not implemented current architecture:
-`web_search`, typed workspace file tools, OCR and
+Typed workspace file tools, OCR and
 document extraction, general message attachments, and Chat / Advanced Coding
 with a separate coding-agent catalog. Physical Android validation remains
 pending where called out in [roadmap.md](../../roadmap.md); automated coverage

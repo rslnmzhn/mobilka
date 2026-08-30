@@ -32,6 +32,7 @@ is a conservative heuristic; users retain direct manual control of skill files.
 | `delete_persona` | `id: string` | `MemoryToolDispatcher` + memory proposal runtime | Deletes `personas/<id>.md` only after exact confirmation. |
 | `update_memory_file` | `file_name: "user.md"|"memory.md"`, `content: string` (both required; complete file content) | `MemoryToolDispatcher` + `MemoryChatToolRuntime` | `user.md`: exact-diff proposal and explicit confirmation. `memory.md`: bounded instant write. `soul.md` is prohibited. |
 | `read_public_source` | `url: string` required, `offset: integer` 0..1 MiB optional | `PublicSourceChatToolRuntime` | Reads at most 1 MiB cumulatively per call through a DNS-validated, address-pinned HTTPS transport and returns at most 256 KiB including explicit untrusted-data delimiters. PromptGuard is heuristic marking, not proof of safety. |
+| `web_search` | `query: string` required; optional `locale`, `time_range`, `max_results` | `WebSearchChatToolRuntime` | Discovery-only SearXNG JSON search. Returns guarded untrusted titles, canonical public URLs, and snippets; an HTTPS result must be explicitly read before citation/content claims. |
 
 ## Permission and confirmation rules
 
@@ -82,7 +83,7 @@ the model continuation.
 
 ## Not registered/current
 
-`web_search`, `list_files`, `search_files`,
+`list_files`, `search_files`,
 `read_file`, `write_file`, `apply_patch`, `move_file`, `delete_file`,
 `make_directory`, OCR/document extraction tools, attachment tools, arbitrary
 HTTP, shell/terminal tools, and Advanced Coding tools are **future roadmap
@@ -91,7 +92,11 @@ available until registry code, permissions, tests, and roadmap status agree.
 # Public-source trust and budget
 
 `read_public_source` has a persisted, fail-closed 8 MiB wire-byte budget per
-conversation. Every body byte read is charged, including failed responses and
+conversation. `web_search` shares and reserves from this same budget. Search is
+disabled by default and sends only the query and explicit controls to the exact
+self-hosted endpoint. The provider/operator controls server retention. HTTP
+requires endpoint-bound acknowledgement and can never carry bearer auth.
+Every body byte read is charged, including failed responses and
 refetches; cache hits are free. The counter is stored with the Conversation and
 is removed only when that conversation is deleted.
 

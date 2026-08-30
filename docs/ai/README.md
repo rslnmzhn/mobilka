@@ -82,7 +82,9 @@ proportional; documentation-only changes need link/path checks and
   set and the current registered runtime. See [tools.md](tools.md).
 - `read_public_source` is the only current public-network reader: HTTPS text/raw
   HTML only, DNS-policy checked and connection-pinned, bounded and PromptGuarded.
-- **Not current:** `web_search`, workspace file tools,
+- `web_search` is optional discovery through a user-operated SearXNG JSON API;
+  results remain untrusted and must be followed by an explicit HTTPS source read.
+- **Not current:** workspace file tools,
   OCR/document extraction, general attachments, and Chat / Advanced Coding.
   These are future roadmap items and must not be presented as registered tools
   or shipped behavior. Image-processing support in source does not make the
