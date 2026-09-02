@@ -17,6 +17,7 @@ import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
 import '../../../features/memory/application/workspace_paths.dart';
 import '../data/chat_repository.dart';
+import '../../settings/data/settings_repository.dart';
 import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
 import '../domain/chat_tool.dart';
@@ -185,11 +186,14 @@ class ChatStreamingCoordinator {
     final cancelToken = CancelToken();
     _activeRequest = request;
     _cancelToken = cancelToken;
+    var phase = 'acquire_background';
     try {
       await _backgroundLease.acquire(request);
+      phase = 'resolve_tools';
       final tools =
           await _toolRuntime?.availableTools(request.allowedTools) ??
           const <ChatToolDefinition>[];
+      phase = 'stream_request';
       await ChatRequestRunSession(
         request: request,
         streamer: _streamer,
@@ -208,8 +212,16 @@ class ChatStreamingCoordinator {
         onFinalSuccess: _onFinalSuccess,
         logger: _logger,
       ).run();
-    } on Object catch (error) {
-      await _handleFailure(request, error);
+    } on Object catch (error, stackTrace) {
+      final preparation = error is ChatPreparationException ? error : null;
+      final cause = preparation?.cause ?? error;
+      _logRequestFailure(
+        request,
+        phase: preparation == null ? phase : '$phase.${preparation.phase}',
+        error: cause,
+        stackTrace: preparation?.causeStackTrace ?? stackTrace,
+      );
+      await _handleFailure(request, cause);
     } finally {
       await _cleanup(request);
     }
@@ -260,16 +272,37 @@ class ChatStreamingCoordinator {
       await _finalizer.interrupt(request, error.message);
       return;
     }
+    if (error is SettingsSecretUnavailableException) {
+      await _finalizer.interrupt(request, 'chat.settingsSecretUnavailable');
+      return;
+    }
+    await _finalizer.interrupt(
+      request,
+      'The request failed unexpectedly. Please retry.',
+    );
+  }
+
+  void _logRequestFailure(
+    ChatStreamRequest request, {
+    required String phase,
+    required Object error,
+    required StackTrace stackTrace,
+  }) {
     _logger?.log(
       event: 'chat.streaming',
       level: AppLogLevel.error,
       conversationId: request.conversationId,
       status: 'failed',
+      phase: phase,
       error: error,
-    );
-    await _finalizer.interrupt(
-      request,
-      'The request failed unexpectedly. Please retry.',
+      errorCode: switch (error) {
+        SettingsSecretUnavailableException() => 'secure_storage_unavailable',
+        UnsupportedError() => 'unsupported_operation',
+        DioException() => 'network_error',
+        FormatException() => 'invalid_data',
+        _ => 'unexpected_error',
+      },
+      stackTrace: stackTrace,
     );
   }
 

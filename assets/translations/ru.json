@@ -1,5 +1,6 @@
 {
   "backgroundUnavailable": "Фоновое продолжение недоступно. Оставьте mobilka открытой до завершения ответа.",
+  "chat.settingsSecretUnavailable": "Защищённое хранилище API-ключа недоступно. Перезапустите mobilka, проверьте установку приложения и повторите попытку.",
   "chatNoConversation": "Чат",
   "chatChangeModel": "Сменить модель: {}",
   "messageActions": "Действия с сообщением",

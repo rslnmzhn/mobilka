@@ -6,6 +6,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../agents/application/agents_controller.dart';
 import '../../settings/data/settings_repository.dart';
+import '../../settings/domain/endpoint_settings.dart';
 import '../../memory/application/context_injector.dart';
 import '../../memory/application/memory_context_snapshot_service.dart';
 import '../../models/domain/model_capabilities.dart';
@@ -133,22 +134,48 @@ class ChatRepository
     required CancelToken cancelToken,
     List<ChatToolDefinition> tools = const [],
   }) async* {
-    final settings = await _settingsRepository.load();
-    final apiKey = await _settingsRepository.readApiKey();
-    final injectedMessages = await _contextInjector.inject(messages);
+    late final EndpointSettings settings;
+    try {
+      settings = await _settingsRepository.load();
+    } on Object catch (error, stackTrace) {
+      throw ChatPreparationException('load_settings', error, stackTrace);
+    }
+    late final String? apiKey;
+    try {
+      apiKey = await _settingsRepository.readApiKey();
+    } on Object catch (error, stackTrace) {
+      throw ChatPreparationException('read_api_key', error, stackTrace);
+    }
+    late final List<ChatMessage> injectedMessages;
+    try {
+      injectedMessages = await _contextInjector.inject(messages);
+    } on Object catch (error, stackTrace) {
+      throw ChatPreparationException('inject_context', error, stackTrace);
+    }
     // Capability gate (roadmap item 45): endpoints/models without function
     // calling must not receive a tools field at all.
-    final capabilities = ModelCapabilityResolver.resolve(model);
-    yield* _apiClient.streamCompletion(
-      baseUrl: settings.baseUrl,
-      apiKey: apiKey,
-      model: model,
-      messages: injectedMessages,
-      cancelToken: cancelToken,
-      tools: capabilities.tools
-          ? tools.map((tool) => tool.toJson()).toList(growable: false)
-          : const <Map<String, dynamic>>[],
-    );
+    late final ModelCapabilities capabilities;
+    try {
+      capabilities = ModelCapabilityResolver.resolve(model);
+    } on Object catch (error, stackTrace) {
+      throw ChatPreparationException('resolve_capabilities', error, stackTrace);
+    }
+    try {
+      yield* _apiClient.streamCompletion(
+        baseUrl: settings.baseUrl,
+        apiKey: apiKey,
+        model: model,
+        messages: injectedMessages,
+        cancelToken: cancelToken,
+        tools: capabilities.tools
+            ? tools.map((tool) => tool.toJson()).toList(growable: false)
+            : const <Map<String, dynamic>>[],
+      );
+    } on DioException {
+      rethrow;
+    } on Object catch (error, stackTrace) {
+      throw ChatPreparationException('api_call', error, stackTrace);
+    }
   }
 
   @override
@@ -167,4 +194,12 @@ class ChatRepository
       cancelToken: cancelToken,
     );
   }
+}
+
+class ChatPreparationException implements Exception {
+  const ChatPreparationException(this.phase, this.cause, this.causeStackTrace);
+
+  final String phase;
+  final Object cause;
+  final StackTrace causeStackTrace;
 }

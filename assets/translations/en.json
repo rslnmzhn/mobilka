@@ -1,5 +1,6 @@
 {
   "backgroundUnavailable": "Background continuation is unavailable. Keep mobilka open while this response finishes.",
+  "chat.settingsSecretUnavailable": "Secure API key storage is unavailable. Restart mobilka and verify the app installation, then try again.",
   "chatNoConversation": "Chat",
   "chatChangeModel": "Change model: {}",
   "messageActions": "Message actions",

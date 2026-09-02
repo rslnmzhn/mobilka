@@ -89,7 +89,9 @@ class ChatController extends _$ChatController {
         publishError: (message) {
           state = AsyncData(
             state.requireValue.copyWith(
-              errorMessage: message == 'backgroundUnavailable'
+              errorMessage:
+                  message == 'backgroundUnavailable' ||
+                      message.startsWith('chat.')
                   ? message.tr()
                   : message,
             ),
