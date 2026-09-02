@@ -122,24 +122,44 @@ void main() {
   });
 
   test('Android Gradle verifier is XXE-safe and checks every variant APK', () {
-    final source = File('android/app/build.gradle.kts').readAsStringSync();
-    expect(source, contains('XMLConstants.FEATURE_SECURE_PROCESSING, true'));
-    expect(source, contains('disallow-doctype-decl'));
-    expect(source, contains('external-general-entities", false'));
-    expect(source, contains('external-parameter-entities", false'));
-    expect(source, contains('load-external-dtd", false'));
-    expect(source, contains('isXIncludeAware = false'));
-    expect(source, contains('isExpandEntityReferences = false'));
-    expect(source, contains('XMLConstants.ACCESS_EXTERNAL_DTD, ""'));
-    expect(source, contains('XMLConstants.ACCESS_EXTERNAL_SCHEMA, ""'));
-    expect(source, contains('outputs/apk/\${variant.name}'));
-    expect(source, contains('walkTopDown()'));
-    expect(source, contains('variantApks.forEach { apk ->'));
-    expect(source, contains('package\$variantName'));
-    expect(source, contains('finalizedBy(verifyPackagedScope)'));
-    expect(source, contains('aapt2, "dump", "xmltree", apk'));
-    expect(source, isNot(contains('app-\${variant.name}.apk')));
-    expect(source, isNot(contains('app-release.apk')));
+    final wiring = File('android/app/build.gradle.kts').readAsStringSync();
+    final verifier = File(
+      'android/buildSrc/src/main/kotlin/UpdaterProviderVerifier.kt',
+    ).readAsStringSync();
+    expect(wiring, contains('XMLConstants.FEATURE_SECURE_PROCESSING, true'));
+    expect(wiring, contains('disallow-doctype-decl'));
+    expect(wiring, contains('external-general-entities", false'));
+    expect(wiring, contains('external-parameter-entities", false'));
+    expect(wiring, contains('load-external-dtd", false'));
+    expect(wiring, contains('isXIncludeAware = false'));
+    expect(wiring, contains('isExpandEntityReferences = false'));
+    expect(wiring, contains('XMLConstants.ACCESS_EXTERNAL_DTD, ""'));
+    expect(wiring, contains('XMLConstants.ACCESS_EXTERNAL_SCHEMA, ""'));
+    expect(wiring, contains('outputs/apk/\${variant.name}'));
+    expect(wiring, contains('walkTopDown()'));
+    expect(wiring, contains('variantApks.forEach { apk ->'));
+    expect(wiring, contains('package\$variantName'));
+    expect(wiring, contains('finalizedBy(verifyPackagedScope)'));
+    expect(wiring, contains('aapt2, "dump", "xmltree", apk'));
+    expect(verifier, contains('data class PackagedResourceRef'));
+    expect(verifier, contains('PackagedResourceRef(id, archivePath)'));
+    expect(wiring, contains('dump(apk, filePathsResource.archivePath)'));
+    expect(
+      wiring,
+      contains('build-tools/\${android.buildToolsVersion}'),
+    );
+    expect(wiring, isNot(contains('dump(apk, "res/xml/file_paths.xml")')));
+    expect(wiring, isNot(contains('maxByOrNull { it.name }')));
+    expect(wiring, isNot(contains('app-\${variant.name}.apk')));
+    expect(wiring, isNot(contains('app-release.apk')));
+    expect(verifier, contains('expectRejected("exact resource alias")'));
+    expect(verifier, contains('expectRejected("non-XML archive entry")'));
+    expect(verifier, contains('expectRejected("duplicate configuration")'));
+    expect(
+      verifier,
+      contains('expectRejected("nested otherwise-valid configuration")'),
+    );
+    expect(verifier, contains('multipleConfigurations'));
   });
 
   test(
