@@ -17,8 +17,8 @@ Future<void> validateExpectedPersonaMembership({
   if (files is! PersonaTreeTransaction) {
     stale();
   }
-  final names = await (files as PersonaTreeTransaction).listPersonaFiles();
-  names.sort();
+  final names = [...await (files as PersonaTreeTransaction).listPersonaFiles()]
+    ..sort();
   if (checksum(names.join('\n')) != expectedMembership) {
     stale();
   }

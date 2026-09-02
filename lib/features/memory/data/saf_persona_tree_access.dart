@@ -6,7 +6,8 @@ class _SafMemoryFileTransaction
         MissingAwareMemoryFileTransaction,
         DeletingMemoryFileTransaction,
         PersonaTreeTransaction {
-  _SafMemoryFileTransaction(this.store, this.documents);
+  _SafMemoryFileTransaction(this.store, List<SafMemoryDocument> documents)
+    : documents = List.of(documents, growable: true);
   final SafMemoryFileStore store;
   final List<SafMemoryDocument> documents;
   SafMemoryAccess get access => store._access;

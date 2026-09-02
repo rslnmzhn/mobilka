@@ -58,9 +58,9 @@ class LegacyPersonaMigrator {
       if (files is! PersonaTreeTransaction) {
         throw StateError('Persona tree is unsupported');
       }
-      final membership = await (files as PersonaTreeTransaction)
-          .listPersonaFiles();
-      membership.sort();
+      final membership = [
+        ...await (files as PersonaTreeTransaction).listPersonaFiles(),
+      ]..sort();
       return (
         legacy: legacy,
         replacements: replacements,
