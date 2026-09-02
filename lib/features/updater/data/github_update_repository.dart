@@ -1,39 +1,61 @@
 import 'dart:convert';
-import 'dart:io';
-import 'dart:math';
-
-import 'package:crypto/crypto.dart' as hashes;
-import 'package:cryptography/cryptography.dart';
 
 import '../domain/update_manifest.dart';
 import '../domain/update_release.dart';
+import 'staged_update_store.dart';
+import 'manifest_signature_verifier.dart';
 import 'update_http_client.dart';
 import 'update_platform_bridge.dart';
+import 'update_staging_lifecycle_coordinator.dart';
 
-class GithubUpdateRepository {
+export 'manifest_signature_verifier.dart';
+export 'staged_update_store.dart';
+export 'update_staging_lifecycle_coordinator.dart' show UpdateCleanupPolicy;
+
+abstract interface class UpdateRepository {
+  Future<UpdateRelease> latest();
+  Future<StagedUpdate> download(UpdateRelease release);
+  Future<bool> apply(StagedUpdate projection);
+  Future<StagedUpdate?> recover(String installedVersion);
+}
+
+/// Network discovery and installer fetching only. Staging state and IO belong
+/// to [UpdateStagingLifecycleCoordinator].
+class GithubUpdateRepository implements UpdateRepository {
   GithubUpdateRepository({
     required UpdateHttpClient http,
     required UpdatePlatformBridge platform,
     ManifestSignatureVerifier? signatureVerifier,
+    StagedUpdateStore? stagedStore,
+    DateTime Function()? clock,
+    UpdateCleanupPolicy policy = const UpdateCleanupPolicy(),
   }) : _http = http,
        _platform = platform,
-       _signatureVerifier =
-           signatureVerifier ?? const Ed25519ManifestVerifier();
+       _verifier = signatureVerifier ?? const Ed25519ManifestVerifier(),
+       _lifecycle = UpdateStagingLifecycleCoordinator(
+         platform: platform,
+         store: stagedStore ?? MemoryStagedUpdateStore(),
+         verifier: signatureVerifier ?? const Ed25519ManifestVerifier(),
+         clock: clock,
+         policy: policy,
+       );
 
   static final latestReleaseUri = Uri.https(
     'api.github.com',
     '/repos/rslnmzhn/mobilka/releases/latest',
   );
-  static const publicKeyBase64 = 'nH/Hnmn7UJtCy4Qb91c9dIAwQ3LSUkv6yRhDhMlZ3JY=';
+  static const publicKeyBase64 = updateManifestPublicKeyBase64;
 
   final UpdateHttpClient _http;
   final UpdatePlatformBridge _platform;
-  final ManifestSignatureVerifier _signatureVerifier;
+  final ManifestSignatureVerifier _verifier;
+  final UpdateStagingLifecycleCoordinator _lifecycle;
 
+  @override
   Future<UpdateRelease> latest() async {
     final metadata = jsonDecode(
       utf8.decode(
-        await _readBounded(
+        await _read(
           await _http.get(latestReleaseUri),
           UpdateLimits.maxReleaseMetadataBytes,
         ),
@@ -47,45 +69,38 @@ class GithubUpdateRepository {
       throw const UpdateException('GitHub returned invalid release metadata');
     }
     final assets = metadata['assets'] as List;
-    final manifestAssets = assets.whereType<Map>().where(
-      (asset) =>
-          asset['name'] is String &&
+    final manifests = assets.whereType<Map>().where(
+      (a) =>
+          a['name'] is String &&
           RegExp(
             r'^mobilka-v\d+\.\d+\.\d+-release-manifest\.json$',
-          ).hasMatch(asset['name'] as String),
+          ).hasMatch(a['name'] as String),
     );
-    if (manifestAssets.length != 1) {
+    if (manifests.length != 1) {
       throw const UpdateException('Release has no unique update manifest');
     }
-    final manifestAsset = manifestAssets.single;
+    final manifestAsset = manifests.single;
     final manifestName = manifestAsset['name'] as String;
     final signatureName =
-        '${manifestName.substring(0, manifestName.length - '.json'.length)}.sig';
-    final signatureAssets = assets.whereType<Map>().where(
-      (asset) => asset['name'] == signatureName,
+        '${manifestName.substring(0, manifestName.length - 5)}.sig';
+    final signatures = assets.whereType<Map>().where(
+      (a) => a['name'] == signatureName,
     );
-    if (signatureAssets.length != 1) {
+    if (signatures.length != 1) {
       throw const UpdateException('Release has no unique manifest signature');
     }
-    final manifestUri = _assetUri(manifestAsset);
-    final signatureUri = _assetUri(signatureAssets.single);
-    final manifestBytes = await _readBounded(
-      await _http.get(manifestUri),
+    final manifestBytes = await _read(
+      await _http.get(_assetUri(manifestAsset)),
       UpdateLimits.maxManifestBytes,
     );
-    final signatureBytes = await _readBounded(
-      await _http.get(signatureUri),
+    final signatureBytes = await _read(
+      await _http.get(_assetUri(signatures.single)),
       UpdateLimits.maxSignatureBytes,
     );
-    if (signatureBytes.length != 64) {
-      throw const UpdateException('Manifest signature has an invalid length');
+    if (signatureBytes.length != 64 ||
+        !await _verifier.verify(manifestBytes, signatureBytes)) {
+      throw const UpdateException('Manifest signature is invalid');
     }
-    final valid = await _signatureVerifier.verify(
-      manifestBytes,
-      signatureBytes,
-    );
-    if (!valid) throw const UpdateException('Manifest signature is invalid');
-
     final manifest = UpdateManifest.parse(manifestBytes);
     if (metadata['tag_name'] != manifest.tag ||
         manifestName != 'mobilka-${manifest.tag}-release-manifest.json') {
@@ -102,97 +117,45 @@ class GithubUpdateRepository {
         );
       }
     }
-    return manifest.select(await _platform.target());
-  }
-
-  Future<StagedUpdate> download(UpdateRelease release) async {
-    final response = await _http.get(release.asset.downloadUri);
-    if (response.contentLength != null &&
-        response.contentLength != release.asset.size) {
-      throw const UpdateException('Installer size does not match manifest');
-    }
-    final directory = await _platform.stagingDirectory();
-    await directory.create(recursive: true);
-    final nonce = Random.secure().nextInt(0x7fffffff).toRadixString(16);
-    final safeName =
-        'mobilka-${release.version}-${release.asset.platform}-'
-        '${release.asset.architecture}-$nonce.${release.asset.format}';
-    final destination = File(
-      '${directory.path}${Platform.pathSeparator}$safeName',
+    final selected = manifest.select(await _platform.target());
+    return UpdateRelease(
+      version: selected.version,
+      tag: selected.tag,
+      asset: selected.asset,
+      proof: StagedUpdateProof(
+        manifestBytes: manifestBytes,
+        signatureBytes: signatureBytes,
+      ),
     );
-    final temporary = File('${destination.path}.part');
-    final digestSink = _DigestSink();
-    final hashInput = hashes.sha256.startChunkedConversion(digestSink);
-    var received = 0;
-    IOSink? output;
-    var hashClosed = false;
-    try {
-      output = temporary.openWrite(mode: FileMode.writeOnly);
-      await for (final chunk in response.stream) {
-        received += chunk.length;
-        if (received > release.asset.size) {
-          throw const UpdateException('Installer exceeds declared size');
-        }
-        hashInput.add(chunk);
-        output.add(chunk);
-      }
-      await output.flush();
-      await output.close();
-      output = null;
-      hashInput.close();
-      hashClosed = true;
-      if (received != release.asset.size ||
-          digestSink.value.toString() != release.asset.sha256) {
-        throw const UpdateException('Installer integrity check failed');
-      }
-      await temporary.rename(destination.path);
-      return StagedUpdate(release: release, path: destination.path);
-    } catch (_) {
-      await output?.close();
-      if (!hashClosed) hashInput.close();
-      if (await temporary.exists()) await temporary.delete();
-      rethrow;
-    }
   }
 
-  Future<bool> apply(StagedUpdate update) async {
-    final target = await _platform.target();
-    switch (target.platform) {
-      case UpdatePlatform.android:
-        return _platform.installAndroidApk(update.path, update.release.asset);
-      case UpdatePlatform.windows:
-        if (!await _platform.isWindowsMsiInstalled()) return false;
-        await _platform.installWindowsMsi(update.path);
-        return true;
-      case UpdatePlatform.unsupported:
-        throw const UpdateException(
-          'Updates are not supported on this platform',
-        );
+  @override
+  Future<StagedUpdate> download(UpdateRelease release) async {
+    if (release.proof == null) {
+      throw const UpdateException('Update has no signed manifest binding');
     }
+    final response = await _http.get(release.asset.downloadUri);
+    return _lifecycle.stage(release, response);
   }
+
+  @override
+  Future<bool> apply(StagedUpdate projection) => _lifecycle.apply(projection);
+
+  @override
+  Future<StagedUpdate?> recover(String installedVersion) =>
+      _lifecycle.recoverThenCheck(installedVersion);
 
   static Uri _assetUri(Map<dynamic, dynamic> asset) {
-    final value = asset['browser_download_url'];
-    final uri = value is String ? Uri.tryParse(value) : null;
+    final uri = asset['browser_download_url'] is String
+        ? Uri.tryParse(asset['browser_download_url'] as String)
+        : null;
     if (uri == null) {
       throw const UpdateException('Release asset URL is invalid');
     }
     return uri;
   }
 
-  static List<int> _strictBase64(String value, int length, String label) {
-    try {
-      final decoded = base64.decode(value);
-      if (decoded.length != length || base64.encode(decoded) != value) {
-        throw const FormatException();
-      }
-      return decoded;
-    } on FormatException {
-      throw UpdateException('Invalid $label encoding');
-    }
-  }
-
-  static Future<List<int>> _readBounded(
+  static Future<List<int>> _read(
     UpdateHttpResponse response,
     int maximum,
   ) async {
@@ -208,38 +171,4 @@ class GithubUpdateRepository {
     }
     return bytes;
   }
-}
-
-abstract interface class ManifestSignatureVerifier {
-  Future<bool> verify(List<int> message, List<int> signature);
-}
-
-class Ed25519ManifestVerifier implements ManifestSignatureVerifier {
-  const Ed25519ManifestVerifier();
-
-  @override
-  Future<bool> verify(List<int> message, List<int> signature) async {
-    final publicKey = GithubUpdateRepository._strictBase64(
-      GithubUpdateRepository.publicKeyBase64,
-      32,
-      'public key',
-    );
-    return Ed25519().verify(
-      message,
-      signature: Signature(
-        signature,
-        publicKey: SimplePublicKey(publicKey, type: KeyPairType.ed25519),
-      ),
-    );
-  }
-}
-
-class _DigestSink implements Sink<hashes.Digest> {
-  late hashes.Digest value;
-
-  @override
-  void add(hashes.Digest data) => value = data;
-
-  @override
-  void close() {}
 }

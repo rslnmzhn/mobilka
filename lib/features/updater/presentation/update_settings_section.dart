@@ -47,6 +47,10 @@ class UpdateSettingsSection extends ConsumerWidget {
                         ? () => ref
                               .read(updateControllerProvider.notifier)
                               .retryInstall()
+                        : state.staged != null
+                        ? () => ref
+                              .read(updateControllerProvider.notifier)
+                              .retryInstall()
                         : state.status == UpdateStatus.available
                         ? () => ref
                               .read(updateControllerProvider.notifier)
@@ -65,7 +69,8 @@ class UpdateSettingsSection extends ConsumerWidget {
                                 : Icons.refresh,
                           ),
                     label: Text(
-                      state.status == UpdateStatus.permissionRequired
+                      state.status == UpdateStatus.permissionRequired ||
+                              state.staged != null
                           ? 'Install again'
                           : state.status == UpdateStatus.available
                           ? 'Download and install'

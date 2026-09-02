@@ -112,6 +112,28 @@ arguments, and restarts mobilka only after installation succeeds. The caller
 must terminate promptly after `WindowsMsiInstallHandoff.exitRequired`; a failed
 or cancelled installation leaves the app closed and requires manual restart.
 
+Staged APK/MSI recovery is persisted before filesystem and installer actions.
+Only generated direct children of the app-owned `updates` directory are listed
+or deleted; native bridges reject symbolic links/reparse points and recheck file
+identity immediately before deletion. A verified installer is retained for a
+bounded retry (up to 30 days), while stale `.part` files expire after 24 hours
+and unprotected installers after 7 days (at most one current partial and two
+final installers). Android compares the installed versionCode on next startup.
+Windows compares `MOBILKA_VERSION`, then removes the completed MSI and rotates
+the bounded 256 KiB handoff log to one `.1` backup.
+
+Incomplete network payloads are created exclusively as the metadata-bound
+`<final>.part` direct child inside that same updates root; no updater payload is
+written to the unmanaged system temporary directory. Part files are visible to
+the normal 24-hour recovery cleanup. On Windows, staging operations use
+no-follow Win32 handle validation, and MSI handoff elevates the packaged helper
+before copying into a unique `%ProgramData%\mobilka\updates` directory whose ACL
+permits only SYSTEM and Administrators. The elevated process verifies exact
+size, SHA-256, Authenticode status, and signer again on that protected copy
+immediately before invoking `msiexec`, then removes the protected copy while
+retaining the app-owned verified source for retry. Handoff logging is app-owned,
+bounded, reparse-safe, and never uses `%TEMP%`.
+
 ## AppImage packaging
 
 The Linux release job builds the Flutter bundle and packages it with the pinned

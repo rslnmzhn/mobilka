@@ -44,18 +44,34 @@ class UpdateRelease {
     required this.version,
     required this.tag,
     required this.asset,
+    this.proof,
   });
 
   final String version;
   final String tag;
   final UpdateAsset asset;
+
+  /// Exact canonical bytes and detached signature authenticated at discovery.
+  final StagedUpdateProof? proof;
+}
+
+class StagedUpdateProof {
+  const StagedUpdateProof({
+    required this.manifestBytes,
+    required this.signatureBytes,
+  });
+
+  final List<int> manifestBytes;
+  final List<int> signatureBytes;
 }
 
 class StagedUpdate {
-  const StagedUpdate({required this.release, required this.path});
+  const StagedUpdate({String? id, required this.release, String path = ''})
+    : id = id ?? path;
 
+  /// Presentation-only projection identifier. It never authorizes filesystem IO.
+  final String id;
   final UpdateRelease release;
-  final String path;
 }
 
 class UpdateException implements Exception {
