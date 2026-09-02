@@ -30,6 +30,7 @@ format: dart format .
 - Android application ID is `com.rslnmzhn.mobilka` and minimum SDK is 29.
 - Updater discovery uses the latest stable GitHub Release and accepts only the canonical release manifest after Ed25519 verification with pinned public key `nH/Hnmn7UJtCy4Qb91c9dIAwQ3LSUkv6yRhDhMlZ3JY=`; selected assets are then size- and SHA-256-verified before staging.
 - Automatic update application is limited to Android APKs and provenance-verified, per-machine MSI-installed Windows; Windows ZIP, Linux ZIP, and AppImage distributions are manual-update-only.
+- Updater staging metadata is persisted before file/apply transitions; recovery and cleanup are serialized, basename-only, direct-child, no-follow operations with native Android/Windows identity rechecks and bounded retention.
 
 ## Project structure
 - `lib/`: Main Flutter codebase directory.

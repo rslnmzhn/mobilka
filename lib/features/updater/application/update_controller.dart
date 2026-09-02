@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/github_update_repository.dart';
 import '../data/update_http_client.dart';
 import '../data/update_platform_bridge.dart';
+import '../../../core/storage/app_boxes.dart';
 import '../domain/update_release.dart';
 import '../domain/version_number.dart';
 
@@ -42,6 +43,7 @@ final updateRepositoryProvider = Provider<GithubUpdateRepository>(
   (ref) => GithubUpdateRepository(
     http: DioUpdateHttpClient(),
     platform: ref.watch(updatePlatformBridgeProvider),
+    stagedStore: HiveStagedUpdateStore(preferencesBox),
   ),
 );
 
@@ -60,19 +62,45 @@ final updateControllerProvider =
 
 class UpdateController extends StateNotifier<UpdateState> {
   UpdateController({
-    required GithubUpdateRepository repository,
+    required UpdateRepository repository,
     required Future<String> currentVersion,
   }) : _repository = repository,
        _currentVersion = currentVersion,
        super(const UpdateState());
 
-  final GithubUpdateRepository _repository;
+  final UpdateRepository _repository;
   final Future<String> _currentVersion;
+  bool _recoveryRunning = false;
+  Future<void> recoverThenCheck() async {
+    if (_recoveryRunning) return;
+    _recoveryRunning = true;
+    final current = await _currentVersion;
+    try {
+      final staged = await _repository.recover(current);
+      if (staged != null) {
+        state = UpdateState(
+          currentVersion: current,
+          staged: staged,
+          message: 'A verified installer was recovered and is ready to retry.',
+        );
+      }
+    } finally {
+      _recoveryRunning = false;
+    }
+  }
 
   Future<void> check() async {
-    state = const UpdateState(status: UpdateStatus.checking);
+    final recovered = state.staged;
+    state = UpdateState(status: UpdateStatus.checking, staged: recovered);
     try {
       final current = await _currentVersion;
+      StagedUpdate? staged;
+      try {
+        staged = await _repository.recover(current);
+      } on Object {
+        // Recovery is best-effort; discovery must remain available.
+        staged = recovered;
+      }
       final release = await _repository.latest();
       final available =
           VersionNumber.parse(
@@ -83,14 +111,22 @@ class UpdateController extends StateNotifier<UpdateState> {
         status: available ? UpdateStatus.available : UpdateStatus.upToDate,
         currentVersion: current,
         release: available ? release : null,
+        staged: staged,
+        message: staged == null
+            ? null
+            : 'A verified installer was recovered and is ready to retry.',
       );
     } on Object catch (error) {
       state = UpdateState(
         status: UpdateStatus.failed,
+        staged: state.staged,
         message: error.toString(),
       );
     }
   }
+
+  @Deprecated('Use check; retained for startup compatibility')
+  Future<void> recover() => recoverThenCheck();
 
   Future<void> downloadAndApply() async {
     final release = state.release;
@@ -125,6 +161,7 @@ class UpdateController extends StateNotifier<UpdateState> {
         status: UpdateStatus.failed,
         currentVersion: state.currentVersion,
         release: release,
+        staged: state.staged,
         message: error.toString(),
       );
     }

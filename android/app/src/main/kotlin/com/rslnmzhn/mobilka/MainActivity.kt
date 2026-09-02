@@ -13,6 +13,12 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.BasicFileAttributes
 
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -22,13 +28,22 @@ class MainActivity : FlutterActivity() {
                 try {
                     when (call.method) {
                         METHOD_RUNTIME_INFO -> result.success(runtimeInfo())
+                        METHOD_STAGING_PATH -> result.success(requireUpdatesDirectory().absolutePath)
+                        METHOD_SAFE_LIST -> result.success(safeListUpdates())
+                        METHOD_CREATE_PART -> result.success(createDownloadPart(call.arguments as Map<*, *>))
+                        METHOD_IMPORT -> result.success(importVerifiedDownload(call.arguments as Map<*, *>))
+                        METHOD_VERIFY -> result.success(verifyStaged(call.arguments as Map<*, *>))
+                        METHOD_SAFE_DELETE -> {
+                            safeDeleteUpdate(call.arguments as Map<*, *>)
+                            result.success(null)
+                        }
                         METHOD_PREFLIGHT_APK -> {
-                            val apk = requireApkPath(call.argument<String>(ARG_APK_PATH))
+                            val apk = requireVerifiedFile(call.arguments as Map<*, *>)
                             result.success(preflightApk(apk).toMap())
                         }
 
                         METHOD_INSTALL_APK -> {
-                            val apk = requireApkPath(call.argument<String>(ARG_APK_PATH))
+                            val apk = requireVerifiedFile(call.arguments as Map<*, *>)
                             val preflight = preflightApk(apk)
                             result.success(installApk(apk, preflight))
                         }
@@ -61,17 +76,18 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    private fun requireApkPath(rawPath: String?): File {
-        if (rawPath.isNullOrBlank()) {
-            throw UpdaterException(ERROR_INVALID_ARGUMENT, "apkPath is required")
-        }
-        val updatesDirectory = File(cacheDir, UPDATES_DIRECTORY).apply {
-            if (!exists() && !mkdirs()) {
-                throw UpdaterException(ERROR_INVALID_PATH, "Could not create the update cache directory")
-            }
-        }.canonicalFile
-        val apk = File(rawPath).canonicalFile
-        if (apk.parentFile != updatesDirectory || !apk.name.lowercase(Locale.US).endsWith(".apk")) {
+    private fun requireUpdatePath(rawPath: String?, allowPartial: Boolean): File {
+        if (rawPath.isNullOrBlank()) throw UpdaterException(ERROR_INVALID_ARGUMENT, "basename is required")
+        val updatesDirectory = requireUpdatesDirectory()
+        if (File(rawPath).name != rawPath || !isGeneratedName(rawPath)) throw UpdaterException(ERROR_INVALID_PATH, "Invalid basename")
+        val rawApk = File(updatesDirectory, rawPath)
+        val apk = rawApk.canonicalFile
+        val path = rawApk.toPath()
+        val lowerName = apk.name.lowercase(Locale.US)
+        val allowedExtension = lowerName.endsWith(".apk") ||
+            (allowPartial && lowerName.endsWith(".apk.part"))
+        if (apk.parentFile != updatesDirectory || !allowedExtension ||
+            Files.isSymbolicLink(path) || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
             throw UpdaterException(
                 ERROR_INVALID_PATH,
                 "APK must be a direct child of the app cache updates directory",
@@ -82,6 +98,125 @@ class MainActivity : FlutterActivity() {
         }
         return apk
     }
+
+    private fun requireApkPath(rawPath: String?): File = requireUpdatePath(rawPath, false)
+
+    private fun hashStream(stream: java.io.InputStream): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val count = stream.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private fun identity(path: Path, hash: String): Map<String, Any> {
+        val attributes = Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+        return mapOf("basename" to path.fileName.toString(), "size" to attributes.size(), "sha256" to hash,
+            "identityToken" to (attributes.fileKey()?.toString() ?: "${attributes.size()}|${attributes.lastModifiedTime().toMillis()}"))
+    }
+
+    private fun requireVerifiedFile(arguments: Map<*, *>): File {
+        val name = arguments[ARG_BASENAME] as? String
+        val expectedSize = (arguments[ARG_EXPECTED_SIZE] as? Number)?.toLong()
+        val expectedHash = arguments[ARG_EXPECTED_SHA] as? String
+        val expectedIdentity = arguments[ARG_IDENTITY] as? String
+        val file = requireUpdatePath(name, true)
+        val path = file.toPath()
+        val hash = Files.newInputStream(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS).use(::hashStream)
+        val actual = identity(path, hash)
+        if (actual["size"] != expectedSize || hash != expectedHash ||
+            (expectedIdentity != null && actual["identityToken"] != expectedIdentity)) {
+            throw UpdaterException(ERROR_INVALID_PATH, "Staged update identity or digest changed")
+        }
+        return file
+    }
+
+    private fun verifyStaged(arguments: Map<*, *>): Map<String, Any>? = try {
+        val file = requireVerifiedFile(arguments)
+        val hash = arguments[ARG_EXPECTED_SHA] as String
+        identity(file.toPath(), hash)
+    } catch (_: Exception) { null }
+
+    private fun importVerifiedDownload(arguments: Map<*, *>): Map<String, Any> {
+        val partialName = arguments[ARG_PARTIAL_NAME] as? String ?: throw UpdaterException(ERROR_INVALID_ARGUMENT, "partialName is required")
+        val name = arguments[ARG_BASENAME] as? String ?: throw UpdaterException(ERROR_INVALID_ARGUMENT, "basename is required")
+        val expectedSize = (arguments[ARG_EXPECTED_SIZE] as? Number)?.toLong()
+        val expectedHash = arguments[ARG_EXPECTED_SHA] as? String
+        if (!isGeneratedName(name) || File(name).name != name) throw UpdaterException(ERROR_INVALID_PATH, "Invalid basename")
+        val root = requireUpdatesDirectory().toPath()
+        if (partialName != "$name.part" || !isGeneratedName(partialName)) throw UpdaterException(ERROR_INVALID_PATH, "Invalid partial basename")
+        val part = root.resolve(partialName)
+        val destination = root.resolve(name)
+        try {
+            if (!Files.isRegularFile(part, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(part)) throw UpdaterException(ERROR_INVALID_PATH, "Unsafe partial")
+            val hash = Files.newInputStream(part, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS).use(::hashStream)
+            if (Files.size(part) != expectedSize || hash != expectedHash) throw UpdaterException(ERROR_INVALID_PATH, "Imported update digest mismatch")
+            Files.move(part, destination, StandardCopyOption.ATOMIC_MOVE)
+            return requireVerifiedFile(arguments).let { identity(it.toPath(), expectedHash!!) }
+        } catch (error: Exception) {
+            Files.deleteIfExists(part)
+            throw error
+        }
+    }
+
+    private fun createDownloadPart(arguments: Map<*, *>): String {
+        val name = arguments[ARG_PARTIAL_NAME] as? String ?: throw UpdaterException(ERROR_INVALID_ARGUMENT, "partialName is required")
+        if (!name.endsWith(".part") || !isGeneratedName(name)) throw UpdaterException(ERROR_INVALID_PATH, "Invalid partial basename")
+        val root = requireUpdatesDirectory().toPath()
+        val part = root.resolve(name)
+        Files.newByteChannel(part, setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)).close()
+        return part.toFile().absolutePath
+    }
+
+    private fun requireUpdatesDirectory(): File {
+        val directory = File(cacheDir, UPDATES_DIRECTORY)
+        if (!directory.exists() && !directory.mkdir()) {
+            throw UpdaterException(ERROR_INVALID_PATH, "Could not create the update cache directory")
+        }
+        val path = directory.toPath()
+        if (Files.isSymbolicLink(path) || !Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+            throw UpdaterException(ERROR_INVALID_PATH, "Update cache root is not a regular directory")
+        }
+        val canonical = directory.canonicalFile
+        if (canonical != directory.absoluteFile) {
+            throw UpdaterException(ERROR_INVALID_PATH, "Update cache root identity changed")
+        }
+        return canonical
+    }
+
+    private fun safeListUpdates(): List<Map<String, Any>> {
+        val root = requireUpdatesDirectory().toPath()
+        return Files.newDirectoryStream(root).use { stream ->
+            stream.mapNotNull { path ->
+                if (path.parent != root || !isGeneratedName(path.fileName.toString()) ||
+                    !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(path)) null
+                else mapOf(
+                    "basename" to path.fileName.toString(),
+                    "size" to Files.size(path),
+                    "modifiedMillis" to Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toMillis(),
+                    "sha256" to Files.newInputStream(path, StandardOpenOption.READ).use(::hashStream),
+                    "identityToken" to (Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS).fileKey()?.toString() ?: ""),
+                )
+            }.toList()
+        }
+    }
+
+    private fun safeDeleteUpdate(arguments: Map<*, *>) {
+        val candidate = requireVerifiedFile(arguments).toPath()
+        val root = requireUpdatesDirectory().toPath()
+        if (candidate.parent != root) throw UpdaterException(ERROR_INVALID_PATH, "Unsafe update child")
+        val before = Files.readAttributes(candidate, java.nio.file.attribute.BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+        val again = Files.readAttributes(candidate, java.nio.file.attribute.BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+        if (before.fileKey() != again.fileKey()) throw UpdaterException(ERROR_INVALID_PATH, "Update file changed")
+        Files.delete(candidate)
+    }
+
+    private fun isGeneratedName(name: String): Boolean = Regex(
+        "^mobilka-\\d+\\.\\d+\\.\\d+-(android|windows)-[A-Za-z0-9_-]+-[0-9a-f]+\\.(apk|msi)(\\.part)?$",
+    ).matches(name)
 
     private fun preflightApk(apk: File): ApkPreflight {
         val archive = packageManager.getPackageArchiveInfo(
@@ -167,9 +302,19 @@ class MainActivity : FlutterActivity() {
     private companion object {
         const val CHANNEL_NAME = "com.rslnmzhn.mobilka/updater"
         const val METHOD_RUNTIME_INFO = "getRuntimeInfo"
+        const val METHOD_STAGING_PATH = "getStagingPath"
+        const val METHOD_SAFE_LIST = "safeListUpdates"
+        const val METHOD_CREATE_PART = "createDownloadPart"
+        const val METHOD_SAFE_DELETE = "safeDeleteUpdate"
+        const val METHOD_IMPORT = "importVerifiedDownload"
+        const val METHOD_VERIFY = "verifyStaged"
         const val METHOD_PREFLIGHT_APK = "preflightApk"
         const val METHOD_INSTALL_APK = "installApk"
-        const val ARG_APK_PATH = "apkPath"
+        const val ARG_BASENAME = "basename"
+        const val ARG_PARTIAL_NAME = "partialName"
+        const val ARG_EXPECTED_SIZE = "expectedSize"
+        const val ARG_EXPECTED_SHA = "expectedSha256"
+        const val ARG_IDENTITY = "identityToken"
         const val UPDATES_DIRECTORY = "updates"
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         const val EXPECTED_PACKAGE_NAME = "com.rslnmzhn.mobilka"

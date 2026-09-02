@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/updater/data/github_update_repository.dart';
 import 'package:mobilka/features/updater/data/update_http_client.dart';
 import 'package:mobilka/features/updater/data/update_platform_bridge.dart';
+import 'package:mobilka/features/updater/data/android_updater_bridge.dart';
 import 'package:mobilka/features/updater/domain/update_release.dart';
 
 void main() {
@@ -29,13 +30,15 @@ void main() {
       final repository = GithubUpdateRepository(
         http: _Http(bytes),
         platform: platform,
+        signatureVerifier: _Verifier(),
       );
 
-      final staged = await repository.download(_release(bytes));
+      await repository.download(_release(bytes));
 
-      expect(await File(staged.path).readAsBytes(), bytes);
+      final stagedFile = root.listSync().whereType<File>().single;
+      expect(await stagedFile.readAsBytes(), bytes);
       expect(
-        staged.path,
+        stagedFile.path,
         matches(RegExp(r'mobilka-1\.2\.3-windows-x86_64-[0-9a-f]+\.msi$')),
       );
       expect(root.listSync().whereType<File>(), hasLength(1));
@@ -46,6 +49,7 @@ void main() {
     final repository = GithubUpdateRepository(
       http: _Http([1, 2, 3]),
       platform: platform,
+      signatureVerifier: _Verifier(),
     );
 
     await expectLater(
@@ -57,10 +61,11 @@ void main() {
 
   test('Windows apply is allowed only for an MSI installation', () async {
     final repository = GithubUpdateRepository(
-      http: _Http(const []),
+      http: _Http(const [1]),
       platform: platform,
+      signatureVerifier: _Verifier(),
     );
-    final staged = StagedUpdate(release: _release([1]), path: 'update.msi');
+    final staged = await repository.download(_release([1]));
 
     expect(await repository.apply(staged), isFalse);
     expect(platform.windowsInstallCalls, 0);
@@ -137,6 +142,37 @@ UpdateRelease _release(List<int> bytes) => UpdateRelease(
     install: true,
     installer: true,
   ),
+  proof: StagedUpdateProof(
+    manifestBytes: utf8.encode(
+      jsonEncode({
+        'schemaVersion': 1,
+        'release': {
+          'channel': 'stable',
+          'tag': 'v1.2.3',
+          'version': '1.2.3',
+          'draft': false,
+          'prerelease': false,
+        },
+        'assets': [
+          {
+            'platform': 'windows',
+            'arch': 'x86_64',
+            'format': 'msi',
+            'primary': true,
+            'installer': true,
+            'applyMode': 'msi',
+            'install': true,
+            'fileName': 'untrusted-name.msi',
+            'size': bytes.length,
+            'sha256': sha256.convert(bytes).toString(),
+            'downloadUrl':
+                'https://github.com/rslnmzhn/mobilka/releases/download/v1.2.3/update.msi',
+          },
+        ],
+      }),
+    ),
+    signatureBytes: List<int>.filled(64, 1),
+  ),
 );
 
 class _Http implements UpdateHttpClient {
@@ -201,10 +237,111 @@ class _Platform implements UpdatePlatformBridge {
   Future<bool> isWindowsMsiInstalled() async => msiInstalled;
 
   @override
-  Future<void> installWindowsMsi(String path) async {
+  Future<void> installWindowsMsi(
+    String path,
+    int expectedSize,
+    String expectedSha256, {
+    required String identityToken,
+  }) async {
     windowsInstallCalls++;
   }
 
   @override
-  Future<bool> installAndroidApk(String path, UpdateAsset asset) async => true;
+  Future<bool> installAndroidApk(
+    String path,
+    UpdateAsset asset, {
+    String? identityToken,
+  }) async => true;
+
+  @override
+  Future<List<SafeStagedFile>> safeListStaged() async => directory
+      .listSync(followLinks: false)
+      .whereType<File>()
+      .map(
+        (file) => SafeStagedFile(
+          basename: file.uri.pathSegments.last,
+          size: file.lengthSync(),
+          modifiedMillis: file.lastModifiedSync().millisecondsSinceEpoch,
+          sha256: sha256.convert(file.readAsBytesSync()).toString(),
+          identityToken:
+              '${file.lengthSync()}|${file.lastModifiedSync().millisecondsSinceEpoch}',
+        ),
+      )
+      .toList();
+
+  @override
+  Future<void> safeDeleteStaged(
+    String basename,
+    int expectedSize,
+    String expectedSha256, {
+    String? identityToken,
+  }) => File('${directory.path}${Platform.pathSeparator}$basename').delete();
+
+  @override
+  Future<SafeDownloadSink> beginDownload(String partialName) async {
+    final file = File('${directory.path}${Platform.pathSeparator}$partialName');
+    await file.create(exclusive: true);
+    return _TestSink(file);
+  }
+
+  @override
+  Future<VerifiedStagedFileIdentity> importVerifiedDownload(
+    String partialName,
+    String finalName,
+    int expectedSize,
+    String expectedSha256,
+  ) async {
+    final destination = File(
+      '${directory.path}${Platform.pathSeparator}$finalName',
+    );
+    await File(
+      '${directory.path}${Platform.pathSeparator}$partialName',
+    ).rename(destination.path);
+    return (await verifyStaged(finalName, expectedSize, expectedSha256))!;
+  }
+
+  @override
+  Future<VerifiedStagedFileIdentity?> verifyStaged(
+    String basename,
+    int expectedSize,
+    String expectedSha256, {
+    String? identityToken,
+  }) async {
+    final file = File('${directory.path}${Platform.pathSeparator}$basename');
+    if (!file.existsSync()) return null;
+    final hash = sha256.convert(await file.readAsBytes()).toString();
+    final identity =
+        '${file.lengthSync()}|${file.lastModifiedSync().millisecondsSinceEpoch}';
+    if (file.lengthSync() != expectedSize ||
+        hash != expectedSha256 ||
+        (identityToken != null && identity != identityToken)) {
+      return null;
+    }
+    return VerifiedStagedFileIdentity(
+      basename: basename,
+      size: expectedSize,
+      sha256: hash,
+      identityToken: identity,
+    );
+  }
+
+  @override
+  Future<int?> installedVersionCode() async => null;
+
+  @override
+  Future<void> rotateWindowsHandoffLog() async {}
+}
+
+class _TestSink implements SafeDownloadSink {
+  _TestSink(this.file);
+  final File file;
+  @override
+  Future<void> write(List<int> chunk) =>
+      file.writeAsBytes(chunk, mode: FileMode.append);
+  @override
+  Future<void> finish() async {}
+  @override
+  Future<void> abort() async {
+    if (await file.exists()) await file.delete();
+  }
 }
