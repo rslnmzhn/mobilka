@@ -394,6 +394,26 @@ void main() {
     await controller.retryInstall();
     expect(fake.applyCalls, 2);
   });
+
+  test('provider scope failure has a stable localized projection', () async {
+    final staged = StagedUpdate(release: _release(const [1]), path: 'safe.apk');
+    final fake = _ControllerRepository(staged)
+      ..applyException = const UpdateInstallException(
+        UpdateInstallFailure.providerScopeUnavailable,
+      );
+    final controller = UpdateController(
+      repository: fake,
+      currentVersion: Future.value('1.0.0'),
+    );
+    await controller.recoverThenCheck();
+
+    await controller.retryInstall();
+
+    expect(controller.state.status, UpdateStatus.failed);
+    expect(controller.state.staged, same(staged));
+    expect(controller.state.message, isNull);
+    expect(controller.state.messageKey, 'updater.providerScopeUnavailable');
+  });
 }
 
 Future<File> _put(
@@ -754,6 +774,7 @@ class _ControllerRepository implements UpdateRepository {
   final StagedUpdate staged;
   final List<String> events = [];
   bool applyError = false;
+  Object? applyException;
   int applyCalls = 0;
   @override
   Future<StagedUpdate?> recover(String installedVersion) async {
@@ -773,6 +794,7 @@ class _ControllerRepository implements UpdateRepository {
   @override
   Future<bool> apply(StagedUpdate update) async {
     applyCalls++;
+    if (applyException case final error?) throw error;
     if (applyError) throw StateError('apply failed');
     return true;
   }

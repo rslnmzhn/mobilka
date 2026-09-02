@@ -26,6 +26,7 @@ class UpdateState {
     this.release,
     this.staged,
     this.message,
+    this.messageKey,
   });
 
   final UpdateStatus status;
@@ -33,6 +34,7 @@ class UpdateState {
   final UpdateRelease? release;
   final StagedUpdate? staged;
   final String? message;
+  final String? messageKey;
 }
 
 final updatePlatformBridgeProvider = Provider<UpdatePlatformBridge>(
@@ -120,7 +122,8 @@ class UpdateController extends StateNotifier<UpdateState> {
       state = UpdateState(
         status: UpdateStatus.failed,
         staged: state.staged,
-        message: error.toString(),
+        message: _safeUpdateError(error),
+        messageKey: _updateErrorKey(error),
       );
     }
   }
@@ -162,7 +165,8 @@ class UpdateController extends StateNotifier<UpdateState> {
         currentVersion: state.currentVersion,
         release: release,
         staged: state.staged,
-        message: error.toString(),
+        message: _safeUpdateError(error),
+        messageKey: _updateErrorKey(error),
       );
     }
   }
@@ -195,8 +199,21 @@ class UpdateController extends StateNotifier<UpdateState> {
         currentVersion: state.currentVersion,
         release: state.release,
         staged: staged,
-        message: error.toString(),
+        message: _safeUpdateError(error),
+        messageKey: _updateErrorKey(error),
       );
     }
   }
 }
+
+String? _updateErrorKey(Object error) {
+  if (error is UpdateInstallException) {
+    return error.failure == UpdateInstallFailure.providerScopeUnavailable
+        ? 'updater.providerScopeUnavailable'
+        : 'updater.installFailed';
+  }
+  return null;
+}
+
+String? _safeUpdateError(Object error) =>
+    _updateErrorKey(error) == null ? error.toString() : null;

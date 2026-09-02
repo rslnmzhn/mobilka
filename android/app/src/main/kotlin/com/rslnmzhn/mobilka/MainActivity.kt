@@ -1,5 +1,6 @@
 package com.rslnmzhn.mobilka
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
@@ -38,12 +39,20 @@ class MainActivity : FlutterActivity() {
                             result.success(null)
                         }
                         METHOD_PREFLIGHT_APK -> {
-                            val apk = requireVerifiedFile(call.arguments as Map<*, *>)
+                            val apk = requireVerifiedFile(
+                                call.arguments as Map<*, *>,
+                                allowPartial = false,
+                                requireIdentity = true,
+                            )
                             result.success(preflightApk(apk).toMap())
                         }
 
                         METHOD_INSTALL_APK -> {
-                            val apk = requireVerifiedFile(call.arguments as Map<*, *>)
+                            val apk = requireVerifiedFile(
+                                call.arguments as Map<*, *>,
+                                allowPartial = false,
+                                requireIdentity = true,
+                            )
                             val preflight = preflightApk(apk)
                             result.success(installApk(apk, preflight))
                         }
@@ -99,8 +108,6 @@ class MainActivity : FlutterActivity() {
         return apk
     }
 
-    private fun requireApkPath(rawPath: String?): File = requireUpdatePath(rawPath, false)
-
     private fun hashStream(stream: java.io.InputStream): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(64 * 1024)
@@ -118,12 +125,22 @@ class MainActivity : FlutterActivity() {
             "identityToken" to (attributes.fileKey()?.toString() ?: "${attributes.size()}|${attributes.lastModifiedTime().toMillis()}"))
     }
 
-    private fun requireVerifiedFile(arguments: Map<*, *>): File {
+    private fun requireVerifiedFile(
+        arguments: Map<*, *>,
+        allowPartial: Boolean = true,
+        requireIdentity: Boolean = false,
+    ): File {
         val name = arguments[ARG_BASENAME] as? String
         val expectedSize = (arguments[ARG_EXPECTED_SIZE] as? Number)?.toLong()
-        val expectedHash = arguments[ARG_EXPECTED_SHA] as? String
-        val expectedIdentity = arguments[ARG_IDENTITY] as? String
-        val file = requireUpdatePath(name, true)
+            ?: throw UpdaterException(ERROR_INVALID_ARGUMENT, "expectedSize is required")
+        val expectedHash = (arguments[ARG_EXPECTED_SHA] as? String)
+            ?.takeIf { it.isNotBlank() }
+            ?: throw UpdaterException(ERROR_INVALID_ARGUMENT, "expectedSha256 is required")
+        val expectedIdentity = (arguments[ARG_IDENTITY] as? String)?.takeIf { it.isNotBlank() }
+        if (requireIdentity && expectedIdentity == null) {
+            throw UpdaterException(ERROR_INVALID_ARGUMENT, "identityToken is required")
+        }
+        val file = requireUpdatePath(name, allowPartial)
         val path = file.toPath()
         val hash = Files.newInputStream(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS).use(::hashStream)
         val actual = identity(path, hash)
@@ -250,14 +267,24 @@ class MainActivity : FlutterActivity() {
             if (settingsIntent.resolveActivity(packageManager) == null) {
                 throw UpdaterException(ERROR_PERMISSION_SETTINGS, "Unknown-source settings are unavailable")
             }
-            startActivity(settingsIntent)
+            try {
+                startActivity(settingsIntent)
+            } catch (_: ActivityNotFoundException) {
+                throw UpdaterException(ERROR_PERMISSION_SETTINGS, "Unknown-source settings are unavailable")
+            }
             return mapOf("status" to STATUS_PENDING_PERMISSION)
         }
 
+        val authority = "$packageName.updater.files"
+        verifyUpdaterProviderScope(authority)
         val apkUri = try {
-            FileProvider.getUriForFile(this, "$packageName.updater.files", apk)
+            FileProvider.getUriForFile(this, authority, apk)
         } catch (error: IllegalArgumentException) {
-            throw UpdaterException(ERROR_INVALID_PATH, "APK is outside the update provider scope")
+            throw UpdaterException(ERROR_PROVIDER_SCOPE, null)
+        }
+        if (apkUri.scheme != "content" || apkUri.authority != authority ||
+            apkUri.pathSegments.firstOrNull() != FILE_PROVIDER_ROOT) {
+            throw UpdaterException(ERROR_PROVIDER_SCOPE, null)
         }
         val installIntent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(apkUri, APK_MIME_TYPE)
@@ -266,8 +293,22 @@ class MainActivity : FlutterActivity() {
         if (installIntent.resolveActivity(packageManager) == null) {
             throw UpdaterException(ERROR_INSTALLER_UNAVAILABLE, "No Android package installer is available")
         }
-        startActivity(installIntent)
+        try {
+            startActivity(installIntent)
+        } catch (_: ActivityNotFoundException) {
+            throw UpdaterException(ERROR_INSTALLER_UNAVAILABLE, "No Android package installer is available")
+        }
         return preflight.toMap() + ("status" to STATUS_INSTALLER_LAUNCHED)
+    }
+
+    private fun verifyUpdaterProviderScope(authority: String) {
+        val provider = packageManager.resolveContentProvider(authority, PackageManager.GET_META_DATA)
+            ?: throw UpdaterException(ERROR_PROVIDER_SCOPE, null)
+        val pathsResource = provider.metaData?.getInt(FILE_PROVIDER_PATHS_META_DATA) ?: 0
+        if (provider.authority != authority || provider.exported || !provider.grantUriPermissions ||
+            provider.name != FileProvider::class.java.name || pathsResource != R.xml.file_paths) {
+            throw UpdaterException(ERROR_PROVIDER_SCOPE, null)
+        }
     }
 
     private fun currentPackageInfo(): PackageInfo = packageManager.getPackageInfo(
@@ -297,7 +338,7 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    private class UpdaterException(val code: String, override val message: String) : Exception(message)
+    private class UpdaterException(val code: String, override val message: String?) : Exception(message)
 
     private companion object {
         const val CHANNEL_NAME = "com.rslnmzhn.mobilka/updater"
@@ -317,6 +358,8 @@ class MainActivity : FlutterActivity() {
         const val ARG_IDENTITY = "identityToken"
         const val UPDATES_DIRECTORY = "updates"
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+        const val FILE_PROVIDER_ROOT = "updates"
+        const val FILE_PROVIDER_PATHS_META_DATA = "android.support.FILE_PROVIDER_PATHS"
         const val EXPECTED_PACKAGE_NAME = "com.rslnmzhn.mobilka"
         const val EXPECTED_SIGNER_SHA256 =
             "4A:76:9B:92:8D:47:82:77:30:E3:C5:E1:5A:E3:86:5C:D8:B8:99:93:13:A3:E5:79:BA:A9:B7:34:56:46:55:CD"
@@ -332,6 +375,7 @@ class MainActivity : FlutterActivity() {
         const val ERROR_PERMISSION_SETTINGS = "permissionSettingsUnavailable"
         const val ERROR_INSTALLER_UNAVAILABLE = "installerUnavailable"
         const val ERROR_RUNTIME_INFO = "runtimeInfoUnavailable"
+        const val ERROR_PROVIDER_SCOPE = "providerScopeUnavailable"
         const val ERROR_NATIVE = "nativeError"
     }
 }

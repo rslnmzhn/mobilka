@@ -35,37 +35,67 @@ void main() {
     expect(info.signingSha256, 'fingerprint');
   });
 
-  test('passes the APK path and maps successful preflight', () async {
+  test(
+    'passes the exact staged identity and maps successful preflight',
+    () async {
+      const identity = VerifiedStagedFileIdentity(
+        basename: 'mobilka-1.2.3-android-arm64-aa.apk',
+        size: 12,
+        sha256: 'hash',
+        identityToken: 'identity',
+      );
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'preflightApk');
+        expect(call.arguments, {
+          'basename': identity.basename,
+          'expectedSize': identity.size,
+          'expectedSha256': identity.sha256,
+          'identityToken': identity.identityToken,
+        });
+        return <String, Object?>{
+          'status': 'ready',
+          'packageName': 'com.rslnmzhn.mobilka',
+          'versionCode': 43,
+          'signingSha256': 'fingerprint',
+        };
+      });
+
+      final result = await AndroidUpdaterBridge().preflightApk(identity);
+
+      expect(result.packageName, 'com.rslnmzhn.mobilka');
+      expect(result.versionCode, 43);
+    },
+  );
+
+  test('returns a distinct pending-permission install result', () async {
+    const identity = VerifiedStagedFileIdentity(
+      basename: 'mobilka-1.2.3-android-arm64-aa.apk',
+      size: 12,
+      sha256: 'hash',
+      identityToken: 'identity',
+    );
+    var calls = 0;
     messenger.setMockMethodCallHandler(channel, (call) async {
-      expect(call.method, 'preflightApk');
-      expect(call.arguments, {'apkPath': '/cache/updates/mobilka.apk'});
+      expect(call.method, 'installApk');
+      expect(call.arguments, {
+        'basename': identity.basename,
+        'expectedSize': identity.size,
+        'expectedSha256': identity.sha256,
+        'identityToken': identity.identityToken,
+      });
       return <String, Object?>{
-        'status': 'ready',
-        'packageName': 'com.rslnmzhn.mobilka',
-        'versionCode': 43,
-        'signingSha256': 'fingerprint',
+        'status': calls++ == 0 ? 'pendingPermission' : 'installerLaunched',
       };
     });
 
-    final result = await AndroidUpdaterBridge().preflightApk(
-      '/cache/updates/mobilka.apk',
-    );
-
-    expect(result.packageName, 'com.rslnmzhn.mobilka');
-    expect(result.versionCode, 43);
-  });
-
-  test('returns a distinct pending-permission install result', () async {
-    messenger.setMockMethodCallHandler(channel, (call) async {
-      expect(call.method, 'installApk');
-      return <String, Object?>{'status': 'pendingPermission'};
-    });
-
-    final result = await AndroidUpdaterBridge().installApk(
-      '/cache/updates/mobilka.apk',
-    );
+    final bridge = AndroidUpdaterBridge();
+    final result = await bridge.installApk(identity);
 
     expect(result, AndroidInstallResult.pendingPermission);
+    expect(
+      await bridge.installApk(identity),
+      AndroidInstallResult.installerLaunched,
+    );
   });
 
   test('safe staging methods use basenames only', () async {
@@ -81,15 +111,20 @@ void main() {
         ];
       }
       expect(call.method, 'safeDeleteUpdate');
-      expect(call.arguments, {
-        'basename': 'mobilka-1.2.3-android-arm64_v8a-ab.apk',
-      });
+      expect(call.arguments, containsPair('identityToken', 'id'));
       return null;
     });
     final bridge = AndroidUpdaterBridge();
     expect(await bridge.stagingPath(), '/cache/updates');
     expect((await bridge.safeList()).single.size, 12);
-    await bridge.safeDelete('mobilka-1.2.3-android-arm64_v8a-ab.apk');
+    await bridge.safeDelete(
+      const VerifiedStagedFileIdentity(
+        basename: 'mobilka-1.2.3-android-arm64_v8a-ab.apk',
+        size: 12,
+        sha256: 'hash',
+        identityToken: 'id',
+      ),
+    );
   });
 
   test('creates and finalizes only a strict visible part basename', () async {

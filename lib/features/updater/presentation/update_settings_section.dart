@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -32,9 +33,9 @@ class UpdateSettingsSection extends ConsumerWidget {
                   key: const Key('update-status'),
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
-                if (state.message != null) ...[
+                if (state.message != null || state.messageKey != null) ...[
                   const SizedBox(height: 8),
-                  SelectableText(state.message!),
+                  SelectableText(state.messageKey?.tr() ?? state.message!),
                 ],
                 const SizedBox(height: 14),
                 Align(

@@ -24,12 +24,8 @@ class AndroidUpdaterBridge {
         .toList(growable: false);
   }
 
-  Future<void> safeDelete(Object file) => _channel.invokeMethod<void>(
-    'safeDeleteUpdate',
-    file is VerifiedStagedFileIdentity
-        ? _identityMap(file)
-        : {'basename': file as String},
-  );
+  Future<void> safeDelete(VerifiedStagedFileIdentity file) =>
+      _channel.invokeMethod<void>('safeDeleteUpdate', _identityMap(file));
 
   Future<VerifiedStagedFileIdentity> importVerified(
     String partialName,
@@ -75,22 +71,22 @@ class AndroidUpdaterBridge {
     return AndroidUpdaterRuntimeInfo.fromMap(_requireMap(value));
   }
 
-  Future<AndroidApkPreflight> preflightApk(Object file) async {
+  Future<AndroidApkPreflight> preflightApk(
+    VerifiedStagedFileIdentity file,
+  ) async {
     final value = await _channel.invokeMapMethod<String, Object?>(
       'preflightApk',
-      file is VerifiedStagedFileIdentity
-          ? _identityMap(file)
-          : {'apkPath': file as String},
+      _identityMap(file),
     );
     return AndroidApkPreflight.fromMap(_requireMap(value));
   }
 
-  Future<AndroidInstallResult> installApk(Object file) async {
+  Future<AndroidInstallResult> installApk(
+    VerifiedStagedFileIdentity file,
+  ) async {
     final value = await _channel.invokeMapMethod<String, Object?>(
       'installApk',
-      file is VerifiedStagedFileIdentity
-          ? _identityMap(file)
-          : {'basename': File(file as String).uri.pathSegments.last},
+      _identityMap(file),
     );
     final map = _requireMap(value);
     return switch (map['status']) {

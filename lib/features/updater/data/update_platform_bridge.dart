@@ -143,14 +143,24 @@ class MethodChannelUpdatePlatformBridge implements UpdatePlatformBridge {
       identityToken: identityToken,
     );
     if (file == null) throw const UpdateException('Unsafe staged APK');
-    final preflight = await _androidBridge.preflightApk(file);
+    final AndroidApkPreflight preflight;
+    try {
+      preflight = await _androidBridge.preflightApk(file);
+    } on PlatformException catch (error) {
+      throw UpdateInstallException.fromPlatform(error);
+    }
     if (preflight.packageName != asset.applicationId ||
         preflight.versionCode != asset.versionCode) {
       throw const UpdateException(
         'APK identity does not match the signed update manifest',
       );
     }
-    final result = await _androidBridge.installApk(file);
+    final AndroidInstallResult result;
+    try {
+      result = await _androidBridge.installApk(file);
+    } on PlatformException catch (error) {
+      throw UpdateInstallException.fromPlatform(error);
+    }
     return result == AndroidInstallResult.installerLaunched;
   }
 
@@ -273,4 +283,22 @@ class VerifiedStagedFileIdentity {
   final int size;
   final String sha256;
   final String identityToken;
+}
+
+enum UpdateInstallFailure { providerScopeUnavailable, native }
+
+class UpdateInstallException implements Exception {
+  const UpdateInstallException(this.failure);
+
+  factory UpdateInstallException.fromPlatform(PlatformException error) =>
+      UpdateInstallException(
+        error.code == 'providerScopeUnavailable'
+            ? UpdateInstallFailure.providerScopeUnavailable
+            : UpdateInstallFailure.native,
+      );
+
+  final UpdateInstallFailure failure;
+
+  @override
+  String toString() => 'UpdateInstallException(${failure.name})';
 }
