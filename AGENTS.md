@@ -24,6 +24,7 @@ format: dart format .
 - Personas are presented under Agents, while memory owns canonical `personas/<slug>.md` files and mutation safety; no mutable persona index exists.
 - Chat / Advanced Coding mode and a separate coding-agent catalog are future architecture, not current product behavior.
 - The chat application separates model/catalog state in the catalog controller from request streaming lifecycle in the streaming coordinator.
+- Chat tool availability is fail-closed per stable runtime registration: one optional runtime failure omits only that runtime's tools and must not interrupt a request.
 - Streaming coordination is bound to immutable conversation, request, and assistant-message IDs rather than mutable active-chat state.
 - UI paradigm: Streaming chat with collapsible tool-calling cards, theme presets, and slide-up bottom sheets for artifacts, memory files, and tool execution logs.
 - Current targets are Android, Windows, and Linux; iOS and macOS are future targets.

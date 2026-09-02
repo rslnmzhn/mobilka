@@ -8,6 +8,8 @@ import 'package:mobilka/features/chat/domain/chat_tool.dart';
 import 'package:mobilka/features/chat/domain/conversation.dart';
 import 'package:mobilka/features/chat/data/chat_repository.dart';
 import 'package:mobilka/features/memory/application/workspace_paths.dart';
+import 'package:mobilka/core/logging/app_logger.dart';
+import 'package:mobilka/features/chat/application/chat_tool_runtime_registry.dart';
 
 import 'support/chat_streaming_coordinator_fakes.dart';
 
@@ -47,6 +49,88 @@ void main() {
     expect(fixture.conversation.pendingRequestMessageId, isNull);
     expect(fixture.conversation.usage?.totalTokens, 5);
     expect(fixture.errors, isEmpty);
+  });
+
+  test('failed optional runtime does not interrupt a normal stream', () async {
+    final streamer = _ToolRecordingStreamer();
+    final runtime = CompositeChatToolRuntime([
+      RegisteredChatToolRuntime(
+        'broken',
+        () => const _AvailabilityFailureRuntime(),
+        failurePolicy: ChatToolRuntimeFailurePolicy.omitOnAvailabilityFailure,
+      ),
+      RegisteredChatToolRuntime('working', () => const _AvailableRuntime()),
+    ]);
+    final fixture = CoordinatorFixture(
+      streamer: streamer,
+      toolRuntime: runtime,
+    );
+
+    await fixture.run(allowedTools: const {'working_tool'});
+
+    expect(fixture.assistant.status, ChatMessageStatus.complete);
+    expect(streamer.toolNames, ['working_tool']);
+  });
+
+  test(
+    'failed optional runtime constructor does not interrupt stream',
+    () async {
+      final streamer = _ToolRecordingStreamer();
+      final runtime = CompositeChatToolRuntime([
+        RegisteredChatToolRuntime(
+          'web_search',
+          () => throw UnsupportedError('private constructor detail'),
+          failurePolicy: ChatToolRuntimeFailurePolicy.omitOnAvailabilityFailure,
+        ),
+        RegisteredChatToolRuntime('working', () => const _AvailableRuntime()),
+      ]);
+      final fixture = CoordinatorFixture(
+        streamer: streamer,
+        toolRuntime: runtime,
+      );
+
+      await fixture.run(allowedTools: const {'working_tool'});
+
+      expect(fixture.assistant.status, ChatMessageStatus.complete);
+      expect(streamer.toolNames, ['working_tool']);
+    },
+  );
+
+  test('failed required runtime interrupts before transport stream', () async {
+    final streamer = _ToolRecordingStreamer();
+    final runtime = CompositeChatToolRuntime([
+      RegisteredChatToolRuntime(
+        'memory',
+        () => throw UnsupportedError('required constructor'),
+      ),
+    ]);
+    final fixture = CoordinatorFixture(
+      streamer: streamer,
+      toolRuntime: runtime,
+    );
+
+    await fixture.run(allowedTools: const {'working_tool'});
+
+    expect(fixture.assistant.status, ChatMessageStatus.interrupted);
+    expect(streamer.toolNames, isEmpty);
+  });
+
+  test('logs safe preparation phase for UnsupportedError', () async {
+    final logs = <AppLogEntry>[];
+    final fixture = CoordinatorFixture(
+      streamer: _PreparationFailureStreamer(),
+      logger: AppLogger(sink: logs.add),
+    );
+
+    await fixture.run();
+
+    final failure = logs.singleWhere(
+      (entry) => entry.event == 'chat.streaming',
+    );
+    expect(failure.phase, 'stream_request.inject_context');
+    expect(failure.errorType, 'UnsupportedError');
+    expect(failure.errorCode, 'unsupported_operation');
+    expect(failure.stackFingerprint, startsWith('sha256:'));
   });
 
   test(
@@ -601,6 +685,72 @@ class _RecordingSequencedStreamer implements ChatCompletionStreamer {
   }) {
     toolNames.add(tools.map((tool) => tool.name).toSet());
     return Stream.fromIterable(responses[calls++]);
+  }
+}
+
+class _AvailabilityFailureRuntime implements ChatToolRuntime {
+  const _AvailabilityFailureRuntime();
+
+  @override
+  Future<List<ChatToolDefinition>> availableTools(Set<String> allowedTools) {
+    throw UnsupportedError('unavailable');
+  }
+
+  @override
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) async => '';
+}
+
+class _AvailableRuntime implements ChatToolRuntime {
+  const _AvailableRuntime();
+  static const definition = ChatToolDefinition(
+    name: 'working_tool',
+    description: 'works',
+    parameters: {'type': 'object'},
+  );
+
+  @override
+  Future<List<ChatToolDefinition>> availableTools(
+    Set<String> allowedTools,
+  ) async => const [definition];
+
+  @override
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) async => 'ok';
+}
+
+class _ToolRecordingStreamer implements ChatCompletionStreamer {
+  List<String> toolNames = const [];
+
+  @override
+  Stream<ChatStreamEvent> streamCompletion({
+    required String model,
+    required List<ChatMessage> messages,
+    required CancelToken cancelToken,
+    List<ChatToolDefinition> tools = const [],
+  }) async* {
+    toolNames = tools.map((tool) => tool.name).toList();
+    yield const ChatStreamEvent(delta: 'ok');
+    yield const ChatStreamEvent(isTerminal: true);
+  }
+}
+
+class _PreparationFailureStreamer implements ChatCompletionStreamer {
+  @override
+  Stream<ChatStreamEvent> streamCompletion({
+    required String model,
+    required List<ChatMessage> messages,
+    required CancelToken cancelToken,
+    List<ChatToolDefinition> tools = const [],
+  }) async* {
+    final error = UnsupportedError('Cannot modify an unmodifiable list');
+    throw ChatPreparationException('inject_context', error, StackTrace.current);
   }
 }
 

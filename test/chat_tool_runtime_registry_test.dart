@@ -9,6 +9,7 @@ import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/chat_tool.dart';
 import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
 import 'package:mobilka/features/agents/data/agent_definition_parser.dart';
+import 'package:mobilka/core/logging/app_logger.dart';
 
 void main() {
   test('composite dedupes advertised tools across runtimes', () async {
@@ -37,17 +38,110 @@ void main() {
     expect(second.executed, isTrue);
   });
 
-  test('unknown tool fails with StateError', () async {
+  test('unknown tool returns a safe execution envelope', () async {
     final composite = CompositeChatToolRuntime([
       _StubRuntime(name: 'known_tool', id: 'x'),
     ]);
 
     expect(
-      () => composite.executeTool(
+      await composite.executeTool(
         const ChatToolCall(id: 'call', name: 'other', arguments: '{}'),
         const {'allowed'},
       ),
-      throwsStateError,
+      '{"ok":false,"error_code":"unknown_tool"}',
+    );
+  });
+
+  test(
+    'one unavailable runtime is omitted without hiding other tools',
+    () async {
+      final logs = <AppLogEntry>[];
+      final composite = CompositeChatToolRuntime([
+        RegisteredChatToolRuntime(
+          'broken',
+          () => const _ThrowingRuntime(),
+          failurePolicy: ChatToolRuntimeFailurePolicy.omitOnAvailabilityFailure,
+        ),
+        RegisteredChatToolRuntime(
+          'working',
+          () => _StubRuntime(name: 'working_tool', id: 'working'),
+        ),
+      ], logger: AppLogger(sink: logs.add));
+
+      final tools = await composite.availableTools(const {'allowed'});
+
+      expect(tools.map((tool) => tool.name), ['working_tool']);
+      expect(logs.single.event, 'chat.tool_availability');
+      expect(logs.single.runtimeId, 'broken');
+      expect(logs.single.errorType, 'UnsupportedError');
+      expect(logs.single.errorCode, 'unsupported_operation');
+      expect(logs.single.stackFingerprint, startsWith('sha256:'));
+      expect(logs.single.toJson().toString(), isNot(contains('unavailable')));
+    },
+  );
+
+  test(
+    'optional lookup failure continues to a later matching runtime',
+    () async {
+      final composite = CompositeChatToolRuntime([
+        RegisteredChatToolRuntime(
+          'broken',
+          () => const _ThrowingRuntime(),
+          failurePolicy: ChatToolRuntimeFailurePolicy.omitOnAvailabilityFailure,
+        ),
+        RegisteredChatToolRuntime(
+          'working',
+          () => _StubRuntime(name: 'broken_tool', id: 'working'),
+        ),
+      ]);
+
+      expect(
+        await composite.executeTool(
+          const ChatToolCall(id: 'call', name: 'broken_tool', arguments: '{}'),
+          const {'allowed', 'broken_tool'},
+        ),
+        '{}',
+      );
+    },
+  );
+
+  test('optional constructor failure is omitted', () async {
+    final composite = CompositeChatToolRuntime([
+      RegisteredChatToolRuntime(
+        'broken',
+        () => throw UnsupportedError('secret material'),
+        failurePolicy: ChatToolRuntimeFailurePolicy.omitOnAvailabilityFailure,
+      ),
+      RegisteredChatToolRuntime(
+        'working',
+        () => _StubRuntime(name: 'working_tool', id: 'working'),
+      ),
+    ]);
+
+    expect(
+      (await composite.availableTools(const {'allowed'})).single.name,
+      'working_tool',
+    );
+  });
+
+  test('required runtime failures rethrow', () async {
+    final constructorFailure = CompositeChatToolRuntime([
+      RegisteredChatToolRuntime(
+        'required',
+        () => throw UnsupportedError('required constructor'),
+      ),
+    ]);
+    final availabilityFailure = CompositeChatToolRuntime([
+      RegisteredChatToolRuntime('required', () => const _ThrowingRuntime()),
+    ]);
+
+    await expectLater(
+      constructorFailure.availableTools(const {'allowed'}),
+      throwsUnsupportedError,
+    );
+    await expectLater(
+      availabilityFailure.availableTools(const {'allowed'}),
+      throwsUnsupportedError,
     );
   });
 
@@ -128,6 +222,22 @@ void main() {
       expect(effects['generate_docx'], ChatToolEffect.mutating);
     },
   );
+}
+
+class _ThrowingRuntime implements ChatToolRuntime {
+  const _ThrowingRuntime();
+
+  @override
+  Future<List<ChatToolDefinition>> availableTools(Set<String> allowedTools) {
+    throw UnsupportedError('runtime unavailable');
+  }
+
+  @override
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) async => throw StateError('must not execute');
 }
 
 class _StubRuntime implements ChatToolRuntime {

@@ -15,7 +15,11 @@ class AppLogEntry {
     this.conversationId,
     this.toolCallId,
     this.status,
+    this.phase,
+    this.runtimeId,
     this.errorType,
+    this.errorCode,
+    this.stackFingerprint,
     this.duration,
     this.eventCount,
     this.terminalSeen,
@@ -29,7 +33,11 @@ class AppLogEntry {
   final String? conversationId;
   final String? toolCallId;
   final String? status;
+  final String? phase;
+  final String? runtimeId;
   final String? errorType;
+  final String? errorCode;
+  final String? stackFingerprint;
   final Duration? duration;
   final int? eventCount;
   final bool? terminalSeen;
@@ -49,7 +57,15 @@ class AppLogEntry {
     // ignore: use_null_aware_elements
     if (status != null) 'status': status!,
     // ignore: use_null_aware_elements
+    if (phase != null) 'phase': phase!,
+    // ignore: use_null_aware_elements
+    if (runtimeId != null) 'runtimeId': runtimeId!,
+    // ignore: use_null_aware_elements
     if (errorType != null) 'errorType': errorType!,
+    // ignore: use_null_aware_elements
+    if (errorCode != null) 'errorCode': errorCode!,
+    // ignore: use_null_aware_elements
+    if (stackFingerprint != null) 'stackFingerprint': stackFingerprint!,
     // ignore: use_null_aware_elements
     if (duration != null) 'durationMs': duration!.inMilliseconds,
     // ignore: use_null_aware_elements
@@ -95,7 +111,11 @@ class AppLogger {
     String? toolCallId,
     String? fileName,
     String? status,
+    String? phase,
+    String? runtimeId,
     Object? error,
+    String? errorCode,
+    StackTrace? stackTrace,
     Duration? duration,
     int? eventCount,
     bool? terminalSeen,
@@ -110,7 +130,11 @@ class AppLogger {
         conversationId: _safeIdentifier(conversationId),
         toolCallId: _safeIdentifier(toolCallId),
         status: status == null ? null : _safeLabel(status),
+        phase: phase == null ? null : _safeLabel(phase),
+        runtimeId: runtimeId == null ? null : _safeLabel(runtimeId),
         errorType: error?.runtimeType.toString(),
+        errorCode: errorCode == null ? null : _safeLabel(errorCode),
+        stackFingerprint: _safeIdentifier(stackTrace?.toString()),
         duration: duration,
         eventCount: eventCount,
         terminalSeen: terminalSeen,

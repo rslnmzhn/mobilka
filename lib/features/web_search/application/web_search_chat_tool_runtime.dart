@@ -21,8 +21,9 @@ final webSearchChatToolRuntimeProvider = Provider<WebSearchChatToolRuntime>((
   return WebSearchChatToolRuntime(
     loadSettings: () async =>
         ref.read(searxngSettingsControllerProvider.future),
-    loadSecret: ref.read(searxngSettingsRepositoryProvider).getSecretFor,
-    client: SearxngSearchClient(
+    loadSecret: (endpoint) =>
+        ref.read(searxngSettingsRepositoryProvider).getSecretFor(endpoint),
+    createClient: () => SearxngSearchClient(
       policy: WebSearchPolicy(
         PublicTargetPolicy(
           const SystemPublicSourceResolver(),
@@ -40,15 +41,21 @@ class WebSearchChatToolRuntime implements ChatToolRuntime {
   WebSearchChatToolRuntime({
     required this.loadSettings,
     required this.loadSecret,
-    required this.client,
+    SearxngSearchClient? client,
+    SearxngSearchClient Function()? createClient,
     this.totalTimeout = const Duration(seconds: 15),
     AppLogger? logger,
-  }) : logger = logger ?? AppLogger();
+  }) : assert(client != null || createClient != null),
+       _client = client,
+       _createClient = createClient,
+       logger = logger ?? AppLogger();
   final Future<SearxngSearchSettings> Function() loadSettings;
   final Future<String?> Function(String endpoint) loadSecret;
-  final SearxngSearchClient client;
+  final SearxngSearchClient? _client;
+  final SearxngSearchClient Function()? _createClient;
   final AppLogger logger;
   final Duration totalTimeout;
+  SearxngSearchClient get client => _client ?? _createClient!();
 
   static const definition = ChatToolDefinition(
     effect: ChatToolEffect.readOnly,
@@ -76,12 +83,8 @@ class WebSearchChatToolRuntime implements ChatToolRuntime {
     Set<String> allowedTools,
   ) async {
     if (!allowedTools.contains(definition.name)) return const [];
-    try {
-      final settings = await loadSettings();
-      return settings.usable ? const [definition] : const [];
-    } on Object {
-      return const [];
-    }
+    final settings = await loadSettings();
+    return settings.usable ? const [definition] : const [];
   }
 
   @override

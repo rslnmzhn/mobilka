@@ -1,6 +1,10 @@
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../core/logging/app_logger.dart';
 import '../../../features/memory/application/skills_chat_tools.dart';
 import '../../../features/memory/application/session_notes_tools.dart';
 import '../../../features/memory/application/workspace_paths.dart';
@@ -12,6 +16,7 @@ import '../../chat/domain/chat_tool.dart';
 import '../../chat/domain/pending_memory_proposal.dart';
 import '../../memory/application/memory_chat_tool_runtime.dart';
 import '../../public_source/application/public_source_chat_tool_runtime.dart';
+import '../../settings/data/settings_repository.dart';
 import '../../web_search/application/web_search_chat_tool_runtime.dart';
 import 'chat_tool_runtime.dart';
 
@@ -39,24 +44,72 @@ final chatToolRuntimeRegistryProvider = Provider<CompositeChatToolRuntime>((
   ref,
 ) {
   return CompositeChatToolRuntime([
-    ref.watch(artifactsChatToolRuntimeProvider),
-    ref.watch(skillsChatToolsProvider),
-    ref.watch(sessionNotesToolsProvider),
-    ref.watch(personaChatToolsProvider),
-    ref.watch(memoryChatToolRuntimeProvider),
-    ref.watch(publicSourceChatToolRuntimeProvider),
-    ref.watch(webSearchChatToolRuntimeProvider),
-  ]);
+    RegisteredChatToolRuntime(
+      'artifacts',
+      () => ref.read(artifactsChatToolRuntimeProvider),
+    ),
+    RegisteredChatToolRuntime(
+      'skills',
+      () => ref.read(skillsChatToolsProvider),
+    ),
+    RegisteredChatToolRuntime(
+      'session_notes',
+      () => ref.read(sessionNotesToolsProvider),
+    ),
+    RegisteredChatToolRuntime(
+      'personas',
+      () => ref.read(personaChatToolsProvider),
+    ),
+    RegisteredChatToolRuntime(
+      'memory',
+      () => ref.read(memoryChatToolRuntimeProvider),
+    ),
+    RegisteredChatToolRuntime(
+      'public_source',
+      () => ref.read(publicSourceChatToolRuntimeProvider),
+    ),
+    RegisteredChatToolRuntime(
+      'web_search',
+      () => ref.read(webSearchChatToolRuntimeProvider),
+      failurePolicy: ChatToolRuntimeFailurePolicy.omitOnAvailabilityFailure,
+    ),
+  ], logger: ref.watch(appLoggerProvider));
 });
+
+enum ChatToolRuntimeFailurePolicy { required, omitOnAvailabilityFailure }
+
+class RegisteredChatToolRuntime {
+  const RegisteredChatToolRuntime(
+    this.id,
+    this.create, {
+    this.failurePolicy = ChatToolRuntimeFailurePolicy.required,
+  });
+
+  final String id;
+  final ChatToolRuntime Function() create;
+  final ChatToolRuntimeFailurePolicy failurePolicy;
+}
 
 class CompositeChatToolRuntime
     implements ChatToolRuntime, MemoryProposalRuntime {
-  CompositeChatToolRuntime(this._runtimes);
+  CompositeChatToolRuntime(Iterable<Object> runtimes, {AppLogger? logger})
+    : _runtimes = [
+        for (final (index, runtime) in runtimes.indexed)
+          runtime is RegisteredChatToolRuntime
+              ? runtime
+              : RegisteredChatToolRuntime(
+                  'legacy_$index',
+                  () => runtime as ChatToolRuntime,
+                ),
+      ],
+      _logger = logger ?? AppLogger();
 
-  final List<ChatToolRuntime> _runtimes;
+  final List<RegisteredChatToolRuntime> _runtimes;
+  final AppLogger _logger;
 
   MemoryProposalRuntime? get _proposalRuntime {
-    for (final runtime in _runtimes) {
+    for (final registration in _runtimes) {
+      final runtime = registration.create();
       if (runtime is MemoryProposalRuntime) {
         return runtime as MemoryProposalRuntime;
       }
@@ -70,11 +123,17 @@ class CompositeChatToolRuntime
   ) async {
     final definitions = <ChatToolDefinition>[];
     final seen = <String>{};
-    for (final runtime in _runtimes) {
-      for (final definition in await runtime.availableTools(allowedTools)) {
-        if (seen.add(definition.name)) {
-          definitions.add(definition);
+    for (final registration in _runtimes) {
+      try {
+        for (final definition in await registration.create().availableTools(
+          allowedTools,
+        )) {
+          if (seen.add(definition.name)) {
+            definitions.add(definition);
+          }
         }
+      } on Object catch (error, stackTrace) {
+        if (!_omitFailure(registration, error, stackTrace)) rethrow;
       }
     }
     return definitions;
@@ -86,13 +145,49 @@ class CompositeChatToolRuntime
     Set<String> allowedTools, {
     ChatToolExecutionContext? context,
   }) async {
-    for (final runtime in _runtimes) {
-      final advertised = await runtime.availableTools(allowedTools);
+    for (final registration in _runtimes) {
+      ChatToolRuntime runtime;
+      List<ChatToolDefinition> advertised;
+      try {
+        runtime = registration.create();
+        advertised = await runtime.availableTools(allowedTools);
+      } on Object catch (error, stackTrace) {
+        if (!_omitFailure(registration, error, stackTrace)) rethrow;
+        continue;
+      }
       if (advertised.any((definition) => definition.name == call.name)) {
         return runtime.executeTool(call, allowedTools, context: context);
       }
     }
-    throw StateError('Unknown executable tool: ${call.name}');
+    return jsonEncode({'ok': false, 'error_code': 'unknown_tool'});
+  }
+
+  bool _omitFailure(
+    RegisteredChatToolRuntime registration,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    if (registration.failurePolicy !=
+        ChatToolRuntimeFailurePolicy.omitOnAvailabilityFailure) {
+      return false;
+    }
+    _logger.log(
+      event: 'chat.tool_availability',
+      level: AppLogLevel.warning,
+      runtimeId: registration.id,
+      status: 'omitted',
+      phase: 'runtime_availability',
+      error: error,
+      errorCode: switch (error) {
+        UnsupportedError() => 'unsupported_operation',
+        SettingsSecretUnavailableException() => 'secure_storage_unavailable',
+        DioException() => 'network_error',
+        FormatException() => 'invalid_data',
+        _ => 'unexpected_error',
+      },
+      stackTrace: stackTrace,
+    );
+    return true;
   }
 
   @override

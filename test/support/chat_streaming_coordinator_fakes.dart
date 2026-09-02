@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:mobilka/core/logging/app_logger.dart';
 import 'package:mobilka/features/chat/application/background_task_bridge.dart';
 import 'package:mobilka/features/chat/application/chat_streaming_coordinator.dart';
 import 'package:mobilka/features/chat/application/pending_workspace_binding_store.dart';
@@ -46,6 +47,7 @@ class CoordinatorFixture {
     void Function(ChatStreamRequest request, String assistantText)?
     onFinalSuccess,
     void Function(String conversationId)? beforePersistMutation,
+    AppLogger? logger,
   }) {
     conversations['conversation-1'] = conversationWithId(
       'conversation-1',
@@ -71,6 +73,7 @@ class CoordinatorFixture {
       backgroundTasks: backgroundTasks ?? const NoopBackgroundTaskBridge(),
       workspaceBindings: workspaceBindings,
       onFinalSuccess: onFinalSuccess,
+      logger: logger,
     );
   }
 

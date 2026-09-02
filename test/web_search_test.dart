@@ -19,6 +19,22 @@ void main() {
     PublicTargetPolicy(resolver, allowedSchemes: const {'http', 'https'}),
   );
 
+  test(
+    'availability exposes unexpected settings failures to registry',
+    () async {
+      final runtime = WebSearchChatToolRuntime(
+        loadSettings: () => throw StateError('unavailable'),
+        loadSecret: (_) async => null,
+        client: _client(policy, _Transport('{}')),
+      );
+
+      await expectLater(
+        runtime.availableTools(const {'web_search'}),
+        throwsStateError,
+      );
+    },
+  );
+
   test('base URL policy is strict and canonical', () {
     expect(
       WebSearchPolicy.validateBaseUrl('HTTPS://Example.COM:443/api/'),

@@ -63,6 +63,21 @@ void main() {
     expect(encoded, isNot(contains('nonce')));
   });
 
+  test('records allowlisted error codes and fingerprints stacks', () {
+    final entries = <AppLogEntry>[];
+    AppLogger(sink: entries.add).log(
+      event: 'chat.streaming',
+      phase: 'stream_request.read_api_key',
+      error: UnsupportedError('failure'),
+      errorCode: 'unsupported_operation',
+      stackTrace: StackTrace.current,
+    );
+
+    final entry = entries.single;
+    expect(entry.errorCode, 'unsupported_operation');
+    expect(entry.stackFingerprint, startsWith('sha256:'));
+  });
+
   test('diagnostic ring retains only the newest 200 entries', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);
