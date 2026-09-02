@@ -1,6 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/memory/application/context_injector.dart';
+import 'package:mobilka/features/memory/application/memory_context_snapshot_service.dart';
+import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
+import 'package:mobilka/features/memory/application/memory_recovery_journal.dart';
+import 'package:mobilka/features/memory/application/persona_active_selection_store.dart';
+import 'package:mobilka/features/memory/application/persona_registry.dart';
+import 'package:mobilka/features/memory/data/path_memory_file_store.dart';
 import 'package:mobilka/features/memory/domain/memory_file_names.dart';
 
 void main() {
@@ -109,6 +117,96 @@ void main() {
     expect(result.single.content, isNot(contains('hidden')));
     expect(result.single.content, contains('Visible facts'));
   });
+
+  test(
+    'production path readiness migrates legacy persona before context injection',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'mobilka-inject-context-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      const legacy = 'personas:\n  Reviewer: Inspect root causes.\n';
+      await File(
+        '${directory.path}${Platform.pathSeparator}user.md',
+      ).writeAsString('Path user');
+      await File(
+        '${directory.path}${Platform.pathSeparator}soul.md',
+      ).writeAsString('Path soul');
+      await File(
+        '${directory.path}${Platform.pathSeparator}memory.md',
+      ).writeAsString('# Memory\n');
+      final legacyFile = File(
+        '${directory.path}${Platform.pathSeparator}personas.yaml',
+      );
+      await legacyFile.writeAsString(legacy);
+      final journal = _Journal();
+      final coordinator = MemoryMutationCoordinator(
+        PathMemoryFileStore(directory.path),
+        journal: journal,
+      );
+      String? activeId = 'reviewer';
+      final registry = PersonaRegistry(
+        mutations: coordinator,
+        activeSelection: CallbackPersonaActiveSelectionStore(
+          () => activeId,
+          (value) => activeId = value,
+        ),
+      );
+      final snapshot = MemoryContextSnapshotService(
+        ready: registry.ensureReady,
+        mutations: () => coordinator,
+        readActiveId: () => activeId,
+      );
+
+      final injected = await ContextInjector.atomic(
+        snapshot,
+        const _AgentSource(null),
+      ).inject(const []);
+
+      final separator = Platform.pathSeparator;
+      expect(injected.single.content, contains('Path soul'));
+      expect(injected.single.content, contains('Inspect root causes.'));
+      expect(injected.single.content, contains('Path user'));
+      expect(
+        await File(
+          '${directory.path}${separator}personas${separator}reviewer.md',
+        ).readAsString(),
+        contains('Inspect root causes.'),
+      );
+      expect(
+        await File(
+          '${directory.path}${separator}personas.yaml.migrated.bak',
+        ).readAsString(),
+        legacy,
+      );
+      expect(await legacyFile.exists(), isFalse);
+      expect(journal.pending, isEmpty);
+      expect(journal.writeCount, greaterThanOrEqualTo(3));
+      expect(journal.removeCount, 1);
+    },
+  );
+}
+
+class _Journal implements MemoryRecoveryJournal {
+  final Map<String, Map<String, dynamic>> pending = {};
+  int writeCount = 0;
+  int removeCount = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> readAll() async =>
+      pending.values.map((record) => Map<String, dynamic>.of(record)).toList();
+
+  @override
+  Future<void> write(String operationId, Map<String, dynamic> record) async {
+    writeCount++;
+    pending[operationId] = Map<String, dynamic>.of(record);
+  }
+
+  @override
+  Future<void> remove(String operationId) async {
+    removeCount++;
+    pending.remove(operationId);
+  }
 }
 
 class _MemorySource implements MemoryContextSource {

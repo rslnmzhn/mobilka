@@ -91,9 +91,10 @@ class MemoryBackupService {
       }
       final supportsPersonas = files is PersonaTreeTransaction;
       final existingPersonas = supportsPersonas
-          ? await (files as PersonaTreeTransaction).listPersonaFiles()
+          ? (List<String>.of(
+              await (files as PersonaTreeTransaction).listPersonaFiles(),
+            )..sort())
           : <String>[];
-      existingPersonas.sort();
       final incomingPersonas = effective.keys
           .where((name) => name.startsWith('personas/'))
           .toSet();

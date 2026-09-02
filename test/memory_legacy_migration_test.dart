@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/memory/application/memory_mutation_coordinator.dart';
 import 'package:mobilka/features/memory/application/memory_recovery_journal.dart';
+import 'package:mobilka/features/memory/application/persona_active_selection_store.dart';
+import 'package:mobilka/features/memory/application/persona_registry.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/domain/memory_file_names.dart';
@@ -213,6 +215,27 @@ void main() {
     },
   );
 
+  test('fixed-length SAF snapshot supports legacy persona deletion', () async {
+    const treeUri = 'content://memory/tree/root';
+    const legacy = 'personas:\n  Reviewer: Review.\n';
+    final access = _PersonaSafAccess(treeUri, {
+      'memory.md': '# Memory\n',
+      'personas.yaml': legacy,
+    });
+    final registry = PersonaRegistry(
+      mutations: MemoryMutationCoordinator(SafMemoryFileStore(treeUri, access)),
+      activeSelection: CallbackPersonaActiveSelectionStore(() => null, (_) {}),
+    );
+
+    final catalog = await registry.refresh();
+
+    expect(catalog.personas.single.id, 'reviewer');
+    expect(access.rootFiles['personas.yaml.migrated.bak'], legacy);
+    expect(access.rootFiles, isNot(contains('personas.yaml')));
+    expect(access.personaFiles['reviewer.md'], contains('Review.'));
+    expect(access.deletedNames, ['personas.yaml']);
+  });
+
   test('saved SAF location requires a matching read and write grant', () async {
     final safRepository = MemoryRepository(
       Saf(),
@@ -315,7 +338,7 @@ class _FakeSafAccess implements SafMemoryAccess {
   Future<List<SafMemoryDocument>> list(String directoryUri) async => [
     for (final name in files.keys)
       SafMemoryDocument(uri: 'doc:$name', name: name, isDirectory: false),
-  ];
+  ].toList(growable: false);
   @override
   Future<Uint8List> read(String documentUri) async =>
       Uint8List.fromList(utf8.encode(files[documentUri.substring(4)]!));
@@ -345,4 +368,84 @@ class _FakeSafAccess implements SafMemoryAccess {
     name: name,
     isDirectory: true,
   );
+}
+
+class _PersonaSafAccess implements SafMemoryAccess {
+  _PersonaSafAccess(this.rootUri, this.rootFiles);
+
+  final String rootUri;
+  final Map<String, String> rootFiles;
+  final Map<String, String> personaFiles = {};
+  final List<String> deletedNames = [];
+  bool personaDirectoryExists = false;
+  String get personasUri => '$rootUri/personas';
+
+  @override
+  Future<List<SafMemoryDocument>> list(String directoryUri) async {
+    final documents = <SafMemoryDocument>[];
+    final files = directoryUri == rootUri ? rootFiles : personaFiles;
+    for (final name in files.keys) {
+      documents.add(
+        SafMemoryDocument(
+          uri: '$directoryUri/$name',
+          name: name,
+          isDirectory: false,
+        ),
+      );
+    }
+    if (directoryUri == rootUri && personaDirectoryExists) {
+      documents.add(
+        SafMemoryDocument(
+          uri: personasUri,
+          name: 'personas',
+          isDirectory: true,
+        ),
+      );
+    }
+    return documents.toList(growable: false);
+  }
+
+  @override
+  Future<Uint8List> read(String documentUri) async {
+    final name = documentUri.substring(documentUri.lastIndexOf('/') + 1);
+    final value = documentUri.startsWith('$personasUri/')
+        ? personaFiles[name]
+        : rootFiles[name];
+    return Uint8List.fromList(utf8.encode(value!));
+  }
+
+  @override
+  Future<void> write(
+    String directoryUri,
+    String fileName,
+    Uint8List content, {
+    required bool overwrite,
+  }) async {
+    final files = directoryUri == rootUri ? rootFiles : personaFiles;
+    files[fileName] = utf8.decode(content);
+  }
+
+  @override
+  Future<void> delete(String documentUri) async {
+    final name = documentUri.substring(documentUri.lastIndexOf('/') + 1);
+    deletedNames.add(name);
+    if (documentUri.startsWith('$personasUri/')) {
+      personaFiles.remove(name);
+    } else {
+      rootFiles.remove(name);
+    }
+  }
+
+  @override
+  Future<SafMemoryDocument> createDirectory(
+    String directoryUri,
+    String name,
+  ) async {
+    personaDirectoryExists = true;
+    return SafMemoryDocument(
+      uri: '$directoryUri/$name',
+      name: name,
+      isDirectory: true,
+    );
+  }
 }

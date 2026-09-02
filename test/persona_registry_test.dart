@@ -86,6 +86,24 @@ void main() {
     await registry.refresh();
     expect(boundary.files, after);
   });
+
+  test('migration and preflight accept immutable persona listings', () async {
+    const legacy = 'personas:\n  Reviewer: Review.\n';
+    final boundary = _Boundary({
+      'memory.md': '# Memory\n',
+      'personas.yaml': legacy,
+    }, immutableLists: true);
+    final registry = PersonaRegistry(
+      mutations: MemoryMutationCoordinator(boundary),
+      activeSelection: CallbackPersonaActiveSelectionStore(() => null, (_) {}),
+    );
+
+    final catalog = await registry.refresh();
+
+    expect(catalog.personas.single.id, 'reviewer');
+    expect(boundary.files['personas.yaml.migrated.bak'], legacy);
+    expect(boundary.files, isNot(contains('personas.yaml')));
+  });
 }
 
 String _persona(String id, String title, String prompt) =>
@@ -98,8 +116,9 @@ class _Boundary
         MissingAwareMemoryFileTransaction,
         DeletingMemoryFileTransaction,
         PersonaTreeTransaction {
-  _Boundary(this.files);
+  _Boundary(this.files, {this.immutableLists = false});
   final Map<String, String> files;
+  final bool immutableLists;
   bool failList = false;
   @override
   Future<String> read(String fileName) async => files[fileName]!;
@@ -125,6 +144,6 @@ class _Boundary
             .map((name) => name.substring(9))
             .toList()
           ..sort();
-    return names;
+    return immutableLists ? List.unmodifiable(names) : names;
   }
 }
