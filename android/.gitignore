@@ -1,5 +1,7 @@
 gradle-wrapper.jar
 /.gradle
+**/.gradle/
+**/build/
 /captures/
 /gradlew
 /gradlew.bat
