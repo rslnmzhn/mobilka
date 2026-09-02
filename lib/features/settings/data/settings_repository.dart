@@ -23,9 +23,7 @@ class SettingsRepository {
     final baseUrl = storedBaseUrl.isEmpty ? '' : validateBaseUrl(storedBaseUrl);
     return EndpointSettings(
       baseUrl: baseUrl,
-      hasApiKey:
-          (await _secureStorage.read(key: _apiKeyStorageKey))?.isNotEmpty ??
-          false,
+      hasApiKey: (await _readSecret())?.isNotEmpty ?? false,
     );
   }
 
@@ -41,5 +39,20 @@ class SettingsRepository {
     return validateEndpointBaseUrl(baseUrl);
   }
 
-  Future<String?> readApiKey() => _secureStorage.read(key: _apiKeyStorageKey);
+  Future<String?> readApiKey() => _readSecret();
+
+  Future<String?> _readSecret() async {
+    try {
+      return await _secureStorage.read(key: _apiKeyStorageKey);
+    } on UnsupportedError catch (error, stackTrace) {
+      throw SettingsSecretUnavailableException(error, stackTrace);
+    }
+  }
+}
+
+class SettingsSecretUnavailableException implements Exception {
+  const SettingsSecretUnavailableException(this.cause, this.causeStackTrace);
+
+  final UnsupportedError cause;
+  final StackTrace causeStackTrace;
 }
