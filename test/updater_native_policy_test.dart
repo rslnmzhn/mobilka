@@ -79,6 +79,83 @@ void main() {
     },
   );
 
+  test('Android package declares the exact updater provider scope', () {
+    final manifest = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+    final paths = File(
+      'android/app/src/main/res/xml/file_paths.xml',
+    ).readAsStringSync();
+    expect(manifest, contains('androidx.core.content.FileProvider'));
+    expect(manifest, contains(r'${applicationId}.updater.files'));
+    expect(manifest, contains('android:resource="@xml/file_paths"'));
+    expect(paths, contains('name="updates"'));
+    expect(paths, contains('path="updates/"'));
+    expect(paths, isNot(contains('path="."')));
+  });
+
+  test('Android package visibility is narrow and launch races are handled', () {
+    final manifest = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+    final source = File(
+      'android/app/src/main/kotlin/com/rslnmzhn/mobilka/MainActivity.kt',
+    ).readAsStringSync();
+    expect(manifest, contains('android.intent.action.VIEW'));
+    expect(
+      manifest,
+      contains('android:mimeType="application/vnd.android.package-archive"'),
+    );
+    expect(manifest, isNot(contains('QUERY_ALL_PACKAGES')));
+    expect(source, contains('installIntent.resolveActivity(packageManager)'));
+    expect(source, contains('settingsIntent.resolveActivity(packageManager)'));
+    expect(
+      source,
+      contains('import android.content.ActivityNotFoundException'),
+    );
+    expect(
+      RegExp(
+        r'catch \(_: ActivityNotFoundException\)',
+      ).allMatches(source).length,
+      2,
+    );
+  });
+
+  test('Android Gradle verifier is XXE-safe and checks every variant APK', () {
+    final source = File('android/app/build.gradle.kts').readAsStringSync();
+    expect(source, contains('XMLConstants.FEATURE_SECURE_PROCESSING, true'));
+    expect(source, contains('disallow-doctype-decl'));
+    expect(source, contains('external-general-entities", false'));
+    expect(source, contains('external-parameter-entities", false'));
+    expect(source, contains('load-external-dtd", false'));
+    expect(source, contains('isXIncludeAware = false'));
+    expect(source, contains('isExpandEntityReferences = false'));
+    expect(source, contains('XMLConstants.ACCESS_EXTERNAL_DTD, ""'));
+    expect(source, contains('XMLConstants.ACCESS_EXTERNAL_SCHEMA, ""'));
+    expect(source, contains('outputs/apk/\${variant.name}'));
+    expect(source, contains('walkTopDown()'));
+    expect(source, contains('variantApks.forEach { apk ->'));
+    expect(source, contains('package\$variantName'));
+    expect(source, contains('finalizedBy(verifyPackagedScope)'));
+    expect(source, contains('aapt2, "dump", "xmltree", apk'));
+    expect(source, isNot(contains('app-\${variant.name}.apk')));
+    expect(source, isNot(contains('app-release.apk')));
+  });
+
+  test(
+    'Android install requires final identity and validates provider metadata',
+    () {
+      final source = File(
+        'android/app/src/main/kotlin/com/rslnmzhn/mobilka/MainActivity.kt',
+      ).readAsStringSync();
+      expect(RegExp(r'allowPartial = false,').allMatches(source).length, 2);
+      expect(source, contains('identityToken is required'));
+      expect(source, contains('resolveContentProvider(authority'));
+      expect(source, contains('pathsResource != R.xml.file_paths'));
+      expect(source, contains('ERROR_PROVIDER_SCOPE'));
+    },
+  );
+
   test('Windows runner exposes native no-follow handle staging authority', () {
     final source = File(
       'windows/runner/updater_staging.cpp',
@@ -130,8 +207,8 @@ void main() {
       contains('requireUpdatePath(rawPath: String?, allowPartial: Boolean)'),
     );
     expect(source, contains('allowPartial && lowerName.endsWith(".apk.part")'));
-    expect(source, contains('requireUpdatePath(name, true)'));
-    expect(source, contains('requireUpdatePath(rawPath, false)'));
+    expect(source, contains('requireUpdatePath(name, allowPartial)'));
+    expect(source, contains('allowPartial = false'));
     expect(source, contains('LinkOption.NOFOLLOW_LINKS'));
   });
 

@@ -1,6 +1,8 @@
 {
   "backgroundUnavailable": "Background continuation is unavailable. Keep mobilka open while this response finishes.",
   "chat.settingsSecretUnavailable": "Secure API key storage is unavailable. Restart mobilka and verify the app installation, then try again.",
+  "updater.providerScopeUnavailable": "Packaged updater storage is unavailable. Reinstall the current app build or update manually.",
+  "updater.installFailed": "Android could not start the verified installer. Try again or update manually.",
   "chatNoConversation": "Chat",
   "chatChangeModel": "Change model: {}",
   "messageActions": "Message actions",
