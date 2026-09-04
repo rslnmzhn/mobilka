@@ -189,7 +189,7 @@ void main() {
   });
 
   test(
-    'production registry and bundled default agree on exact 13 agent tools',
+    'production registry and bundled default agree on exact agent tools',
     () async {
       Hive.init(
         Directory.systemTemp.createTempSync('registry-inventory-').path,
@@ -206,7 +206,7 @@ void main() {
       addTearDown(container.dispose);
       final runtime = container.read(chatToolRuntimeRegistryProvider);
       final advertised = await runtime.availableTools(definition.tools.toSet());
-      expect(definition.tools, hasLength(13));
+      expect(definition.tools, hasLength(21));
       expect(
         advertised.map((tool) => tool.name).toSet(),
         definition.tools.toSet().difference({

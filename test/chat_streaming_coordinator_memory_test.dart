@@ -160,7 +160,7 @@ void main() {
           .toList();
       expect(streamer.histories, hasLength(1));
       expect(toolResults.map((message) => message.toolCallId), ['call-extra']);
-      expect(toolResults.single.content, contains('awaits confirmation'));
+      expect(toolResults.single.content, contains('confirmation_pending'));
       expect(
         fixture.conversation.pendingMemoryProposal?.toolCallId,
         'call-memory',
@@ -203,7 +203,7 @@ void main() {
     );
     expect(assistant.toolCalls.map((call) => call.id), ['call-1', 'call-2']);
     expect(result.toolCallId, 'call-2');
-    expect(result.content, contains('Only one memory proposal'));
+    expect(result.content, contains('confirmation_pending'));
   });
 
   test(

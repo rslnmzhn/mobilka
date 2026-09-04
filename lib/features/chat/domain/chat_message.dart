@@ -85,6 +85,7 @@ class ChatMessage {
     this.status = ChatMessageStatus.complete,
     this.toolCalls = const [],
     this.toolCallId,
+    this.toolCallIndex,
     this.attachments = const [],
     this.reasoningContent = '',
   });
@@ -96,6 +97,7 @@ class ChatMessage {
   final ChatMessageStatus status;
   final List<ChatToolCall> toolCalls;
   final String? toolCallId;
+  final int? toolCallIndex;
   final List<ChatAttachment> attachments;
 
   /// Model reasoning/thinking stream (e.g. delta.reasoning_content).
@@ -147,6 +149,7 @@ class ChatMessage {
     if (toolCalls.isNotEmpty)
       'toolCalls': toolCalls.map((call) => call.toJson()).toList(),
     if (toolCallId != null) 'toolCallId': toolCallId,
+    if (toolCallIndex != null) 'toolCallIndex': toolCallIndex,
     if (attachments.isNotEmpty)
       'attachments': attachments.map((a) => a.toStorageJson()).toList(),
     if (reasoningContent.isNotEmpty) 'reasoningContent': reasoningContent,
@@ -166,6 +169,7 @@ class ChatMessage {
     status: status ?? this.status,
     toolCalls: toolCalls ?? this.toolCalls,
     toolCallId: toolCallId,
+    toolCallIndex: toolCallIndex,
     attachments: attachments ?? this.attachments,
     reasoningContent: reasoningContent ?? this.reasoningContent,
   );
@@ -184,6 +188,7 @@ class ChatMessage {
             .map(ChatToolCall.fromJson)
             .toList(growable: false),
         toolCallId: json['toolCallId']?.toString(),
+        toolCallIndex: json['toolCallIndex'] as int?,
         attachments: (json['attachments'] as List? ?? const [])
             .whereType<Map>()
             .map(ChatAttachment.fromStorageJson)

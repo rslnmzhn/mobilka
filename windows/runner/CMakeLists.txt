@@ -9,6 +9,12 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
+  "session_workspace_common.cpp"
+  "session_workspace_read.cpp"
+  "session_workspace_prepare_commit.cpp"
+  "session_workspace_recovery.cpp"
+  "session_workspace_state.cpp"
+  "session_workspace_channel.cpp"
   "updater_staging.cpp"
   "utils.cpp"
   "win32_window.cpp"
@@ -40,3 +46,17 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+add_executable(session_workspace_native_test
+  "session_workspace_native_test.cpp"
+  "session_workspace_common.cpp"
+  "session_workspace_state.cpp"
+  "session_workspace_prepare_commit.cpp"
+  "session_workspace_recovery.cpp"
+)
+apply_standard_settings(session_workspace_native_test)
+target_compile_definitions(session_workspace_native_test PRIVATE "NOMINMAX")
+target_link_libraries(session_workspace_native_test PRIVATE flutter flutter_wrapper_app "bcrypt.lib")
+target_include_directories(session_workspace_native_test PRIVATE "${CMAKE_SOURCE_DIR}")
+enable_testing()
+add_test(NAME session_workspace_native_test COMMAND session_workspace_native_test)

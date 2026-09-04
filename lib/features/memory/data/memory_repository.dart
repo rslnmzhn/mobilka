@@ -182,6 +182,16 @@ class MemoryRepository {
     );
   }
 
+  Future<void> revalidateCurrentLocationAccess(MemoryLocation location) async {
+    final current = savedLocation();
+    if (current == null ||
+        current.isContentUri != location.isContentUri ||
+        current.value != location.value) {
+      throw StateError('Configured workspace changed');
+    }
+    await validateSavedLocationAccess(location);
+  }
+
   MemoryLocation? savedLocation() {
     final value = preferencesBox.get('memoryLocation') as String?;
     if (value == null) return null;

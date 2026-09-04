@@ -6,7 +6,6 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/logging/app_logger.dart';
 import '../../../features/memory/application/skills_chat_tools.dart';
-import '../../../features/memory/application/session_notes_tools.dart';
 import '../../../features/memory/application/workspace_paths.dart';
 import '../../../features/memory/data/memory_repository.dart';
 import '../../../features/memory/application/persona_chat_tools.dart';
@@ -18,7 +17,9 @@ import '../../memory/application/memory_chat_tool_runtime.dart';
 import '../../public_source/application/public_source_chat_tool_runtime.dart';
 import '../../settings/data/settings_repository.dart';
 import '../../web_search/application/web_search_chat_tool_runtime.dart';
+import '../domain/pending_workspace_proposal.dart';
 import 'chat_tool_runtime.dart';
+import 'workspace_chat_tool_adapter.dart';
 
 /// Merges every feature tool runtime into the single runtime consumed by the
 /// streaming coordinator. A call is dispatched to the runtime that advertises
@@ -33,13 +34,6 @@ final skillsChatToolsProvider = Provider<SkillsChatTools>(
   ),
 );
 
-final sessionNotesToolsProvider = Provider<SessionNotesTools>((ref) {
-  final workspace = WorkspaceStore(
-    repository: ref.watch(memoryRepositoryProvider),
-  );
-  return SessionNotesTools(workspace: workspace);
-});
-
 final chatToolRuntimeRegistryProvider = Provider<CompositeChatToolRuntime>((
   ref,
 ) {
@@ -53,8 +47,8 @@ final chatToolRuntimeRegistryProvider = Provider<CompositeChatToolRuntime>((
       () => ref.read(skillsChatToolsProvider),
     ),
     RegisteredChatToolRuntime(
-      'session_notes',
-      () => ref.read(sessionNotesToolsProvider),
+      'session_workspace',
+      () => ref.read(workspaceChatToolRuntimeProvider),
     ),
     RegisteredChatToolRuntime(
       'personas',
@@ -91,7 +85,10 @@ class RegisteredChatToolRuntime {
 }
 
 class CompositeChatToolRuntime
-    implements ChatToolRuntime, MemoryProposalRuntime {
+    implements
+        ChatToolRuntime,
+        MemoryProposalRuntime,
+        WorkspaceProposalRuntime {
   CompositeChatToolRuntime(Iterable<Object> runtimes, {AppLogger? logger})
     : _runtimes = [
         for (final (index, runtime) in runtimes.indexed)
@@ -112,6 +109,20 @@ class CompositeChatToolRuntime
       final runtime = registration.create();
       if (runtime is MemoryProposalRuntime) {
         return runtime as MemoryProposalRuntime;
+      }
+    }
+    return null;
+  }
+
+  WorkspaceProposalRuntime? get _workspaceProposalRuntime {
+    for (final registration in _runtimes) {
+      try {
+        final runtime = registration.create();
+        if (runtime is WorkspaceProposalRuntime) {
+          return runtime as WorkspaceProposalRuntime;
+        }
+      } on Object catch (error, stackTrace) {
+        if (!_omitFailure(registration, error, stackTrace)) rethrow;
       }
     }
     return null;
@@ -232,6 +243,54 @@ class CompositeChatToolRuntime
     }
     return runtime.revalidateMemoryToolPermission(
       toolName: toolName,
+      selectedAgentId: selectedAgentId,
+      allowedTools: allowedTools,
+    );
+  }
+
+  @override
+  bool handlesWorkspaceMutation(String toolName) =>
+      _workspaceProposalRuntime?.handlesWorkspaceMutation(toolName) ?? false;
+
+  @override
+  Future<PendingWorkspaceProposal> prepareWorkspaceProposal({
+    required ChatToolCall call,
+    required ChatToolExecutionContext context,
+    required String requestId,
+    required String assistantMessageId,
+    required String? selectedAgentId,
+    required Set<String> allowedTools,
+    required int callOccurrence,
+    required int toolCallIndex,
+  }) {
+    final runtime = _workspaceProposalRuntime;
+    if (runtime == null) {
+      throw StateError('Workspace proposal runtime unavailable');
+    }
+    return runtime.prepareWorkspaceProposal(
+      call: call,
+      context: context,
+      requestId: requestId,
+      assistantMessageId: assistantMessageId,
+      selectedAgentId: selectedAgentId,
+      allowedTools: allowedTools,
+      callOccurrence: callOccurrence,
+      toolCallIndex: toolCallIndex,
+    );
+  }
+
+  @override
+  Future<void> revalidateWorkspacePermission({
+    required PendingWorkspaceProposal proposal,
+    required String? selectedAgentId,
+    required Set<String> allowedTools,
+  }) {
+    final runtime = _workspaceProposalRuntime;
+    if (runtime == null) {
+      throw StateError('Workspace proposal runtime unavailable');
+    }
+    return runtime.revalidateWorkspacePermission(
+      proposal: proposal,
       selectedAgentId: selectedAgentId,
       allowedTools: allowedTools,
     );

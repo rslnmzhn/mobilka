@@ -9,6 +9,12 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME}
   "main.cc"
   "my_application.cc"
+  "session_workspace_common.cc"
+  "session_workspace_read.cc"
+  "session_workspace_prepare_commit.cc"
+  "session_workspace_recovery.cc"
+  "session_workspace_state.cc"
+  "session_workspace_channel.cc"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
 )
 
@@ -24,3 +30,15 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
 
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+
+add_executable(session_workspace_native_test
+  "session_workspace_native_test.cc"
+  "session_workspace_common.cc"
+  "session_workspace_read.cc"
+  "session_workspace_prepare_commit.cc"
+  "session_workspace_recovery.cc"
+  "session_workspace_state.cc"
+)
+apply_standard_settings(session_workspace_native_test)
+target_link_libraries(session_workspace_native_test PRIVATE flutter PkgConfig::GTK)
+add_test(NAME session_workspace_native_test COMMAND session_workspace_native_test)

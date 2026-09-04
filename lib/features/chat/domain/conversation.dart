@@ -4,6 +4,7 @@ import 'pending_memory_proposal.dart';
 import 'pending_tool_proposal.dart';
 import 'pending_skill_proposal.dart';
 import 'request_execution_ledger.dart';
+import 'pending_workspace_proposal.dart';
 
 enum ConversationTitleState { pendingAutomatic, generated, fallback, manual }
 
@@ -26,6 +27,10 @@ class Conversation {
     this.pendingToolProposal,
     this.pendingSkillProposal,
     this.requestExecutionLedger,
+    this.pendingWorkspaceProposal,
+    this.invalidPendingWorkspaceProposal = false,
+    this.invalidWorkspaceToolCallId,
+    this.invalidWorkspaceToolCallIndex,
   });
 
   final String id;
@@ -45,6 +50,10 @@ class Conversation {
   final PendingToolProposal? pendingToolProposal;
   final PendingSkillProposal? pendingSkillProposal;
   final RequestExecutionLedger? requestExecutionLedger;
+  final PendingWorkspaceProposal? pendingWorkspaceProposal;
+  final bool invalidPendingWorkspaceProposal;
+  final String? invalidWorkspaceToolCallId;
+  final int? invalidWorkspaceToolCallIndex;
 
   Conversation copyWith({
     String? title,
@@ -66,6 +75,8 @@ class Conversation {
     bool clearPendingSkillProposal = false,
     RequestExecutionLedger? requestExecutionLedger,
     bool clearRequestExecutionLedger = false,
+    PendingWorkspaceProposal? pendingWorkspaceProposal,
+    bool clearPendingWorkspaceProposal = false,
   }) => Conversation(
     id: id,
     title: title ?? this.title,
@@ -95,6 +106,18 @@ class Conversation {
     requestExecutionLedger: clearRequestExecutionLedger
         ? null
         : (requestExecutionLedger ?? this.requestExecutionLedger),
+    pendingWorkspaceProposal: clearPendingWorkspaceProposal
+        ? null
+        : (pendingWorkspaceProposal ?? this.pendingWorkspaceProposal),
+    invalidPendingWorkspaceProposal: clearPendingWorkspaceProposal
+        ? false
+        : invalidPendingWorkspaceProposal,
+    invalidWorkspaceToolCallId: clearPendingWorkspaceProposal
+        ? null
+        : invalidWorkspaceToolCallId,
+    invalidWorkspaceToolCallIndex: clearPendingWorkspaceProposal
+        ? null
+        : invalidWorkspaceToolCallIndex,
   );
 
   Map<String, dynamic> toJson() => {
@@ -114,6 +137,7 @@ class Conversation {
     'pendingToolProposal': pendingToolProposal?.toJson(),
     'pendingSkillProposal': pendingSkillProposal?.toJson(),
     'requestExecutionLedger': requestExecutionLedger?.toJson(),
+    'pendingWorkspaceProposal': pendingWorkspaceProposal?.toJson(),
     'messages': messages.map((message) => message.toStorageJson()).toList(),
   };
 
@@ -124,6 +148,34 @@ class Conversation {
     final title = hasValidTitle ? rawTitle : 'New conversation';
     final titleStateValue = json['titleState']?.toString();
     final createdAt = DateTime.parse(json['createdAt'].toString());
+    final pendingRequestMessageId = json['pendingRequestMessageId']?.toString();
+    final messages = (json['messages'] as List? ?? const [])
+        .whereType<Map>()
+        .map(ChatMessage.fromStorageJson)
+        .toList();
+    final sessionKey =
+        json['sessionKey']?.toString() ??
+        _legacySessionKey(createdAt, title, id);
+    final rawWorkspaceProposal = json['pendingWorkspaceProposal'];
+    final decodedWorkspaceProposal = rawWorkspaceProposal is Map
+        ? PendingWorkspaceProposal.tryFromJson(rawWorkspaceProposal)
+        : null;
+    final workspaceProposal =
+        decodedWorkspaceProposal != null &&
+            _workspaceProposalBelongsToConversation(
+              decodedWorkspaceProposal,
+              conversationId: id,
+              pendingRequestMessageId: pendingRequestMessageId,
+              sessionKey: sessionKey,
+              messages: messages,
+            )
+        ? decodedWorkspaceProposal
+        : null;
+    final invalidWorkspaceProposal =
+        rawWorkspaceProposal != null && workspaceProposal == null;
+    final invalidWorkspaceMarker = invalidWorkspaceProposal
+        ? _workspaceProposalMarker(rawWorkspaceProposal)
+        : null;
     return Conversation(
       id: id,
       title: title,
@@ -131,7 +183,7 @@ class Conversation {
       createdAt: createdAt,
       updatedAt: DateTime.parse(json['updatedAt'].toString()),
       isArchived: json['isArchived'] as bool? ?? false,
-      pendingRequestMessageId: json['pendingRequestMessageId']?.toString(),
+      pendingRequestMessageId: pendingRequestMessageId,
       contextLimitTokens: json['contextLimitTokens'] as int? ?? 32768,
       usage: json['usage'] is Map
           ? ConversationUsage.fromJson(json['usage'] as Map)
@@ -139,13 +191,8 @@ class Conversation {
       pendingMemoryProposal: json['pendingMemoryProposal'] is Map
           ? PendingMemoryProposal.fromJson(json['pendingMemoryProposal'] as Map)
           : null,
-      messages: (json['messages'] as List? ?? const [])
-          .whereType<Map>()
-          .map(ChatMessage.fromStorageJson)
-          .toList(),
-      sessionKey:
-          json['sessionKey']?.toString() ??
-          _legacySessionKey(createdAt, title, id),
+      messages: messages,
+      sessionKey: sessionKey,
       titleState: ConversationTitleState.values.byName(
         hasValidTitle
             ? (titleStateValue ?? ConversationTitleState.manual.name)
@@ -163,8 +210,73 @@ class Conversation {
               json['requestExecutionLedger'] as Map,
             )
           : null,
+      pendingWorkspaceProposal: workspaceProposal,
+      invalidPendingWorkspaceProposal: invalidWorkspaceProposal,
+      invalidWorkspaceToolCallId: invalidWorkspaceMarker?.toolCallId,
+      invalidWorkspaceToolCallIndex: invalidWorkspaceMarker?.toolCallIndex,
     );
   }
+}
+
+bool workspaceProposalBelongsToConversation(
+  PendingWorkspaceProposal proposal,
+  Conversation conversation,
+) => _workspaceProposalBelongsToConversation(
+  proposal,
+  conversationId: conversation.id,
+  pendingRequestMessageId: conversation.pendingRequestMessageId,
+  sessionKey: conversation.sessionKey,
+  messages: conversation.messages,
+);
+
+bool _workspaceProposalBelongsToConversation(
+  PendingWorkspaceProposal proposal, {
+  required String conversationId,
+  required String? pendingRequestMessageId,
+  required String? sessionKey,
+  required List<ChatMessage> messages,
+}) {
+  if (proposal.conversationId != conversationId ||
+      proposal.requestId != pendingRequestMessageId ||
+      proposal.sessionKey != sessionKey) {
+    return false;
+  }
+  final assistants = messages.where(
+    (message) => message.id == proposal.assistantMessageId,
+  );
+  if (assistants.length != 1) return false;
+  final assistant = assistants.single;
+  if (assistant.role != ChatRole.assistant ||
+      (assistant.status != ChatMessageStatus.pending &&
+          assistant.status != ChatMessageStatus.streaming) ||
+      proposal.toolCallIndex >= assistant.toolCalls.length) {
+    return false;
+  }
+  final call = assistant.toolCalls[proposal.toolCallIndex];
+  if (call.id != proposal.toolCallId) return false;
+  final occurrence = assistant.toolCalls
+      .take(proposal.toolCallIndex)
+      .where((candidate) => candidate.id == proposal.toolCallId)
+      .length;
+  return occurrence == proposal.callOccurrence;
+}
+
+String? _boundedString(Object? value) =>
+    value is String && value.isNotEmpty && value.length <= 1024 ? value : null;
+
+int? _nonNegativeInt(Object? value) =>
+    value is int && value >= 0 ? value : null;
+
+({String? toolCallId, int? toolCallIndex})? _workspaceProposalMarker(
+  Object? source,
+) {
+  if (source is! Map) return null;
+  final context = source['context'];
+  final marker = context is Map ? context : source;
+  return (
+    toolCallId: _boundedString(marker['toolCallId']),
+    toolCallIndex: _nonNegativeInt(marker['toolCallIndex']),
+  );
 }
 
 int _wireBytes(Object? value) {

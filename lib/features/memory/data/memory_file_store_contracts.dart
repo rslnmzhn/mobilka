@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../../../core/workspace/workspace_binding.dart';
+
 abstract interface class MemoryFileBoundary {
   Future<T> transaction<T>(
     Future<T> Function(MemoryFileTransaction files) action,
@@ -124,7 +126,8 @@ final class WorkspacePairWriteResult {
 
 /// Bounded binary pair capability. The pair is serialized by one store/root
 /// lock, but is not claimed to be atomic across two filesystem or SAF writes.
-abstract interface class BinarySubPathMemoryFileBoundary {
+abstract interface class BinarySubPathMemoryFileBoundary
+    implements WorkspaceBoundaryCapability {
   Future<WorkspacePairWriteResult> writeBinaryPair(
     WorkspaceBinaryFile first,
     WorkspaceBinaryFile second,

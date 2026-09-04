@@ -133,4 +133,228 @@ extension ChatControllerProposalActions on ChatController {
       persistMutation: _persistMutation,
     ).reject(conversation!);
   }
+
+  Future<void> confirmPendingWorkspaceProposal() async {
+    final conversation = state.requireValue.activeConversation;
+    final proposal = conversation?.pendingWorkspaceProposal;
+    if (conversation == null ||
+        proposal == null ||
+        proposal.status == WorkspaceProposalStatus.executing) {
+      return;
+    }
+    state = AsyncData(
+      state.requireValue.copyWith(
+        confirmingWorkspaceToolCallId: proposal.toolCallId,
+        clearError: true,
+      ),
+    );
+    PendingWorkspaceProposal? claimed;
+    WorkspaceBinding? binding;
+    WorkspaceMutationCoordinator? coordinator;
+    String? claimToken;
+    try {
+      final policy = await _selectedToolPolicy();
+      final runtime = ref.read(chatToolRuntimeRegistryProvider);
+      await runtime.revalidateWorkspacePermission(
+        proposal: proposal,
+        selectedAgentId: policy.agentId,
+        allowedTools: policy.allowedTools,
+      );
+      binding = await WorkspaceStore(
+        repository: ref.read(memoryRepositoryProvider),
+      ).restoreBinding(proposal.workspaceBindingSnapshot);
+      final boundary = createChatWorkspaceBoundary(
+        binding,
+        proposal.sessionKey,
+        ref.read(memoryRepositoryProvider),
+      );
+      final currentRootIdentity = await boundary.rootIdentity();
+      if (proposal.workspaceBindingSnapshot.rootIdentity !=
+          currentRootIdentity) {
+        throw StateError('workspace_binding_changed');
+      }
+      coordinator = WorkspaceMutationCoordinator(
+        rootIdentity: currentRootIdentity,
+        sessionKey: proposal.sessionKey,
+        boundary: boundary,
+        journal: HiveWorkspaceRecoveryJournal(),
+      );
+      final authoritative = ref
+          .read(conversationStoreProvider)
+          .loadById(conversation.id);
+      if (authoritative == null ||
+          authoritative.pendingWorkspaceProposal?.hasSameIdentity(proposal) !=
+              true ||
+          !workspaceProposalBelongsToConversation(proposal, authoritative)) {
+        throw StateError('workspace_proposal_not_pending');
+      }
+      claimToken = await coordinator.beginClaim(
+        proposal.identity,
+        proposal.workspaceBindingSnapshot,
+        proposal.context.ownerToken,
+      );
+      claimed = proposal.executing(claimToken);
+      final executing = claimed;
+      final saved = await _persistMutation(conversation.id, (latest) {
+        final current = latest.pendingWorkspaceProposal;
+        if (current == null ||
+            current.status != WorkspaceProposalStatus.pending ||
+            !current.hasSameIdentity(proposal) ||
+            !workspaceProposalBelongsToConversation(proposal, latest)) {
+          return null;
+        }
+        return latest.copyWith(pendingWorkspaceProposal: executing);
+      });
+      if (saved == null) {
+        await coordinator.abandonClaim(
+          proposal.identity,
+          claimToken,
+          proposal.context.ownerToken,
+        );
+        return;
+      }
+      final result = await coordinator.commit(
+        identity: executing.identity,
+        ownerToken: executing.context.ownerToken,
+        proposedContent: executing.proposedContent,
+        expiresAt: executing.expiresAt,
+        claimToken: claimToken,
+        revalidateAuthorization: () async {
+          final latest = ref
+              .read(conversationStoreProvider)
+              .loadById(conversation.id);
+          if (latest == null ||
+              latest.pendingWorkspaceProposal?.hasSameIdentity(executing) !=
+                  true ||
+              !workspaceProposalBelongsToConversation(executing, latest)) {
+            throw StateError('workspace_proposal_not_pending');
+          }
+          final currentPolicy = await _selectedToolPolicy();
+          await runtime.revalidateWorkspacePermission(
+            proposal: executing,
+            selectedAgentId: currentPolicy.agentId,
+            allowedTools: currentPolicy.allowedTools,
+          );
+        },
+      );
+      if (result.outcome == WorkspaceMutationOutcome.indeterminate) {
+        throw const WorkspaceRecoveryPendingException(
+          'workspace_recovery_pending',
+        );
+      }
+      await _lifecycle
+          .currentCoordinator(ref.read(memoryLocationRevisionProvider))
+          .continueAfterWorkspaceDecision(
+            conversation: saved,
+            proposal: executing,
+            toolResult: jsonEncode(result.payload),
+            workspaceBinding: binding,
+            afterPersist: () => coordinator!.acknowledgeOutcome(
+              result.operationId,
+              result.token,
+            ),
+          );
+    } on Object catch (error) {
+      final saved = claimed == null
+          ? null
+          : state.requireValue.conversationById(conversation.id);
+      final executing = claimed;
+      final recoveryBlocked = await _hasDurableWorkspaceOperation(executing);
+      if (!recoveryBlocked && claimToken != null && coordinator != null) {
+        try {
+          await coordinator.abandonClaim(
+            proposal.identity,
+            claimToken,
+            proposal.context.ownerToken,
+          );
+        } on Object {
+          _setError('chat.workspaceConfirmError'.tr());
+          return;
+        }
+      }
+      if (!recoveryBlocked &&
+          error is WorkspaceBoundaryException &&
+          error.code == 'permission_changed' &&
+          executing != null &&
+          saved?.pendingWorkspaceProposal?.hasSameIdentity(executing) == true) {
+        await _persistMutation(conversation.id, (latest) {
+          final current = latest.pendingWorkspaceProposal;
+          if (current == null || !current.hasSameIdentity(executing)) {
+            return null;
+          }
+          return latest.copyWith(pendingWorkspaceProposal: executing.pending());
+        });
+        _setError('chat.workspaceConfirmError'.tr());
+        return;
+      }
+      if (recoveryBlocked) {
+        _setError('chat.workspaceConfirmError'.tr());
+      } else if (executing != null &&
+          saved?.pendingWorkspaceProposal?.hasSameIdentity(executing) == true) {
+        await _lifecycle
+            .currentCoordinator(ref.read(memoryLocationRevisionProvider))
+            .continueAfterWorkspaceDecision(
+              conversation: saved!,
+              proposal: executing,
+              toolResult: jsonEncode({
+                'ok': false,
+                'error_code': 'workspace_confirmation_failed',
+              }),
+              workspaceBinding: binding,
+              continueStreaming: binding != null,
+            );
+      } else {
+        _setError('chat.workspaceConfirmError'.tr());
+      }
+    } finally {
+      if (state.hasValue) {
+        state = AsyncData(
+          state.requireValue.copyWith(clearConfirmingWorkspace: true),
+        );
+      }
+    }
+  }
+
+  Future<bool> _hasDurableWorkspaceOperation(
+    PendingWorkspaceProposal? proposal,
+  ) async {
+    if (proposal == null) return false;
+    final journal = HiveWorkspaceRecoveryJournal();
+    return journal.snapshot().containsKey(proposal.identity.journalKey);
+  }
+
+  Future<void> rejectPendingWorkspaceProposal() async {
+    final conversation = state.requireValue.activeConversation;
+    final proposal = conversation?.pendingWorkspaceProposal;
+    if (conversation == null ||
+        proposal == null ||
+        proposal.status != WorkspaceProposalStatus.pending) {
+      return;
+    }
+    try {
+      WorkspaceBinding? binding;
+      try {
+        binding = await WorkspaceStore(
+          repository: ref.read(memoryRepositoryProvider),
+        ).restoreBinding(proposal.workspaceBindingSnapshot);
+      } on Object {
+        // Rejection is still terminally recorded, but never continues against
+        // a newly captured or changed workspace.
+      }
+      await _lifecycle
+          .currentCoordinator(ref.read(memoryLocationRevisionProvider))
+          .continueAfterWorkspaceDecision(
+            conversation: conversation,
+            proposal: proposal,
+            toolResult: jsonEncode({
+              'ok': false,
+              'error_code': 'user_rejected',
+            }),
+            workspaceBinding: binding,
+            continueStreaming: binding != null,
+          );
+    } on Object {
+      _setError('chat.workspaceRejectError'.tr());
+    }
+  }
 }

@@ -12,12 +12,15 @@ import '../domain/chat_tool.dart';
 import '../domain/conversation.dart';
 import '../domain/pending_memory_proposal.dart';
 import '../domain/pending_tool_proposal.dart';
+import '../domain/pending_workspace_proposal.dart';
 import 'chat_stream_request.dart';
 import 'chat_tool_runtime.dart';
 import 'memory_tool_dispatcher.dart';
 import 'conversation_mutation.dart';
 import 'request_tool_security_state.dart';
 import 'chat_tool_effect_policy.dart';
+
+part 'workspace_tool_dispatcher.dart';
 
 class ChatToolExecutor {
   ChatToolExecutor({
@@ -28,13 +31,16 @@ class ChatToolExecutor {
     PersonaRegistryAdapter? personaRegistry,
     AppLogger? logger,
     void Function(PendingMemoryProposal proposal)? onPendingMemoryProposal,
+    void Function(PendingWorkspaceProposal proposal)?
+    onPendingWorkspaceProposal,
   }) : _memoryDispatcher = MemoryToolDispatcher(
          instantMemoryWriter: instantMemoryWriter,
          personaRegistry: personaRegistry,
          logger: logger,
        ),
        _logger = logger,
-       _onPendingMemoryProposal = onPendingMemoryProposal;
+       _onPendingMemoryProposal = onPendingMemoryProposal,
+       _onPendingWorkspaceProposal = onPendingWorkspaceProposal;
 
   final ChatToolRuntime runtime;
   final Conversation? Function(String id) conversationById;
@@ -42,20 +48,10 @@ class ChatToolExecutor {
   final MemoryToolDispatcher _memoryDispatcher;
   final AppLogger? _logger;
   final void Function(PendingMemoryProposal proposal)? _onPendingMemoryProposal;
+  final void Function(PendingWorkspaceProposal proposal)?
+  _onPendingWorkspaceProposal;
 
   static const unexpectedToolError = 'Tool execution failed unexpectedly';
-
-  @visibleForTesting
-  ChatToolExecutionContext publicSourceContextForTest(
-    ChatStreamRequest request,
-  ) => ChatToolExecutionContext(
-    conversationId: request.conversationId,
-    sessionKey: request.sessionKey,
-    consumePublicSourceWireBytes: (bytes) => _consumeWireBytes(request, bytes),
-    reservePublicSourceWireBytes: (maximum) =>
-        _reserveWireBytes(request, maximum),
-    refundPublicSourceWireBytes: (unused) => _refundWireBytes(request, unused),
-  );
 
   Future<bool> execute(
     ChatStreamRequest request,
@@ -85,7 +81,12 @@ class ChatToolExecutor {
     if (state.memoryProposal != null) {
       _onPendingMemoryProposal?.call(state.memoryProposal!);
     }
-    return state.memoryProposal == null && state.toolProposal == null;
+    if (state.workspaceProposal != null) {
+      _onPendingWorkspaceProposal?.call(state.workspaceProposal!);
+    }
+    return state.memoryProposal == null &&
+        state.toolProposal == null &&
+        state.workspaceProposal == null;
   }
 
   Future<bool> _prepare(
@@ -149,33 +150,59 @@ class ChatToolExecutor {
         .take(index)
         .where((candidate) => candidate.id == call.id)
         .length;
+    // A proposal owns the remainder of this dispatch batch. Check before any
+    // classification so source, memory, workspace, and generic ordering cannot
+    // bypass confirmation exclusivity.
+    if (state.anyProposal != null) {
+      state.addError(call, index, 'confirmation_pending', this);
+      return;
+    }
     final definition = await _definitionFor(call, request.allowedTools);
     final effect = resolveChatToolEffect(definition, call);
+    if (await _dispatchWorkspaceTool(
+      executor: this,
+      request: request,
+      assistantId: assistantId,
+      call: call,
+      callIndex: index,
+      occurrence: occurrence,
+      state: state,
+    )) {
+      return;
+    }
     if (security.sourceTainted &&
         effect != ChatToolEffect.readOnly &&
         effect != ChatToolEffect.runtimeConfirmed) {
-      _gateSourceTainted(request, assistantId, call, occurrence, effect, state);
-      return;
-    }
-    if (_memoryDispatcher.handles(call)) {
-      await _dispatchMemory(request, assistantId, call, occurrence, state);
-      return;
-    }
-    if (state.memoryProposal != null) {
-      state.addError(
+      _gateSourceTainted(
+        request,
+        assistantId,
         call,
-        'Tool call was not executed while a memory proposal awaits confirmation.',
-        this,
+        index,
+        occurrence,
+        effect,
+        state,
       );
       return;
     }
-    await _executeRuntime(request, call, state, security);
+    if (_memoryDispatcher.handles(call)) {
+      await _dispatchMemory(
+        request,
+        assistantId,
+        call,
+        index,
+        occurrence,
+        state,
+      );
+      return;
+    }
+    await _executeRuntime(request, call, index, state, security);
   }
 
   void _gateSourceTainted(
     ChatStreamRequest request,
     String assistantId,
     ChatToolCall call,
+    int callIndex,
     int occurrence,
     ChatToolEffect effect,
     _ToolExecutionState state,
@@ -194,7 +221,7 @@ class ChatToolExecutor {
       createdAt: DateTime.now(),
     );
     if (state.toolProposal!.call.id != call.id) {
-      state.addError(call, 'confirmation_pending', this);
+      state.addError(call, callIndex, 'confirmation_pending', this);
     }
   }
 
@@ -202,12 +229,14 @@ class ChatToolExecutor {
     ChatStreamRequest request,
     String assistantId,
     ChatToolCall call,
+    int callIndex,
     int occurrence,
     _ToolExecutionState state,
   ) async {
     if (state.memoryProposal != null) {
       state.addError(
         call,
+        callIndex,
         'Only one memory proposal can be active per response.',
         this,
       );
@@ -223,12 +252,15 @@ class ChatToolExecutor {
       resultIndex: state.results.length,
     );
     state.memoryProposal = dispatched.proposal;
-    if (dispatched.result != null) state.results.add(dispatched.result!);
+    if (dispatched.result != null) {
+      state.results.add(_withToolCallIndex(dispatched.result!, callIndex));
+    }
   }
 
   Future<void> _executeRuntime(
     ChatStreamRequest request,
     ChatToolCall call,
+    int callIndex,
     _ToolExecutionState state,
     RequestToolSecurityState security,
   ) async {
@@ -238,40 +270,70 @@ class ChatToolExecutor {
         request.allowedTools,
         context: state.context,
       );
-      state.results.add(_toolResult(call, output, state.results.length));
+      state.results.add(_toolResult(call, output, callIndex));
       final succeeded = _isSuccessful(output);
       await security.recordOutcome(toolName: call.name, succeeded: succeeded);
     } on FormatException catch (error) {
-      await _recordFailure(request, call, error.message, state, security);
+      await _recordFailure(
+        request,
+        call,
+        callIndex,
+        error.message,
+        state,
+        security,
+      );
     } on PublicSourceFailure catch (error) {
       if (error.code == 'conversation_wire_budget_exceeded') {
         state.budgetExceeded = true;
       }
-      await _recordUnexpectedFailure(request, call, error, state, security);
+      await _recordUnexpectedFailure(
+        request,
+        call,
+        callIndex,
+        error,
+        state,
+        security,
+      );
     } on Object catch (error) {
-      await _recordUnexpectedFailure(request, call, error, state, security);
+      await _recordUnexpectedFailure(
+        request,
+        call,
+        callIndex,
+        error,
+        state,
+        security,
+      );
     }
   }
 
   Future<void> _recordFailure(
     ChatStreamRequest request,
     ChatToolCall call,
+    int callIndex,
     String message,
     _ToolExecutionState state,
     RequestToolSecurityState security,
   ) async {
     await security.recordOutcome(toolName: call.name, succeeded: false);
-    state.addError(call, message, this);
+    state.addError(call, callIndex, message, this);
   }
 
   Future<void> _recordUnexpectedFailure(
     ChatStreamRequest request,
     ChatToolCall call,
+    int callIndex,
     Object error,
     _ToolExecutionState state,
     RequestToolSecurityState security,
   ) async {
-    await _recordFailure(request, call, unexpectedToolError, state, security);
+    await _recordFailure(
+      request,
+      call,
+      callIndex,
+      unexpectedToolError,
+      state,
+      security,
+    );
     _logger?.log(
       event: 'tool.execution',
       level: AppLogLevel.error,
@@ -291,6 +353,13 @@ class ChatToolExecutor {
       if (latest.pendingRequestMessageId != request.requestMessageId) {
         return null;
       }
+      if (state.anyProposal != null &&
+          (latest.pendingMemoryProposal != null ||
+              latest.pendingToolProposal != null ||
+              latest.pendingSkillProposal != null ||
+              latest.pendingWorkspaceProposal != null)) {
+        return null;
+      }
       return latest.copyWith(
         updatedAt: DateTime.now(),
         messages: [
@@ -303,6 +372,7 @@ class ChatToolExecutor {
         ],
         pendingMemoryProposal: state.memoryProposal,
         pendingToolProposal: state.toolProposal,
+        pendingWorkspaceProposal: state.workspaceProposal,
       );
     });
     if (persisted == null ||
@@ -391,31 +461,35 @@ class ChatToolExecutor {
     });
   }
 
-  ChatMessage _toolResult(ChatToolCall call, String content, int index) {
+  ChatMessage _toolResult(ChatToolCall call, String content, int callIndex) {
     final now = DateTime.now();
     return ChatMessage(
-      id: '${now.microsecondsSinceEpoch}-tool-$index',
+      id: '${now.microsecondsSinceEpoch}-tool-$callIndex',
       role: ChatRole.tool,
       content: content,
       createdAt: now,
       toolCallId: call.id,
+      toolCallIndex: callIndex,
     );
   }
 
-  ChatMessage _toolErrorResult(ChatToolCall call, String error, int index) =>
-      _toolResult(call, jsonEncode({'ok': false, 'error': error}), index);
-}
+  ChatMessage _toolErrorResult(
+    ChatToolCall call,
+    int callIndex,
+    String error,
+  ) => _toolResult(call, jsonEncode({'ok': false, 'error': error}), callIndex);
 
-class _ToolExecutionState {
-  _ToolExecutionState({required this.context});
-
-  final ChatToolExecutionContext context;
-  final results = <ChatMessage>[];
-  PendingMemoryProposal? memoryProposal;
-  PendingToolProposal? toolProposal;
-  var budgetExceeded = false;
-
-  void addError(ChatToolCall call, String message, ChatToolExecutor executor) {
-    results.add(executor._toolErrorResult(call, message, results.length));
-  }
+  ChatMessage _withToolCallIndex(ChatMessage message, int callIndex) =>
+      ChatMessage(
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        status: message.status,
+        toolCalls: message.toolCalls,
+        toolCallId: message.toolCallId,
+        toolCallIndex: callIndex,
+        attachments: message.attachments,
+        reasoningContent: message.reasoningContent,
+      );
 }

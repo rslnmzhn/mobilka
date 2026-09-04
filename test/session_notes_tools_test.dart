@@ -3,9 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobilka/features/chat/application/chat_tool_runtime.dart';
-import 'package:mobilka/features/chat/domain/chat_message.dart';
-import 'package:mobilka/features/memory/application/session_notes_tools.dart';
 import 'package:mobilka/features/memory/application/workspace_paths.dart';
 import 'package:mobilka/features/memory/data/memory_file_store.dart';
 import 'package:mobilka/features/memory/data/memory_repository.dart';
@@ -330,78 +327,6 @@ void main() {
       );
     },
   );
-
-  test(
-    'session tools return actionable write and read error envelopes',
-    () async {
-      final tools = SessionNotesTools(
-        workspace: WorkspaceStore(
-          repository: _Repository(null, _FlatBoundary()),
-        ),
-      );
-      const context = ChatToolExecutionContext(
-        conversationId: 'conversation',
-        sessionKey: 'stable-key',
-      );
-      for (final call in const [
-        ChatToolCall(
-          id: 'write',
-          name: 'write_session_notes',
-          arguments: '{"content":"notes"}',
-        ),
-        ChatToolCall(id: 'read', name: 'read_session_notes', arguments: '{}'),
-      ]) {
-        final result =
-            jsonDecode(
-                  await tools.executeTool(call, {call.name}, context: context),
-                )
-                as Map<String, dynamic>;
-        expect(result['ok'], isFalse);
-        expect(
-          result['error'],
-          isA<String>().having(
-            (value) => value.trim(),
-            'actionable error',
-            isNotEmpty,
-          ),
-        );
-      }
-    },
-  );
-
-  test('missing session notes returns an explicit safe error', () async {
-    final root = await Directory.systemTemp.createTemp('missing-session-');
-    addTearDown(() => root.delete(recursive: true));
-    final tools = SessionNotesTools(
-      workspace: WorkspaceStore(
-        repository: _Repository(
-          MemoryLocation(value: root.path, isContentUri: false),
-          PathMemoryFileStore(root.path),
-        ),
-      ),
-    );
-    final result =
-        jsonDecode(
-              await tools.executeTool(
-                const ChatToolCall(
-                  id: 'read',
-                  name: 'read_session_notes',
-                  arguments: '{}',
-                ),
-                const {'read_session_notes'},
-                context: const ChatToolExecutionContext(
-                  conversationId: 'conversation',
-                  sessionKey: 'stable-key',
-                ),
-              ),
-            )
-            as Map<String, dynamic>;
-    expect(result['ok'], isFalse);
-    expect(
-      result['error'],
-      isA<String>().having((v) => v, 'error', isNotEmpty),
-    );
-  });
 
   test(
     'session key distinguishes conversation IDs for identical title/date',

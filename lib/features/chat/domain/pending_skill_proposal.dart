@@ -1,4 +1,4 @@
-import '../../memory/application/workspace_paths.dart';
+import '../../../core/workspace/workspace_binding.dart';
 
 enum PendingSkillProposalState { pending, executing }
 

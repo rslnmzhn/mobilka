@@ -62,7 +62,7 @@ Keep this trailing whitespace.
     expect(definition.name, 'General Assistant');
     expect(definition.mode, AgentMode.primary);
     expect(definition.tools, contains('update_memory_file'));
-    expect(definition.tools, hasLength(13));
+    expect(definition.tools, hasLength(21));
     expect(definition.tools.toSet(), {
       'update_memory_file',
       'generate_docx',
@@ -75,6 +75,14 @@ Keep this trailing whitespace.
       'propose_skill',
       'write_session_notes',
       'read_session_notes',
+      'list_files',
+      'search_files',
+      'read_file',
+      'write_file',
+      'apply_patch',
+      'move_file',
+      'delete_file',
+      'make_directory',
       'read_public_source',
       'web_search',
     });

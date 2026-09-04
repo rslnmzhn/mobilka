@@ -6,6 +6,7 @@ import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
 import '../domain/pending_tool_proposal.dart';
 import '../domain/pending_skill_proposal.dart';
+import '../domain/pending_workspace_proposal.dart';
 
 part 'conversation_store.g.dart';
 
@@ -14,11 +15,15 @@ ConversationStore conversationStore(Ref ref) => ConversationStore();
 
 class ConversationStore {
   List<Conversation> loadAll() {
-    return conversationsBox.values
-        .whereType<Map>()
-        .map(Conversation.fromJson)
-        .toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final result = <Conversation>[];
+    for (final value in conversationsBox.values.whereType<Map>()) {
+      try {
+        result.add(Conversation.fromJson(value));
+      } on Object {
+        // A corrupt record must not prevent unrelated conversations loading.
+      }
+    }
+    return result..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
   Future<void> save(Conversation conversation) =>
@@ -39,6 +44,15 @@ class ConversationStore {
 
   Future<void> recoverInterrupted() async {
     for (final conversation in loadAll()) {
+      if (conversation.invalidPendingWorkspaceProposal) {
+        await save(_terminalizeInvalidWorkspaceProposal(conversation));
+        continue;
+      }
+      if (conversation.pendingWorkspaceProposal?.status ==
+          WorkspaceProposalStatus.executing) {
+        // Startup reconciliation owns this request and its active context.
+        continue;
+      }
       final recovered = _recoverExecutingProposal(conversation);
       if (recovered != null) {
         await save(recovered);
@@ -49,6 +63,26 @@ class ConversationStore {
         await save(conversation.copyWith(messages: messages));
       }
     }
+  }
+
+  Conversation _terminalizeInvalidWorkspaceProposal(Conversation conversation) {
+    final now = DateTime.now();
+    return conversation.copyWith(
+      updatedAt: now,
+      clearPendingRequest: true,
+      clearPendingWorkspaceProposal: true,
+      messages: [
+        ..._interruptMessages(conversation.messages),
+        ChatMessage(
+          id: '${now.microsecondsSinceEpoch}-workspace-recovery-invalid',
+          role: ChatRole.tool,
+          content: '{"ok":false,"error_code":"workspace_recovery_invalid"}',
+          createdAt: now,
+          toolCallId: conversation.invalidWorkspaceToolCallId,
+          toolCallIndex: conversation.invalidWorkspaceToolCallIndex,
+        ),
+      ],
+    );
   }
 
   Conversation? _recoverExecutingProposal(Conversation conversation) {

@@ -56,19 +56,27 @@ List<ToolExecution> projectToolExecutions(Conversation? conversation) {
           .where((candidate) => candidate.id == call.id)
           .length;
       final matches = results
-          .where((result) => result.toolCallId == call.id)
+          .where(
+            (result) =>
+                result.toolCallIndex == indexedCall.$1 ||
+                (result.toolCallIndex == null && result.toolCallId == call.id),
+          )
           .toList(growable: false);
       final result = occurrence < matches.length ? matches[occurrence] : null;
       final error = result == null ? null : toolResultError(result.content);
       final proposal = conversation.pendingMemoryProposal;
       final toolProposal = conversation.pendingToolProposal;
+      final workspaceProposal = conversation.pendingWorkspaceProposal;
       final awaitingConfirmation =
           proposal?.assistantMessageId == assistant.id &&
               proposal?.toolCallId == call.id &&
               proposal?.callOccurrence == occurrence ||
           (toolProposal?.assistantMessageId == assistant.id &&
               toolProposal?.call.id == call.id &&
-              toolProposal?.callOccurrence == occurrence);
+              toolProposal?.callOccurrence == occurrence) ||
+          (workspaceProposal?.assistantMessageId == assistant.id &&
+              workspaceProposal?.toolCallId == call.id &&
+              workspaceProposal?.callOccurrence == occurrence);
       final active =
           assistant.status == ChatMessageStatus.pending ||
           assistant.status == ChatMessageStatus.streaming;

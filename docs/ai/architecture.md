@@ -104,9 +104,12 @@ filenames and read only likely matches. Skill candidates are bounded stable
 procedures, at most one per immutable request. Every model-authored create and
 update requires persisted exact confirmation and a current-content hash recheck
 so manual edits survive; there is no confirmation-free model write path.
-Request capture retains an immutable operational workspace binding: canonical
-path boundary on desktop or exact SAF tree identity on Android. Reflection I/O
-uses that binding rather than resolving mutable current settings. Path CAS is
+Request capture retains an immutable typed `WorkspaceRootLocation` plus a
+request-scoped `WorkspaceBoundaryCapability`: canonical path identity on
+desktop or exact SAF tree identity on Android. Memory-owned composition adapts
+that neutral binding to the session-workspace boundary; core imports no feature
+types and chat performs no concrete storage downcast. Reflection I/O uses that
+binding rather than resolving mutable current settings. Path CAS is
 serialized with no-follow revalidation; SAF CAS is serialized in-process,
 re-reads immediately before write and fails closed when provider identity or
 read-back verification cannot be established.
@@ -118,9 +121,19 @@ Reflection verifies that exact persisted identity and records it for inspection.
 Public-source, `read_skill`, unknown, stale, or forged evidence never grants
 write authority. Since transitive semantic provenance of arbitrary model prose
 cannot be proven, no model-authored candidate is automatically created.
-Proposals persist a non-secret `WorkspaceBindingSnapshot` and reconstruct that
-exact path/SAF boundary after restart while also requiring current location and
-grant equality. Store-owned `commitSkillCandidate` performs quota calculation,
+Chat proposals persist a `WorkspaceProposalContext` envelope containing chat,
+agent, and tool-call authorization fields, plus one conversation-neutral
+`WorkspaceOperationIdentity` containing the session/root, operation,
+path/destination, hashes, and CAS proof. Workspace recovery records contain
+only that operation identity/proof, the binding snapshot, and an opaque chat
+owner token. The recovery journal key is canonical over root identity, session,
+and operation ID; mismatched keys are quarantined without invoking native code.
+Blocked binding or cleanup recovery is retained for retry and never prevents
+chat history from loading. Terminal quarantined bytes are removed only after
+the conversation has durably acknowledged the recovered outcome. Recovery
+reconstructs the exact path/SAF boundary after restart while also requiring
+current location and grant equality. Store-owned `commitSkillCandidate`
+performs quota calculation,
 hash comparison, conditional write, and read-back under one root lock. Desktop
 creation reserves the final name exclusively; portable update replacement keeps
 the documented tiny external-process rename window. SAF returns unsupported or
@@ -132,9 +145,28 @@ second lock or alternate mutation authority.
 Explicit confirmation performs hash, quota, identity, and read-back checks; SAF
 still fails closed when provider identity/read-back cannot be established.
 
-Typed general workspace file operations are **future**, not current. There is
-no arbitrary shell, broad filesystem root, or current `list_files`/`read_file`/
-`write_file` family.
+Typed workspace operations are rooted at the immutable request-captured session
+binding. Android uses strict SAF child traversal; Windows and Linux use native
+no-follow brokers. Reads are bounded and mutations persist one exact proposal,
+require explicit owner confirmation, revalidate target identity/hash, and commit
+through a root-scoped recovery journal. The `artifacts/` mirror is mutation-
+prohibited. No arbitrary shell or broad filesystem root is exposed.
+
+Workspace domain, boundary, journal, and coordinator services are conversation-
+agnostic. Chat owns `WorkspaceChatToolRuntime`, proposal continuation, and
+startup application of recovery outcomes. The legacy session-note names are
+aliases owned only by that workspace runtime; there is no independent
+`SessionNotesTools` runtime.
+
+Android workspace listings return capped provider metadata only. Proposal
+metadata and both sides of a read use native bounded SHA-256 validation. Native
+overwrite recovery recognizes only the exact before/after hashes and never
+restores a backup over unknown bytes. Delete recovery follows the persisted
+source document ID through intermediate provider names and cleanup fails unless
+the operation-owned document is removed. Invalid startup records reset a
+proposal only when they prove claim-only state; otherwise the matching request
+is terminalized with `workspace_recovery_invalid`. Malformed proposal data is
+isolated to its conversation and cannot block loading valid chat history.
 
 ## Artifact ownership and catalog
 
@@ -177,7 +209,7 @@ data and must never be treated as instructions. Conversation caches are LRU
 bounded to 1 MiB total and are removed with the conversation.
 
 The following are roadmap designs, not implemented current architecture:
-Typed workspace file tools, OCR and
+OCR and
 document extraction, general message attachments, and Chat / Advanced Coding
 with a separate coding-agent catalog. Physical Android validation remains
 pending where called out in [roadmap.md](../../roadmap.md); automated coverage
@@ -194,5 +226,15 @@ new user requests start untainted. PromptGuard remains heuristic only.
 immutable request and is shared across coordinator tool rounds. Generic proposal
 decisions are terminal: claim, exact execution or rejection, safe tool result,
 proposal removal, and pending-request removal are persisted through the shared
-conversation mutation boundary. Orphan executing claims recover as terminal
-indeterminate and are never executed again.
+conversation mutation boundary. Workspace startup recovery instead removes a
+claim-only journal entry and resets its matching executing proposal to pending.
+Malformed or forward records are quarantined and a matching proposal is safely
+terminated. Orphan prepared records are reconciled or rolled back and cleaned;
+orphan terminal records are acknowledged and cleaned.
+
+Session workspace listings are metadata-only and may report a null regular-file
+size when a SAF provider does not expose one. Direct metadata/read operations
+require a verified size and hash. Workspace mutation quotas exclude the
+case-insensitive top-level `artifacts/` subtree; artifact policy owns those
+files. Root searches also exclude that subtree and report bounded per-file
+skips for unknown metadata, oversized files, and unsupported text.

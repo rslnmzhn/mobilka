@@ -75,4 +75,39 @@ void main() {
       isNotNull,
     );
   });
+
+  testWidgets(
+    'workspace proposal renders exact preview and serializes actions',
+    (tester) async {
+      final confirmation = Completer<void>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PendingWorkspaceProposalCard(
+              operation: 'write_file',
+              path: 'notes.md',
+              preview: 'CREATE notes.md\nbody',
+              isBusy: false,
+              onConfirm: () => confirmation.future,
+              onReject: () async {},
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('CREATE notes.md\nbody'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('confirm-workspace-proposal')));
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextButton>(
+              find.byKey(const Key('reject-workspace-proposal')),
+            )
+            .onPressed,
+        isNull,
+      );
+      confirmation.complete();
+      await tester.pump();
+    },
+  );
 }
