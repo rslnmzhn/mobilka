@@ -7,7 +7,7 @@ void MethodCall(FlMethodChannel*, FlMethodCall* call, gpointer) {
   try {
   FlValue* args = fl_method_call_get_args(call);
   if (!args || fl_value_get_type(args) != FL_VALUE_TYPE_MAP) {
-    workspace::Error(call, "invalid_argument");
+    workspace::RespondError(call, "invalid_argument");
     return;
   }
   const char* method = fl_method_call_get_name(call);
@@ -34,7 +34,7 @@ void MethodCall(FlMethodChannel*, FlMethodCall* call, gpointer) {
     fl_method_call_respond_not_implemented(call, &error);
   }
   } catch (...) {
-    workspace::Error(call, "mutation_indeterminate");
+    workspace::RespondError(call, "mutation_indeterminate");
   }
 }
 }  // namespace

@@ -31,7 +31,8 @@ struct OperationState {
   uint64_t result_size=0;
   OperationPhase phase=OperationPhase::prepared;
 };
-void Error(FlMethodCall*,const char*); void Success(FlMethodCall*,FlValue* = nullptr);
+void RespondError(FlMethodCall*,const char*);
+void RespondSuccess(FlMethodCall*,FlValue* = nullptr);
 FlValue* Lookup(FlValue*,const char*); bool StringArg(FlValue*,const char*,std::string*);
 bool NullableStringArg(FlValue*,const char*,std::string*,bool*); bool BoolArg(FlValue*,const char*,bool*);
 bool IntArg(FlValue*,const char*,int64_t*); bool ParseRelative(const std::string&,bool,std::vector<std::string>*);

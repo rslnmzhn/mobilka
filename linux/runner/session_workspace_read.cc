@@ -25,46 +25,46 @@ void HandleMetadata(FlMethodCall *c, FlValue *a) {
   const char *e = nullptr;
   if (!OpenContext(a, false, &x, &e)) {
     if (!strcmp(e, "not_found"))
-      Success(c);
+      RespondSuccess(c);
     else
-      Error(c, e);
+      RespondError(c, e);
     return;
   }
   Node p, n;
   std::string name;
   if (!OpenParent(x, &p, &name, &e)) {
     if (!strcmp(e, "parent_missing"))
-      Success(c);
+      RespondSuccess(c);
     else
-      Error(c, e);
+      RespondError(c, e);
     return;
   }
   struct stat s{};
   if (fstatat(p.fd.get(), name.c_str(), &s, AT_SYMLINK_NOFOLLOW)) {
     if (errno == ENOENT)
-      Success(c);
+      RespondSuccess(c);
     else
-      Error(c, "unsafe_path");
+      RespondError(c, "unsafe_path");
     return;
   }
   bool dir = S_ISDIR(s.st_mode);
   if ((dir && !OpenDirAt(p.fd.get(), name, &n)) ||
       (!dir && !OpenFileAt(p.fd.get(), name, O_RDONLY, &n))) {
-    Error(c, "unsafe_path");
+    RespondError(c, "unsafe_path");
     return;
   }
   std::string path, hash;
   StringArg(a, "path", &path);
   if (!dir) {
     if (!HashExact(&n, &hash)) {
-      Error(c, "workspace_file_too_large");
+      RespondError(c, "workspace_file_too_large");
       return;
     }
     g_autoptr(FlValue) m = Entry(path, n, false, &hash);
-    Success(c, m);
+    RespondSuccess(c, m);
   } else {
     g_autoptr(FlValue) m = Entry(path, n, true);
-    Success(c, m);
+    RespondSuccess(c, m);
   }
 }
 static bool ListInto(const Node &d, const std::string &prefix, bool recursive,
@@ -132,28 +132,28 @@ void HandleList(FlMethodCall *c, FlValue *a) {
   Context x;
   const char *e = nullptr;
   if (!BoolArg(a, "recursive", &recursive)) {
-    Error(c, "invalid_argument");
+    RespondError(c, "invalid_argument");
     return;
   }
   if (!OpenContext(a, false, &x, &e)) {
     if (!strcmp(e, "not_found")) {
       g_autoptr(FlValue) o = fl_value_new_list();
-      Success(c, o);
+      RespondSuccess(c, o);
     } else
-      Error(c, e);
+      RespondError(c, e);
     return;
   }
   Node d;
   if (x.parts.empty()) {
     if (!Duplicate(x.session, &d)) {
-      Error(c, "metadata_changed");
+      RespondError(c, "metadata_changed");
       return;
     }
   } else {
     Node p;
     std::string n;
     if (!OpenParent(x, &p, &n, &e) || !OpenDirAt(p.fd.get(), n, &d)) {
-      Error(c, e ? e : "not_found");
+      RespondError(c, e ? e : "not_found");
       return;
     }
   }
@@ -161,10 +161,10 @@ void HandleList(FlMethodCall *c, FlValue *a) {
   StringArg(a, "path", &prefix);
   g_autoptr(FlValue) o = fl_value_new_list();
   if (!ListInto(d, prefix, recursive, o, &e)) {
-    Error(c, e ? e : "metadata_changed");
+    RespondError(c, e ? e : "metadata_changed");
     return;
   }
-  Success(c, o);
+  RespondSuccess(c, o);
 }
 void HandleRead(FlMethodCall *c, FlValue *a) {
   int64_t offset = -1, max = -1;
@@ -173,39 +173,39 @@ void HandleRead(FlMethodCall *c, FlValue *a) {
   if (!IntArg(a, "offset", &offset) || !IntArg(a, "maxBytes", &max) ||
       offset < 0 || max < 0 || max > 256 * 1024 ||
       !OpenContext(a, false, &x, &e)) {
-    Error(c, e ? e : "invalid_argument");
+    RespondError(c, e ? e : "invalid_argument");
     return;
   }
   Node p, f;
   std::string n;
   if (!OpenParent(x, &p, &n, &e) || !OpenFileAt(p.fd.get(), n, O_RDONLY, &f)) {
-    Error(c, e ? e : "not_found");
+    RespondError(c, e ? e : "not_found");
     return;
   }
   std::string hash;
   off_t size;
   if (!HashExact(&f, &hash, &size)) {
-    Error(c, "workspace_file_too_large");
+    RespondError(c, "workspace_file_too_large");
     return;
   }
   std::vector<uint8_t> bytes(size);
   if (size && pread(f.fd.get(), bytes.data(), size, 0) != size) {
-    Error(c, "metadata_changed");
+    RespondError(c, "metadata_changed");
     return;
   }
   if (!g_utf8_validate(size ? (char *)bytes.data() : "", size, nullptr)) {
-    Error(c, "unsupported_text");
+    RespondError(c, "unsupported_text");
     return;
   }
   if (offset > size) {
-    Error(c, "invalid_utf8_offset");
+    RespondError(c, "invalid_utf8_offset");
     return;
   }
   auto boundary = [&](size_t i) {
     return i == 0 || i == bytes.size() || (bytes[i] & 0xc0) != 0x80;
   };
   if (!boundary(offset)) {
-    Error(c, "invalid_utf8_offset");
+    RespondError(c, "invalid_utf8_offset");
     return;
   }
   size_t end = std::min<size_t>(bytes.size(), offset + max);
@@ -221,6 +221,6 @@ void HandleRead(FlMethodCall *c, FlValue *a) {
                            fl_value_new_bool(end < (size_t)size));
   fl_value_set_string_take(m, "identity",
                            fl_value_new_string(Token(f.id).c_str()));
-  Success(c, m);
+  RespondSuccess(c, m);
 }
 } // namespace workspace

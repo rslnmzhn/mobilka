@@ -14,6 +14,18 @@ void main() {
       'linux/runner/my_application.cc',
     ).readAsStringSync();
     final cmake = File('linux/runner/CMakeLists.txt').readAsStringSync();
+    final workflow = File(
+      '.github/workflows/build.yml',
+    ).readAsStringSync();
+    final header = File(
+      'linux/runner/session_workspace.h',
+    ).readAsStringSync();
+    final prepareCommit = File(
+      'linux/runner/session_workspace_prepare_commit.cc',
+    ).readAsStringSync();
+    final recovery = File(
+      'linux/runner/session_workspace_recovery.cc',
+    ).readAsStringSync();
 
     expect(source, contains('mobilka/session_workspace'));
     expect(
@@ -53,11 +65,26 @@ void main() {
     expect(source, contains(RegExp(r'out->size\(\)\s*>\s*16')));
     expect(source, isNot(contains('system(')));
     expect(source, isNot(contains('CreateProcess')));
+    expect(header, contains('void RespondError('));
+    expect(header, contains('void RespondSuccess('));
+    expect(header, isNot(contains(RegExp(r'\b(?:Error|Success)\s*\('))));
+    expect(source, isNot(contains(RegExp(r'\b(?:Error|Success)\s*\('))));
+    expect(prepareCommit, isNot(contains('RemoveIfPresent(')));
+    expect(prepareCommit, isNot(contains('ReplyState(')));
+    expect(recovery, contains('bool RemoveIfPresent('));
+    expect(recovery, contains('void ReplyState('));
     expect(application, contains('register_session_workspace_channel'));
     expect(cmake, contains('session_workspace_common.cc'));
     expect(cmake, contains('session_workspace_state.cc'));
     expect(cmake, contains('session_workspace_prepare_commit.cc'));
     expect(cmake, contains('session_workspace_recovery.cc'));
     expect(cmake, contains('session_workspace_native_test.cc'));
+    expect(
+      workflow,
+      contains(
+        'ctest --test-dir build/linux/x64/release -C Release '
+        '--output-on-failure',
+      ),
+    );
   });
 }

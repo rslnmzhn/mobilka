@@ -36,11 +36,6 @@ bool OpenDestination(const Context& context, const OperationState& state,
   return OpenParent(destination, parent, name, error);
 }
 
-bool RemoveIfPresent(const Node& parent, const std::string& name, bool directory) {
-  if (MissingAt(parent.fd.get(), name)) return true;
-  return unlinkat(parent.fd.get(), name.c_str(), directory ? AT_REMOVEDIR : 0) == 0;
-}
-
 bool FileProof(const Node& parent, const std::string& name,
                const std::string& identity, const std::string& hash,
                Node* node) {
@@ -48,11 +43,6 @@ bool FileProof(const Node& parent, const std::string& name,
   return OpenFileAt(parent.fd.get(), name, O_RDONLY, node) &&
          Token(node->id) == identity && Stable(*node, S_IFREG) &&
          HashExact(node, &actual) && actual == hash;
-}
-
-void ReplyState(FlMethodCall* call, const char* state) {
-  g_autoptr(FlValue) value = fl_value_new_string(state);
-  Success(call, value);
 }
 
 bool Persist(const Node& hidden, const std::string& id, OperationState* state,
@@ -77,7 +67,7 @@ void HandlePrepare(FlMethodCall* call, FlValue* args) {
       !NullableStringArg(args, "expectedHash", &expected_hash, &has_hash) ||
       (operation == "move_file") != has_destination ||
       !OpenContext(args, true, &context, &error)) {
-    Error(call, error ? error : "invalid_argument");
+    RespondError(call, error ? error : "invalid_argument");
     return;
   }
   Node hidden;
@@ -85,13 +75,13 @@ void HandlePrepare(FlMethodCall* call, FlValue* args) {
       !MissingAt(hidden.fd.get(), id + ".state") ||
       !MissingAt(hidden.fd.get(), id + ".stage") ||
       !MissingAt(hidden.fd.get(), id + ".backup")) {
-    Error(call, error ? error : "operation_exists");
+    RespondError(call, error ? error : "operation_exists");
     return;
   }
   Node parent, target;
   std::string name;
   if (!OpenParent(context, &parent, &name, &error)) {
-    Error(call, error);
+    RespondError(call, error);
     return;
   }
   bool target_is_file = OpenFileAt(parent.fd.get(), name, O_RDONLY, &target);
@@ -104,11 +94,11 @@ void HandlePrepare(FlMethodCall* call, FlValue* args) {
        (target_is_file && (!has_hash ||
         !Verify(&target, expected_identity, expected_hash))) ||
        (target_is_directory && Token(target_directory.id) != expected_identity))) {
-    Error(call, "stale_target");
+    RespondError(call, "stale_target");
     return;
   }
   if (target_is_directory && operation != "make_directory") {
-    Error(call, "workspace_operation_unsupported");
+    RespondError(call, "workspace_operation_unsupported");
     return;
   }
 
@@ -125,21 +115,21 @@ void HandlePrepare(FlMethodCall* call, FlValue* args) {
   state.expected_identity = has_identity ? expected_identity : "";
   state.expected_hash = has_hash ? expected_hash : "";
   if (!RandomToken(&state.token)) {
-    Error(call, "mutation_indeterminate");
+    RespondError(call, "mutation_indeterminate");
     return;
   }
 
   if (IsWrite(operation)) {
     auto raw = Lookup(args, "bytes");
     if (!raw || fl_value_get_type(raw) != FL_VALUE_TYPE_UINT8_LIST) {
-      Error(call, "invalid_argument");
+      RespondError(call, "invalid_argument");
       return;
     }
     Node stage;
     size_t size = fl_value_get_length(raw);
     if (!WriteExact(hidden, id + ".stage", fl_value_get_uint8_list(raw), size,
                     &stage, &state.stage_hash)) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
     state.stage_identity = Token(stage.id);
@@ -151,7 +141,7 @@ void HandlePrepare(FlMethodCall* call, FlValue* args) {
       ssize_t count = pread(target.fd.get(), bytes.data() + at,
                             bytes.size() - at, at);
       if (count <= 0) {
-        Error(call, "metadata_changed");
+        RespondError(call, "metadata_changed");
         return;
       }
       at += static_cast<size_t>(count);
@@ -159,28 +149,28 @@ void HandlePrepare(FlMethodCall* call, FlValue* args) {
     Node backup;
     if (!WriteExact(hidden, id + ".backup", bytes.data(), bytes.size(),
                     &backup, &state.backup_hash)) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
     state.backup_identity = Token(backup.id);
   } else {
     if (mkdirat(hidden.fd.get(), (id + ".stage").c_str(), 0700) != 0) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
     Node stage;
     if (!OpenDirAt(hidden.fd.get(), id + ".stage", &stage)) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
     state.stage_identity = Token(stage.id);
   }
   if (!SaveOperationState(hidden, id, state)) {
-    Error(call, "mutation_indeterminate");
+    RespondError(call, "mutation_indeterminate");
     return;
   }
   g_autoptr(FlValue) receipt = Receipt(id, state.token);
-  Success(call, receipt);
+  RespondSuccess(call, receipt);
 }
 
 void HandleCommit(FlMethodCall* call, FlValue* args) {
@@ -190,53 +180,53 @@ void HandleCommit(FlMethodCall* call, FlValue* args) {
   std::string id;
   const char* error = nullptr;
   if (!Prepared(args, &context, &hidden, &id, &state, &error)) {
-    Error(call, error);
+    RespondError(call, error);
     return;
   }
   if (state.phase == OperationPhase::committed) {
-    Success(call);
+    RespondSuccess(call);
     return;
   }
   if (state.phase != OperationPhase::prepared) {
-    Error(call, "invalid_prepared_receipt");
+    RespondError(call, "invalid_prepared_receipt");
     return;
   }
   Node parent, target;
   std::string name;
   if (!OpenParent(context, &parent, &name, &error)) {
-    Error(call, error);
+    RespondError(call, error);
     return;
   }
   if (IsWrite(state.operation)) {
     Node stage;
     if (!FileIdentity(hidden, id + ".stage", state.stage_identity, &stage)) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
     bool exists = OpenFileAt(parent.fd.get(), name, O_RDONLY, &target);
     int result = 0;
     if (state.expect_missing) {
-      if (exists) { Error(call, "stale_target"); return; }
+      if (exists) { RespondError(call, "stale_target"); return; }
       if (!Persist(hidden, id, &state, OperationPhase::stageInstalling)) {
-        Error(call, "mutation_indeterminate"); return;
+        RespondError(call, "mutation_indeterminate"); return;
       }
       result = RenameAt2(hidden.fd.get(), (id + ".stage").c_str(),
                          parent.fd.get(), name.c_str(), RENAME_NOREPLACE);
     } else {
       if (!exists || !Verify(&target, state.expected_identity,
                              state.expected_hash)) {
-        Error(call, "stale_target");
+        RespondError(call, "stale_target");
         return;
       }
       if (!Persist(hidden, id, &state,
                    OperationPhase::targetQuarantining)) {
-        Error(call, "mutation_indeterminate"); return;
+        RespondError(call, "mutation_indeterminate"); return;
       }
       result = RenameAt2(hidden.fd.get(), (id + ".stage").c_str(),
                           parent.fd.get(), name.c_str(), RENAME_EXCHANGE);
     }
     if (result != 0 || fsync(parent.fd.get()) != 0 || fsync(hidden.fd.get()) != 0) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
     if (!state.expect_missing) {
@@ -248,7 +238,7 @@ void HandleCommit(FlMethodCall* call, FlValue* args) {
           fsync(parent.fd.get());
           fsync(hidden.fd.get());
         }
-        Error(call, "mutation_indeterminate");
+        RespondError(call, "mutation_indeterminate");
         return;
       }
     }
@@ -260,7 +250,7 @@ void HandleCommit(FlMethodCall* call, FlValue* args) {
         RenameAt2(parent.fd.get(), name.c_str(), hidden.fd.get(),
                   (id + ".stage").c_str(), RENAME_NOREPLACE) != 0 ||
         fsync(parent.fd.get()) != 0 || fsync(hidden.fd.get()) != 0) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
     Node quarantined;
@@ -270,7 +260,7 @@ void HandleCommit(FlMethodCall* call, FlValue* args) {
                     name.c_str(), RENAME_NOREPLACE) == 0) {
         fsync(parent.fd.get()); fsync(hidden.fd.get());
       }
-      Error(call, "mutation_indeterminate"); return;
+      RespondError(call, "mutation_indeterminate"); return;
     }
   } else if (state.operation == "move_file") {
     Node destination_parent;
@@ -283,7 +273,7 @@ void HandleCommit(FlMethodCall* call, FlValue* args) {
         RenameAt2(parent.fd.get(), name.c_str(), destination_parent.fd.get(),
                   destination_name.c_str(), RENAME_NOREPLACE) != 0 ||
         fsync(parent.fd.get()) != 0 || fsync(destination_parent.fd.get()) != 0) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
     Node moved;
@@ -293,7 +283,7 @@ void HandleCommit(FlMethodCall* call, FlValue* args) {
                     parent.fd.get(), name.c_str(), RENAME_NOREPLACE) == 0) {
         fsync(parent.fd.get()); fsync(destination_parent.fd.get());
       }
-      Error(call, "mutation_indeterminate"); return;
+      RespondError(call, "mutation_indeterminate"); return;
     }
   } else if (state.operation == "make_directory") {
     Node stage;
@@ -303,18 +293,18 @@ void HandleCommit(FlMethodCall* call, FlValue* args) {
         RenameAt2(hidden.fd.get(), (id + ".stage").c_str(), parent.fd.get(),
                   name.c_str(), RENAME_NOREPLACE) != 0 ||
         fsync(parent.fd.get()) != 0 || fsync(hidden.fd.get()) != 0) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
   } else {
-    Error(call, "invalid_prepared_receipt");
+    RespondError(call, "invalid_prepared_receipt");
     return;
   }
   if (!Persist(hidden, id, &state, OperationPhase::committed)) {
-    Error(call, "mutation_indeterminate");
+    RespondError(call, "mutation_indeterminate");
     return;
   }
-  Success(call);
+  RespondSuccess(call);
 }
 
 }  // namespace workspace

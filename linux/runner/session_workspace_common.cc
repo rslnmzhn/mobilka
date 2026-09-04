@@ -29,12 +29,12 @@ void Fd::Reset(int v) {
     close(value_);
   value_ = v;
 }
-void Error(FlMethodCall *c, const char *code) {
+void RespondError(FlMethodCall *c, const char *code) {
   g_autoptr(GError) e = nullptr;
   fl_method_call_respond_error(c, code, "Workspace operation rejected", nullptr,
                                &e);
 }
-void Success(FlMethodCall *c, FlValue *v) {
+void RespondSuccess(FlMethodCall *c, FlValue *v) {
   g_autoptr(GError) e = nullptr;
   fl_method_call_respond_success(c, v, &e);
 }
@@ -365,10 +365,10 @@ void HandleRootIdentity(FlMethodCall *c, FlValue *a) {
   Node root;
   const char *e = nullptr;
   if (!OpenRoot(a, &root, &e)) {
-    Error(c, e);
+    RespondError(c, e);
     return;
   }
   g_autoptr(FlValue) v = fl_value_new_string(Token(root.id).c_str());
-  Success(c, v);
+  RespondSuccess(c, v);
 }
 } // namespace workspace

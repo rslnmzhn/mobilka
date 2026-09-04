@@ -21,7 +21,7 @@ bool FileProof(const Node& parent, const std::string& name,
 
 void ReplyState(FlMethodCall* call, const char* state) {
   g_autoptr(FlValue) value = fl_value_new_string(state);
-  Success(call, value);
+  RespondSuccess(call, value);
 }
 
 bool Persist(const Node& hidden, const std::string& id, OperationState* state,
@@ -64,7 +64,7 @@ void HandleReconcile(FlMethodCall* call, FlValue* args) {
   std::string id;
   const char* error = nullptr;
   if (!Prepared(args, &context, &hidden, &id, &state, &error)) {
-    Error(call, error);
+    RespondError(call, error);
     return;
   }
   if (state.phase == OperationPhase::rolledBack) {
@@ -74,7 +74,7 @@ void HandleReconcile(FlMethodCall* call, FlValue* args) {
   Node parent, source;
   std::string name;
   if (!OpenParent(context, &parent, &name, &error)) {
-    Error(call, error);
+    RespondError(call, error);
     return;
   }
   bool committed = false;
@@ -102,7 +102,7 @@ void HandleReconcile(FlMethodCall* call, FlValue* args) {
   if (committed) {
     if (state.phase != OperationPhase::committed &&
         !Persist(hidden, id, &state, OperationPhase::committed)) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
     ReplyState(call, "committed");
@@ -123,21 +123,21 @@ void HandleRollback(FlMethodCall* call, FlValue* args) {
   std::string id;
   const char* error = nullptr;
   if (!Prepared(args, &context, &hidden, &id, &state, &error)) {
-    Error(call, error);
+    RespondError(call, error);
     return;
   }
   if (state.phase == OperationPhase::rolledBack) {
-    Success(call);
+    RespondSuccess(call);
     return;
   }
   if (state.phase == OperationPhase::committed) {
-    Error(call, "already_committed");
+    RespondError(call, "already_committed");
     return;
   }
   Node parent, source;
   std::string name;
   if (!OpenParent(context, &parent, &name, &error)) {
-    Error(call, error);
+    RespondError(call, error);
     return;
   }
   if (state.phase != OperationPhase::prepared) {
@@ -149,7 +149,7 @@ void HandleRollback(FlMethodCall* call, FlValue* args) {
           has_current && Verify(&current, state.stage_identity, state.stage_hash);
       if (state.expect_missing) {
         if (result_present && unlinkat(parent.fd.get(), name.c_str(), 0) != 0) {
-          Error(call, "mutation_indeterminate");
+          RespondError(call, "mutation_indeterminate");
           return;
         }
       } else if (result_present &&
@@ -157,7 +157,7 @@ void HandleRollback(FlMethodCall* call, FlValue* args) {
                            state.expected_hash, &backup)) {
         if (RenameAt2(hidden.fd.get(), (id + ".stage").c_str(), parent.fd.get(),
                       name.c_str(), RENAME_EXCHANGE) != 0) {
-          Error(call, "mutation_indeterminate");
+          RespondError(call, "mutation_indeterminate");
           return;
         }
       } else if (!has_current &&
@@ -165,13 +165,13 @@ void HandleRollback(FlMethodCall* call, FlValue* args) {
                            state.expected_hash, &backup)) {
         if (RenameAt2(hidden.fd.get(), (id + ".stage").c_str(), parent.fd.get(),
                       name.c_str(), RENAME_NOREPLACE) != 0) {
-          Error(call, "mutation_indeterminate");
+          RespondError(call, "mutation_indeterminate");
           return;
         }
       } else if (!has_current ||
                  !Verify(&current, state.expected_identity,
                          state.expected_hash)) {
-        Error(call, "mutation_indeterminate");
+        RespondError(call, "mutation_indeterminate");
         return;
       }
     } else if (state.operation == "delete_file") {
@@ -181,7 +181,7 @@ void HandleRollback(FlMethodCall* call, FlValue* args) {
                     state.expected_hash, &quarantined) &&
           RenameAt2(hidden.fd.get(), (id + ".stage").c_str(),
                     parent.fd.get(), name.c_str(), RENAME_NOREPLACE) != 0) {
-        Error(call, "mutation_indeterminate");
+        RespondError(call, "mutation_indeterminate");
         return;
       }
     } else if (state.operation == "move_file") {
@@ -189,7 +189,7 @@ void HandleRollback(FlMethodCall* call, FlValue* args) {
       std::string destination_name;
       if (!OpenDestination(context, state, &destination_parent,
                            &destination_name, &error)) {
-        Error(call, error);
+        RespondError(call, error);
         return;
       }
       if (MissingAt(parent.fd.get(), name) &&
@@ -197,7 +197,7 @@ void HandleRollback(FlMethodCall* call, FlValue* args) {
                     state.expected_identity, state.expected_hash, &moved) &&
           RenameAt2(destination_parent.fd.get(), destination_name.c_str(),
                     parent.fd.get(), name.c_str(), RENAME_NOREPLACE) != 0) {
-        Error(call, "mutation_indeterminate");
+        RespondError(call, "mutation_indeterminate");
         return;
       }
     } else if (state.operation == "make_directory") {
@@ -205,20 +205,20 @@ void HandleRollback(FlMethodCall* call, FlValue* args) {
       if (OpenDirAt(parent.fd.get(), name, &directory) &&
           Token(directory.id) == state.stage_identity &&
           unlinkat(parent.fd.get(), name.c_str(), AT_REMOVEDIR) != 0) {
-        Error(call, "mutation_indeterminate");
+        RespondError(call, "mutation_indeterminate");
         return;
       }
     }
     if (fsync(parent.fd.get()) != 0) {
-      Error(call, "mutation_indeterminate");
+      RespondError(call, "mutation_indeterminate");
       return;
     }
   }
   if (!Persist(hidden, id, &state, OperationPhase::rolledBack)) {
-    Error(call, "mutation_indeterminate");
+    RespondError(call, "mutation_indeterminate");
     return;
   }
-  Success(call);
+  RespondSuccess(call);
 }
 
 void HandleCleanup(FlMethodCall* call, FlValue* args) {
@@ -229,7 +229,7 @@ void HandleCleanup(FlMethodCall* call, FlValue* args) {
       fl_value_get_length(receipt) != 2 ||
       !StringArg(receipt, "operationId", &id) || !SafeOperationId(id) ||
       !StringArg(receipt, "token", &token) || token.size() != 43) {
-    Error(call, "invalid_prepared_receipt");
+    RespondError(call, "invalid_prepared_receipt");
     return;
   }
   Context context;
@@ -241,12 +241,12 @@ void HandleCleanup(FlMethodCall* call, FlValue* args) {
                            fl_value_ref(Lookup(args, "rootIdentity")));
   fl_value_set_string_take(probe, "path", fl_value_new_string(""));
   if (!OpenContext(probe, false, &context, &error)) {
-    Error(call, error);
+    RespondError(call, error);
     return;
   }
   Node hidden;
   if (!EnsureHidden(&context, &hidden, &error)) {
-    Error(call, error);
+    RespondError(call, error);
     return;
   }
   const bool state_missing = MissingAt(hidden.fd.get(), id + ".state");
@@ -254,26 +254,26 @@ void HandleCleanup(FlMethodCall* call, FlValue* args) {
   const bool backup_missing = MissingAt(hidden.fd.get(), id + ".backup");
   if (state_missing) {
     if (stage_missing && backup_missing) {
-      Success(call);
+      RespondSuccess(call);
       return;
     }
-    Error(call, "mutation_indeterminate");
+    RespondError(call, "mutation_indeterminate");
     return;
   }
   OperationState state;
   if (!LoadOperationState(hidden, id, token, &state) ||
       state.root_identity != Token(context.root.id) ||
       state.session_identity != Token(context.session.id)) {
-    Error(call, "invalid_prepared_receipt");
+    RespondError(call, "invalid_prepared_receipt");
     return;
   }
   if (!RemoveIfPresent(hidden, id + ".stage",
                        state.operation == "make_directory") ||
       !RemoveIfPresent(hidden, id + ".backup", false) ||
       !DeleteOperationState(hidden, id)) {
-    Error(call, "mutation_indeterminate");
+    RespondError(call, "mutation_indeterminate");
     return;
   }
-  Success(call);
+  RespondSuccess(call);
 }
 }  // namespace workspace
