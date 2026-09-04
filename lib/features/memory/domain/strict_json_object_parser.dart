@@ -1,12 +1,36 @@
 import 'dart:convert';
 
 class StrictJsonObjectParser {
-  StrictJsonObjectParser(this._source);
+  StrictJsonObjectParser(
+    this._source, {
+    this.maxDepth = 8,
+    this.maxNodes = 10000,
+    this.maxStringBytes = 2 * 1024 * 1024,
+  });
   final String _source;
+  final int maxDepth;
+  final int maxNodes;
+  final int maxStringBytes;
   var _offset = 0;
+  var _nodes = 0;
 
-  static Map<String, Object?> decode(String source) =>
-      StrictJsonObjectParser(source).parse();
+  static Map<String, Object?> decode(
+    String source, {
+    int? maxSourceBytes,
+    int maxDepth = 8,
+    int maxNodes = 10000,
+    int maxStringBytes = 2 * 1024 * 1024,
+  }) {
+    if (maxSourceBytes != null && utf8.encode(source).length > maxSourceBytes) {
+      throw const FormatException('JSON input is too large');
+    }
+    return StrictJsonObjectParser(
+      source,
+      maxDepth: maxDepth,
+      maxNodes: maxNodes,
+      maxStringBytes: maxStringBytes,
+    ).parse();
+  }
 
   Map<String, Object?> parse() {
     final value = _value(0);
@@ -18,7 +42,12 @@ class StrictJsonObjectParser {
   }
 
   Object? _value(int depth) {
-    if (depth > 8) throw const FormatException('JSON nesting is too deep');
+    if (depth > maxDepth) {
+      throw const FormatException('JSON nesting is too deep');
+    }
+    if (++_nodes > maxNodes) {
+      throw const FormatException('JSON has too many nodes');
+    }
     _space();
     if (_offset >= _source.length) {
       throw const FormatException('Unexpected JSON end');
@@ -76,7 +105,11 @@ class StrictJsonObjectParser {
     while (_offset < _source.length) {
       final character = _source[_offset++];
       if (!escaped && character == '"') {
-        return jsonDecode(_source.substring(start, _offset)) as String;
+        final value = jsonDecode(_source.substring(start, _offset)) as String;
+        if (utf8.encode(value).length > maxStringBytes) {
+          throw const FormatException('JSON string is too large');
+        }
+        return value;
       }
       escaped = !escaped && character == r'\';
       if (character != r'\') escaped = false;

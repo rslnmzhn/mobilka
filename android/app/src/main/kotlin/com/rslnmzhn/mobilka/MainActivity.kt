@@ -24,6 +24,7 @@ import java.nio.file.attribute.BasicFileAttributes
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        SessionWorkspaceSafBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
             .setMethodCallHandler { call, result ->
                 try {

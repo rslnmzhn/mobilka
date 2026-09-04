@@ -27,7 +27,8 @@ owning symbol when changing behavior.
 | Chat domain and persistence | [`lib/features/chat/`](../../lib/features/chat/) | `ChatController`, `ConversationStore`; `Conversation` owns usage |
 | Streaming and tools | [`lib/features/chat/application/`](../../lib/features/chat/application/) | `ChatStreamingCoordinator`, `CompositeChatToolRuntime` |
 | Models/endpoints | [`lib/features/models/`](../../lib/features/models/), [`lib/features/settings/`](../../lib/features/settings/) | Catalog/controller state; secure storage owns API keys |
-| Memory and workspace | [`lib/features/memory/`](../../lib/features/memory/) | `MemoryRepository`, mutation coordinator/recovery journal, `ContextInjector` |
+| Memory | [`lib/features/memory/`](../../lib/features/memory/) | `MemoryRepository`, memory mutation coordinator/recovery journal, `ContextInjector` |
+| Session workspace | [`lib/features/workspace/`](../../lib/features/workspace/), [`lib/features/chat/application/workspace_chat_tool_adapter.dart`](../../lib/features/chat/application/workspace_chat_tool_adapter.dart) | Conversation-agnostic workspace services; chat owns runtime adaptation and proposal orchestration |
 | Agents and delegation | [`lib/features/agents/`](../../lib/features/agents/) | `AgentsController`; memory still owns persona data |
 | Artifacts | [`lib/features/artifacts/`](../../lib/features/artifacts/) | `ArtifactsController`, Hive metadata, app-private files |
 | Updates | [`lib/features/updater/`](../../lib/features/updater/) | `GithubUpdateRepository` and platform bridges |
@@ -66,7 +67,7 @@ proportional; documentation-only changes need link/path checks and
 - Update [roadmap.md](../../roadmap.md) only for implemented and verified work.
 - Do not claim physical-device validation unless it was performed. Android
   validations still pending are tracked in roadmap items 3, 7, 18, 30, 33,
-  and 37.
+  37, and 24.
 
 ## Security and scope boundaries
 
@@ -84,10 +85,11 @@ proportional; documentation-only changes need link/path checks and
   HTML only, DNS-policy checked and connection-pinned, bounded and PromptGuarded.
 - `web_search` is optional discovery through a user-operated SearXNG JSON API;
   results remain untrusted and must be followed by an explicit HTTPS source read.
-- **Not current:** workspace file tools,
-  OCR/document extraction, general attachments, and Chat / Advanced Coding.
-  These are future roadmap items and must not be presented as registered tools
-  or shipped behavior. Image-processing support in source does not make the
-  planned general attachment UX complete.
+- **Experimental:** workspace file tools are registered and their native
+  Android, Windows, and Linux boundaries have automated coverage. Physical
+  platform verification remains pending. OCR/document extraction, general
+  attachments, and Chat / Advanced Coding are future roadmap items and must not
+  be presented as shipped behavior. Image-processing support in source does not
+  make the planned general attachment UX complete.
 - Updater trust and artifact ownership boundaries are summarized in
   [architecture.md](architecture.md); preserve their fail-closed checks.

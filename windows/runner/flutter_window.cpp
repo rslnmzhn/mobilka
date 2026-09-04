@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "session_workspace.h"
 #include "updater_staging.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -27,6 +28,7 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   RegisterUpdaterStagingChannel(flutter_controller_->engine()->messenger());
+  RegisterSessionWorkspaceChannel(flutter_controller_->engine()->messenger());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

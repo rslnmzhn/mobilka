@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
+import '../../../core/workspace/workspace_binding.dart';
+export '../../../core/workspace/workspace_binding.dart';
 import '../data/memory_file_store.dart';
 import '../data/memory_repository.dart';
 
@@ -26,9 +28,10 @@ class WorkspaceStore {
     if (location == null) return null;
     final boundary = repository.boundaryFor(location);
     if (boundary is! BinarySubPathMemoryFileBoundary) return null;
-    return WorkspaceBinding._(
+    return _MemoryWorkspaceBinding(
       location,
       boundary as BinarySubPathMemoryFileBoundary,
+      () => repository.revalidateCurrentLocationAccess(location),
     );
   }
 
@@ -50,9 +53,10 @@ class WorkspaceStore {
     if (boundary is! BinarySubPathMemoryFileBoundary) {
       throw StateError('Proposal workspace is unavailable');
     }
-    final binding = WorkspaceBinding._(
+    final binding = _MemoryWorkspaceBinding(
       location,
       boundary as BinarySubPathMemoryFileBoundary,
+      () => repository.revalidateCurrentLocationAccess(location),
     );
     if (binding.snapshot.identity != snapshot.identity) {
       throw StateError('Proposal workspace identity changed');
@@ -166,8 +170,20 @@ class WorkspaceStore {
     required String markdown,
     required List<int> docxBytes,
   }) async {
-    await repository.validateSavedLocationAccess(binding._location);
-    final binaryBoundary = binding._boundary;
+    final location = binding.location;
+    final capability = binding.capability;
+    if (capability is! BinarySubPathMemoryFileBoundary) {
+      throw const WorkspaceStorageException.io(
+        'Bound workspace is unavailable.',
+      );
+    }
+    await repository.validateSavedLocationAccess(
+      MemoryLocation(
+        value: location.value,
+        isContentUri: location.isContentUri,
+      ),
+    );
+    final binaryBoundary = capability;
     final basename = artifactId;
     return binaryBoundary.writeBinaryPair(
       WorkspaceBinaryFile(
@@ -215,32 +231,63 @@ class WorkspaceStore {
 
 /// Opaque, request-scoped authority for one workspace boundary. It is never
 /// serialized into conversation state or tool output.
-class WorkspaceBinding {
-  const WorkspaceBinding._(this._location, this._boundary);
-
-  /// Creates an opaque identity-only binding for coordinator lifecycle tests.
-  @visibleForTesting
-  const WorkspaceBinding.fakeForTest()
-    : _location = const MemoryLocation(value: '', isContentUri: false),
-      _boundary = const _UnavailableBinaryBoundary();
+final class _MemoryWorkspaceBinding implements WorkspaceBinding {
+  const _MemoryWorkspaceBinding(
+    this._location,
+    this._boundary,
+    this._revalidateAccess,
+  );
 
   final MemoryLocation _location;
   final BinarySubPathMemoryFileBoundary _boundary;
+  final Future<void> Function() _revalidateAccess;
 
+  @override
+  BinarySubPathMemoryFileBoundary get capability => _boundary;
+  @override
+  WorkspaceRootLocation get location => WorkspaceRootLocation(
+    kind: _location.isContentUri
+        ? WorkspaceStorageKind.saf
+        : WorkspaceStorageKind.path,
+    value: _location.value,
+    identity: snapshot.identity,
+  );
+  @override
+  Future<void> revalidateAccess() => _revalidateAccess();
+
+  @override
   String get permissionSnapshot =>
       '${_location.isContentUri}:${_location.value}';
+  @override
   WorkspaceBindingSnapshot get snapshot => WorkspaceBindingSnapshot(
     isContentUri: _location.isContentUri,
     value: _location.value,
-    identity: permissionSnapshot,
+    identity: switch (_boundary) {
+      PathMemoryFileStore store => store.canonicalRootIdentity,
+      SafMemoryFileStore store => store.canonicalRootIdentity,
+      _ => permissionSnapshot,
+    },
   );
+}
+
+extension WorkspaceBindingMemoryOperations on WorkspaceBinding {
+  BinarySubPathMemoryFileBoundary get _memoryBoundary {
+    final value = capability;
+    if (value is! BinarySubPathMemoryFileBoundary) {
+      throw const WorkspaceStorageException.io(
+        'Bound workspace is unavailable.',
+      );
+    }
+    return value;
+  }
+
   bool get supportsAutomaticSkillCreate =>
-      _boundary is ExclusiveSkillCreateBoundary &&
-      (_boundary as ExclusiveSkillCreateBoundary)
+      _memoryBoundary is ExclusiveSkillCreateBoundary &&
+      (_memoryBoundary as ExclusiveSkillCreateBoundary)
           .supportsExclusiveCreateAndVerifiedReadback;
 
   Future<String?> readText(String relativePath) async {
-    final boundary = _boundary;
+    final boundary = _memoryBoundary;
     if (boundary is! SubPathMemoryFileBoundary) {
       throw const WorkspaceStorageException.io(
         'Bound workspace is unavailable.',
@@ -250,7 +297,7 @@ class WorkspaceBinding {
   }
 
   Future<List<String>> listTextFiles(String relativeDirectory) async {
-    final boundary = _boundary;
+    final boundary = _memoryBoundary;
     if (boundary is! SubPathMemoryFileBoundary) {
       throw const WorkspaceStorageException.io(
         'Bound workspace is unavailable.',
@@ -266,7 +313,7 @@ class WorkspaceBinding {
     String? expectedContent,
     String content,
   ) async {
-    final boundary = _boundary;
+    final boundary = _memoryBoundary;
     if (boundary is! CompareWriteSubPathMemoryFileBoundary) {
       throw const WorkspaceStorageException.io(
         'Bound atomic writes are unavailable.',
@@ -283,7 +330,7 @@ class WorkspaceBinding {
     required int maxCount,
     required int maxTotalBytes,
   }) async {
-    final boundary = _boundary;
+    final boundary = _memoryBoundary;
     if (boundary is! SkillCandidateCommitBoundary) {
       return SkillCommitResult.unsupported;
     }
@@ -295,35 +342,6 @@ class WorkspaceBinding {
       maxTotalBytes: maxTotalBytes,
     );
   }
-}
-
-class WorkspaceBindingSnapshot {
-  const WorkspaceBindingSnapshot({
-    required this.isContentUri,
-    required this.value,
-    required this.identity,
-  });
-  final bool isContentUri;
-  final String value;
-  final String identity;
-  Map<String, Object?> toJson() => {
-    'isContentUri': isContentUri,
-    'value': value,
-    'identity': identity,
-  };
-  factory WorkspaceBindingSnapshot.fromJson(Map<dynamic, dynamic> json) =>
-      WorkspaceBindingSnapshot(
-        isContentUri: json['isContentUri'] == true,
-        value: json['value'].toString(),
-        identity: json['identity'].toString(),
-      );
-}
-
-class _UnavailableBinaryBoundary implements BinarySubPathMemoryFileBoundary {
-  const _UnavailableBinaryBoundary();
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class WorkspaceStorageException implements Exception {

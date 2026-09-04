@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -7,6 +9,11 @@ import '../../memory/application/update_memory_file_service.dart';
 import '../../models/application/models_controller.dart';
 import '../../models/domain/model_capabilities.dart';
 import '../../public_source/application/public_source_chat_tool_runtime.dart';
+import '../../workspace/application/workspace_mutation_coordinator.dart';
+import '../../workspace/application/session_workspace_boundary.dart';
+import 'chat_workspace_boundary_factory.dart';
+import '../../workspace/data/workspace_recovery_journal.dart';
+import '../domain/pending_workspace_proposal.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
 import '../../../features/memory/application/workspace_paths.dart';
@@ -22,6 +29,7 @@ import '../data/conversation_store.dart';
 import '../domain/chat_message.dart';
 import '../domain/conversation.dart';
 import 'chat_state.dart';
+import 'chat_controller_bootstrap_service.dart';
 import 'chat_memory_decision_service.dart';
 import 'chat_lifecycle_service.dart';
 import 'chat_streaming_coordinator.dart';
@@ -51,8 +59,10 @@ class ChatController extends _$ChatController {
   @override
   Future<ChatState> build() async {
     final store = ref.watch(conversationStoreProvider);
-    await store.recoverInterrupted();
-    final conversations = store.loadAll();
+    final conversations = await ChatControllerBootstrapService(
+      conversations: store,
+      memoryRepository: ref.read(memoryRepositoryProvider),
+    ).load();
     _automaticTitles = AutomaticTitleCoordinator(
       conversationById: (id) => state.valueOrNull?.conversationById(id),
       persist: _saveAndPublishAuthoritative,
@@ -193,9 +203,6 @@ class ChatController extends _$ChatController {
     final text = content.trim();
     if (text.isEmpty || !_requestAdmission.tryAcquire()) return;
     try {
-      if (state.requireValue.activeConversation?.pendingToolProposal != null) {
-        return;
-      }
       if (state.requireValue.hasInFlightRequest) return;
       final conversation = await _ensureConversation();
       if (conversation == null) return;
@@ -257,9 +264,7 @@ class ChatController extends _$ChatController {
 
   bool _sendAgainBlocked(String conversationId) {
     final current = state.requireValue;
-    return current.conversationById(conversationId)?.pendingToolProposal !=
-            null ||
-        current.hasInFlightRequest;
+    return current.hasInFlightRequest;
   }
 
   Future<void> retryInterrupted(String conversationId) async {

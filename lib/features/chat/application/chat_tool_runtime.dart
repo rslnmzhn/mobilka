@@ -1,8 +1,9 @@
 import '../domain/chat_message.dart';
 import '../domain/chat_tool.dart';
 import '../domain/pending_memory_proposal.dart';
-import '../../memory/application/workspace_paths.dart';
+import '../../../core/workspace/workspace_binding.dart';
 import '../domain/pending_skill_proposal.dart';
+import '../domain/pending_workspace_proposal.dart';
 import 'request_tool_security_state.dart';
 
 abstract interface class ChatToolRuntime {
@@ -81,6 +82,27 @@ abstract interface class MemoryProposalRuntime {
 
   Future<void> revalidateMemoryToolPermission({
     required String toolName,
+    required String? selectedAgentId,
+    required Set<String> allowedTools,
+  });
+}
+
+abstract interface class WorkspaceProposalRuntime {
+  bool handlesWorkspaceMutation(String toolName);
+
+  Future<PendingWorkspaceProposal> prepareWorkspaceProposal({
+    required ChatToolCall call,
+    required ChatToolExecutionContext context,
+    required String requestId,
+    required String assistantMessageId,
+    required String? selectedAgentId,
+    required Set<String> allowedTools,
+    required int callOccurrence,
+    required int toolCallIndex,
+  });
+
+  Future<void> revalidateWorkspacePermission({
+    required PendingWorkspaceProposal proposal,
     required String? selectedAgentId,
     required Set<String> allowedTools,
   });

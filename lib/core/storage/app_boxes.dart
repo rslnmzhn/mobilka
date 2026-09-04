@@ -6,3 +6,5 @@ Box<dynamic> get conversationsBox => Hive.box<dynamic>('conversations');
 Box<dynamic> get memoryRecoveryBox => Hive.box<dynamic>('memory_recovery');
 Box<dynamic> get memoryProposalBox => Hive.box<dynamic>('memory_proposals');
 Box<dynamic> get artifactsBox => Hive.box<dynamic>('artifacts');
+Box<dynamic> get workspaceRecoveryBox =>
+    Hive.box<dynamic>('workspace_recovery');

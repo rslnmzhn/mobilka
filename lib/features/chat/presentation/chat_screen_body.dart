@@ -249,6 +249,17 @@ class _PendingProposals extends ConsumerWidget {
             onConfirm: controller.confirmPendingSkillProposal,
             onReject: controller.rejectPendingSkillProposal,
           ),
+        if (conversation?.pendingWorkspaceProposal case final proposal?)
+          PendingWorkspaceProposalCard(
+            operation: proposal.operation,
+            path: proposal.path,
+            preview: proposal.preview,
+            isBusy:
+                state.confirmingWorkspaceToolCallId == proposal.toolCallId ||
+                proposal.status.name == 'executing',
+            onConfirm: controller.confirmPendingWorkspaceProposal,
+            onReject: controller.rejectPendingWorkspaceProposal,
+          ),
       ],
     );
   }

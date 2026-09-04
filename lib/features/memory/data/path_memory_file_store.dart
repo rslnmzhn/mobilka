@@ -1,6 +1,5 @@
 import 'dart:io';
-import 'package:synchronized/synchronized.dart';
-
+import '../../../core/storage/workspace_root_lock.dart';
 import 'memory_file_store_contracts.dart';
 import 'path_skill_commit.dart';
 import 'path_binary_pair_writer.dart';
@@ -28,9 +27,10 @@ class PathMemoryFileStore
   final PathMemoryFileStoreHooks? _hooks;
   @override
   bool get supportsExclusiveCreateAndVerifiedReadback => true;
-  static final Map<String, Lock> _directoryLocks = {};
 
   String get rootPath => directoryPath;
+
+  String get canonicalRootIdentity => _normalizedAbsolutePath(directoryPath);
 
   @override
   Future<String> read(String fileName) {
@@ -214,7 +214,7 @@ class PathMemoryFileStore
     Future<T> Function(_CanonicalPathGuard guard) action,
   ) async {
     final root = await Directory(directoryPath).resolveSymbolicLinks();
-    final lock = _directoryLocks.putIfAbsent(_lockKey(root), Lock.new);
+    final lock = WorkspaceRootLocks.forPath(root);
     return lock.synchronized(() async {
       final guard = _CanonicalPathGuard(directoryPath, root);
       await guard.revalidateRoot();
@@ -454,6 +454,9 @@ String _join(String parent, String child) =>
     '$parent${Platform.pathSeparator}$child';
 
 String _lockKey(String path) => Platform.isWindows ? path.toLowerCase() : path;
+
+String _normalizedAbsolutePath(String path) =>
+    Directory(path).absolute.uri.normalizePath().toFilePath();
 
 bool _samePath(String first, String second) =>
     _lockKey(first.replaceAll(RegExp(r'[\\/]+$'), '')) ==

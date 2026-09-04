@@ -77,6 +77,10 @@ class SkillReflectionRunner {
       request.workspaceBinding != null &&
       request.allowedTools.containsAll(allowed) &&
       conversationById(request.conversationId)?.pendingSkillProposal == null &&
+      conversationById(request.conversationId)?.pendingMemoryProposal == null &&
+      conversationById(request.conversationId)?.pendingToolProposal == null &&
+      conversationById(request.conversationId)?.pendingWorkspaceProposal ==
+          null &&
       security.claimReflection();
 
   Future<void> _runBounded(
@@ -192,7 +196,10 @@ class SkillReflectionRunner {
     _checkCancelled(cancellation);
     final saved = await persistMutation(request.conversationId, (latest) {
       if (latest.pendingRequestMessageId != request.requestMessageId ||
-          latest.pendingSkillProposal != null) {
+          latest.pendingSkillProposal != null ||
+          latest.pendingMemoryProposal != null ||
+          latest.pendingToolProposal != null ||
+          latest.pendingWorkspaceProposal != null) {
         return null;
       }
       return latest.copyWith(pendingSkillProposal: proposal);

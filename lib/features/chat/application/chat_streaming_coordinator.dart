@@ -13,6 +13,7 @@ import 'pending_workspace_binding_store.dart';
 import 'conversation_mutation.dart';
 import 'request_tool_security_state.dart';
 import 'memory_decision_continuation.dart';
+import 'workspace_decision_continuation.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
 import '../../../features/memory/application/workspace_paths.dart';
@@ -23,6 +24,7 @@ import '../domain/conversation.dart';
 import '../domain/chat_tool.dart';
 import '../domain/pending_memory_proposal.dart';
 import '../domain/request_execution_ledger.dart';
+import '../domain/pending_workspace_proposal.dart';
 
 class ChatStreamingCoordinator {
   ChatStreamingCoordinator({
@@ -88,6 +90,7 @@ class ChatStreamingCoordinator {
               _workspaceBindings.retain(request, proposal, binding);
             }
           },
+          onPendingWorkspaceProposal: (_) {},
         );
 
   static const maxTransientRetries = 1;
@@ -96,6 +99,7 @@ class ChatStreamingCoordinator {
   CancelToken? _cancelToken;
   Future<void>? _running;
   final Set<String> _memoryDecisions = {};
+  final Set<String> _workspaceDecisions = {};
   RequestToolSecurityState? _requestSecurity;
   final PendingWorkspaceBindingStore _workspaceBindings;
   final bool _ownsWorkspaceBindings;
@@ -140,6 +144,42 @@ class ChatStreamingCoordinator {
     }
   }
 
+  Future<void> continueAfterWorkspaceDecision({
+    required Conversation conversation,
+    required PendingWorkspaceProposal proposal,
+    required String toolResult,
+    required WorkspaceBinding? workspaceBinding,
+    bool continueStreaming = true,
+    Future<void> Function()? afterPersist,
+  }) async {
+    final decisionId =
+        '${conversation.id}:${proposal.requestId}:${proposal.assistantMessageId}:'
+        '${proposal.toolCallId}:${proposal.callOccurrence}';
+    if (!_workspaceDecisions.add(decisionId)) return;
+    if (_running != null) {
+      _workspaceDecisions.remove(decisionId);
+      throw StateError('A chat request is already running');
+    }
+    try {
+      await WorkspaceDecisionContinuation(
+        persistMutation: _persistMutation,
+        run: run,
+      ).continueRequest(
+        conversation: conversation,
+        proposal: proposal,
+        toolResult: toolResult,
+        workspaceBinding: workspaceBinding,
+        continueStreaming: continueStreaming,
+        afterPersist: afterPersist,
+      );
+    } on Object {
+      _workspaceDecisions.remove(decisionId);
+      rethrow;
+    } finally {
+      _workspaceDecisions.remove(decisionId);
+    }
+  }
+
   void cancel(String conversationId) {
     if (_activeRequest?.conversationId == conversationId) {
       _cancelToken?.cancel('Cancelled by user');
@@ -159,6 +199,9 @@ class ChatStreamingCoordinator {
     _memoryDecisions.removeWhere(
       (decision) => decision.startsWith('$conversationId:'),
     );
+    _workspaceDecisions.removeWhere(
+      (decision) => decision.startsWith('$conversationId:'),
+    );
     if (_requestSecurity?.conversationId == conversationId) {
       _requestSecurity = null;
     }
@@ -173,6 +216,7 @@ class ChatStreamingCoordinator {
     _cancelToken?.cancel('Coordinator disposed');
     if (_ownsWorkspaceBindings) _workspaceBindings.reset();
     _memoryDecisions.clear();
+    _workspaceDecisions.clear();
     _requestSecurity = null;
   }
 

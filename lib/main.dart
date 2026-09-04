@@ -23,6 +23,7 @@ Future<void> main() async {
     Hive.openBox<dynamic>('memory_recovery'),
     Hive.openBox<dynamic>('memory_proposals'),
     Hive.openBox<dynamic>('artifacts'),
+    Hive.openBox<dynamic>('workspace_recovery'),
   ]);
 
   runApp(

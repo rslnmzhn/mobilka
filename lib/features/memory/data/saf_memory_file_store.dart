@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:synchronized/synchronized.dart';
 
+import '../../../core/storage/workspace_root_lock.dart';
 import 'memory_file_store_contracts.dart';
 import 'saf_binary_artifact_pair_writer.dart';
 import 'saf_memory_access.dart';
@@ -23,8 +24,11 @@ class SafMemoryFileStore
   final SafMemoryAccess _access;
   @override
   bool get supportsExclusiveCreateAndVerifiedReadback => false;
-  static final Map<String, Lock> _directoryLocks = {};
-  Lock get _lock => _directoryLocks.putIfAbsent(directoryUri, Lock.new);
+  Lock get rootLock => WorkspaceRootLocks.forSaf(directoryUri);
+  SafMemoryAccess get workspaceAccess => _access;
+  Lock get _lock => rootLock;
+
+  String get canonicalRootIdentity => directoryUri;
 
   @override
   Future<String> read(String fileName) {

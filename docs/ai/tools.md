@@ -2,13 +2,13 @@
 
 The authoritative registry is `CompositeChatToolRuntime` in
 [`chat_tool_runtime_registry.dart`](../../lib/features/chat/application/chat_tool_runtime_registry.dart).
-It composes artifact, skill, session-note, persona, memory, and public-source runtimes. A tool
+It composes artifact, skill, session-workspace, persona, memory, and public-source runtimes. A tool
 is advertised only when its name is in the immutable allowed-tool set captured
 from the selected agent. The default agent definition is
 [`general-assistant.md`](../../assets/agents/general-assistant.md).
 
-The registry retains 13 compatibility definitions; the bundled default agent
-allows exactly 12 and omits legacy `write_skill` in favor of `propose_skill`.
+The bundled default agent exposes the safe workspace tools and omits legacy
+`write_skill` in favor of `propose_skill`.
 
 Model-authored skill creation is never confirmation-free. Reflection reliably
 produces one inspectable persisted proposal, and every create or update requires
@@ -24,8 +24,16 @@ is a conservative heuristic; users retain direct manual control of skill files.
 | `propose_skill` | `name`, `content` | `SkillsChatTools` | Reflection-only safe API. Provenance comes from persisted request state; every valid create/update persists an exact dedicated confirmation proposal and never writes directly. |
 | `read_skill` | `name: string` (required) | `SkillsChatTools` | Reads one skill. |
 | `list_skills` | empty object | `SkillsChatTools` | Lists skill files. |
-| `write_session_notes` | `content: string` (required) | `SessionNotesTools` | Immediate write to the bound session's `session.md`; requires valid session context. |
-| `read_session_notes` | empty object | `SessionNotesTools` | Reads bound session notes; requires valid session context. |
+| `write_session_notes` | `content: string` (required) | `WorkspaceChatToolRuntime` only | Compatibility alias for `write_file` targeting `session.md`; always requires exact confirmation. |
+| `read_session_notes` | empty object | `WorkspaceChatToolRuntime` only | Reads bound `session.md` through the secure workspace authority. |
+| `list_files` | optional `path`, `recursive` | `WorkspaceChatToolRuntime` | Bounded metadata-only listing in the immutable session workspace. |
+| `search_files` | `query`; optional `path`, `case_sensitive` | `WorkspaceChatToolRuntime` | Bounded literal UTF-8 search in the immutable session workspace. |
+| `read_file` | `path`; optional `offset`, `max_bytes` | `WorkspaceChatToolRuntime` | Bounded strict UTF-8 read. |
+| `write_file` | `path`, `content` | Workspace proposal runtime | Confirmed exact create/replace proposal. |
+| `apply_patch` | `path`, `patch` | Workspace proposal runtime | Confirmed single-file unified patch proposal. |
+| `move_file` | `source`, `destination` | Workspace proposal runtime | Confirmed no-overwrite move proposal. |
+| `delete_file` | `path` | Workspace proposal runtime | Confirmed regular-file deletion proposal. |
+| `make_directory` | `path` | Workspace proposal runtime | Confirmed directory creation proposal. |
 | `list_personas` | empty object | `PersonaChatTools` | Reads names and active persona. |
 | `switch_persona` | optional `id: string|null`; null clears | `PersonaChatTools` / `PersonaRegistry` | Selects a canonical persona ID; exact unique title is temporary compatibility. |
 | `save_persona` | `id`, `title`, `description`, `params`, `prompt` | `MemoryToolDispatcher` + memory proposal runtime | Creates/updates `personas/<id>.md` only after exact confirmation. |
@@ -40,8 +48,9 @@ is a conservative heuristic; users retain direct manual control of skill files.
   Runtime execution checks that set again; memory confirmation also revalidates
   that the selected agent still owns the permission before mutation.
 - Unknown or unadvertised calls fail without mutation. Tool-call rounds are
-  capped at eight. Only one memory/persona proposal can await confirmation per
-  assistant response; subsequent calls in that response are not executed.
+  capped at eight. Only one memory/persona, generic, skill, or workspace proposal
+  can await confirmation per conversation; subsequent calls in that response
+  are not executed.
 - Confirmable proposals persist proposed complete content, exact diff,
   permission snapshot, version/token, and target. Confirm/reject is explicit;
   confirm revalidates permissions and current storage state through the shared
@@ -81,11 +90,16 @@ Confirmable memory/persona calls do not emit a successful tool result until the
 owner decision lifecycle resolves; they persist a pending proposal and pause
 the model continuation.
 
+Workspace mutation proposals persist a chat-owned authorization envelope and a
+conversation-neutral operation identity with exact source/target identities, hashes,
+binding and permission snapshots, operation output, and preview hash. Confirm
+atomically claims the proposal, reconstructs and revalidates the same binding,
+rechecks agent permission and target CAS, then commits through the recovery
+journal. `artifacts/` and every descendant are read-only to workspace mutations.
+
 ## Not registered/current
 
-`list_files`, `search_files`,
-`read_file`, `write_file`, `apply_patch`, `move_file`, `delete_file`,
-`make_directory`, OCR/document extraction tools, attachment tools, arbitrary
+OCR/document extraction tools, attachment tools, arbitrary
 HTTP, shell/terminal tools, and Advanced Coding tools are **future roadmap
 items, not current chat tools**. Do not add them to prompts or documentation as
 available until registry code, permissions, tests, and roadmap status agree.
@@ -112,8 +126,9 @@ PromptGuard is heuristic marking, not a security boundary.
 
 Generic confirmation or rejection terminally finalizes the originating request;
 the user starts a new request afterward. A proposal is atomically claimed before
-execution. If the app restarts while it is executing, recovery records an
-`execution_indeterminate` terminal result and never repeats the mutation.
+execution. Workspace claims are distinct: startup removes a claim-only record
+and resets the exact matching proposal to pending, while any prepared native
+receipt is reconciled or rolled back before the conversation is finalized.
 Public-source cache misses conservatively reserve up to 1 MiB from the persisted
 8 MiB budget before opening transport; unused reservation is refunded normally,
 while a crash leaves the reservation charged.

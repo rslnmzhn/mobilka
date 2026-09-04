@@ -11,6 +11,7 @@ class ChatState {
     this.confirmingMemoryToolCallId,
     this.confirmingToolCallId,
     this.confirmingSkillName,
+    this.confirmingWorkspaceToolCallId,
   });
 
   final List<Conversation> conversations;
@@ -21,6 +22,7 @@ class ChatState {
   final String? confirmingMemoryToolCallId;
   final String? confirmingToolCallId;
   final String? confirmingSkillName;
+  final String? confirmingWorkspaceToolCallId;
 
   Conversation? get activeConversation =>
       conversationById(activeConversationId);
@@ -31,7 +33,9 @@ class ChatState {
     (item) =>
         item.isStreaming ||
         item.pendingMemoryProposal != null ||
-        item.pendingToolProposal != null,
+        item.pendingToolProposal != null ||
+        item.pendingSkillProposal != null ||
+        item.pendingWorkspaceProposal != null,
   );
 
   List<Conversation> get visibleConversations => conversations
@@ -56,6 +60,8 @@ class ChatState {
     bool clearConfirmingTool = false,
     String? confirmingSkillName,
     bool clearConfirmingSkill = false,
+    String? confirmingWorkspaceToolCallId,
+    bool clearConfirmingWorkspace = false,
   }) => ChatState(
     conversations: conversations ?? this.conversations,
     activeConversationId: clearActiveConversation
@@ -73,6 +79,9 @@ class ChatState {
     confirmingSkillName: clearConfirmingSkill
         ? null
         : (confirmingSkillName ?? this.confirmingSkillName),
+    confirmingWorkspaceToolCallId: clearConfirmingWorkspace
+        ? null
+        : (confirmingWorkspaceToolCallId ?? this.confirmingWorkspaceToolCallId),
   );
 }
 

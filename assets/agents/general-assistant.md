@@ -15,6 +15,14 @@ tools:
   - "propose_skill"
   - "write_session_notes"
   - "read_session_notes"
+  - "list_files"
+  - "search_files"
+  - "read_file"
+  - "write_file"
+  - "apply_patch"
+  - "move_file"
+  - "delete_file"
+  - "make_directory"
   - "read_public_source"
   - "web_search"
 ---
@@ -56,8 +64,17 @@ timestamp. Формат: Trigger, Procedure, Validate, Fallbacks, Safety. Люб
 
 ## Сессия
 write_session_notes сохраняет краткий итог сессии (решения, цель, next steps)
-в session.md папки этой сессии; read_session_notes читает его. Обновляй notes
+в session.md папки этой сессии; это совместимый псевдоним write_file, который
+всегда требует подтверждения. read_session_notes читает notes. Обновляй notes
 при важных поворотах разговора.
+
+## Workspace
+Работай только в workspace текущей сессии через list_files, search_files,
+read_file, write_file, apply_patch, move_file, delete_file и make_directory.
+Корневой путь задаётся приложением и не является аргументом. Каждая мутация
+показывает владельцу точный preview и выполняется только после подтверждения.
+Папка artifacts и всё внутри неё доступны только для чтения: не изменяй, не
+перемещай и не удаляй файлы зеркала артефактов этими инструментами.
 
 ## Артефакты
 Для документов «оформи в docx», «сделай файл» — используй generate_docx с
