@@ -79,12 +79,8 @@ void main() {
     expect(cmake, contains('session_workspace_prepare_commit.cc'));
     expect(cmake, contains('session_workspace_recovery.cc'));
     expect(cmake, contains('session_workspace_native_test.cc'));
-    expect(
-      workflow,
-      contains(
-        'ctest --test-dir build/linux/x64/release -C Release '
-        '--output-on-failure',
-      ),
-    );
+    expect(workflow, isNot(contains('build_linux')));
+    expect(workflow, isNot(contains('flutter build linux')));
+    expect(workflow, isNot(contains('ctest --test-dir build/linux')));
   });
 }

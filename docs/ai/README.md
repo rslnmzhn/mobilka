@@ -33,7 +33,8 @@ owning symbol when changing behavior.
 | Artifacts | [`lib/features/artifacts/`](../../lib/features/artifacts/) | `ArtifactsController`, Hive metadata, app-private files |
 | Updates | [`lib/features/updater/`](../../lib/features/updater/) | `GithubUpdateRepository` and platform bridges |
 | Default prompts | [`assets/agents/`](../../assets/agents/) | Structured Markdown agent definitions |
-| Platform/release | [`android/`](../../android/), [`windows/`](../../windows/), [`linux/`](../../linux/), [`.github/`](../../.github/) | Platform bridges and release workflow |
+| Active platform/release | [`android/`](../../android/), [`windows/`](../../windows/), [`.github/`](../../.github/) | Android and Windows bridges and release workflow |
+| Dormant Linux target | [`linux/`](../../linux/) | Retained source, native workspace broker, and CMake registration; source policy tests only, with no active compile or CTest workflow |
 
 Presentation widgets do not own persistence or request lifecycle. Keep domain,
 data/services, Riverpod state, and presentation separated.
@@ -85,9 +86,11 @@ proportional; documentation-only changes need link/path checks and
   HTML only, DNS-policy checked and connection-pinned, bounded and PromptGuarded.
 - `web_search` is optional discovery through a user-operated SearXNG JSON API;
   results remain untrusted and must be followed by an explicit HTTPS source read.
-- **Experimental:** workspace file tools are registered and their native
-  Android, Windows, and Linux boundaries have automated coverage. Physical
-  platform verification remains pending. OCR/document extraction, general
+- **Experimental:** workspace file tools are registered. Android and Windows
+  native boundaries have active automated coverage; dormant Linux broker source
+  and CMake registration retain source policy tests, but no active Linux compile
+  or CTest runs in CI. Physical platform verification remains pending.
+  OCR/document extraction, general
   attachments, and Chat / Advanced Coding are future roadmap items and must not
   be presented as shipped behavior. Image-processing support in source does not
   make the planned general attachment UX complete.

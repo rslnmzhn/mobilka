@@ -10,7 +10,6 @@ Key jobs:
 
 - `resolve_release`
 - `build_android_release`
-- `build_linux`
 - `build_windows`
 - `publish_release`
 
@@ -34,8 +33,6 @@ Current stable release assets:
 - `mobilka-vX.Y.Z-android-armeabi-v7a.apk`
 - `mobilka-vX.Y.Z-android-arm64-v8a.apk`
 - `mobilka-vX.Y.Z-android-x86_64.apk`
-- `mobilka-vX.Y.Z-linux-x86_64.AppImage`
-- `mobilka-vX.Y.Z-linux-x64.zip`
 - `mobilka-vX.Y.Z-windows-x64.zip`
 - `mobilka-vX.Y.Z-windows-x64.msi`
 - `mobilka-vX.Y.Z-release-manifest.json`
@@ -134,9 +131,12 @@ immediately before invoking `msiexec`, then removes the protected copy while
 retaining the app-owned verified source for retry. Handoff logging is app-owned,
 bounded, reparse-safe, and never uses `%TEMP%`.
 
-## AppImage packaging
+## Dormant Linux target
 
-The Linux release job builds the Flutter bundle and packages it with the pinned
-`appimage-builder` version using `.github/appimage/AppImageBuilder.yml`. The
-desktop entry uses application ID `com.rslnmzhn.mobilka`, executable `mobilka`,
-and the existing Android launcher icon.
+Linux application source, the native workspace broker, and the existing
+AppImage packaging script/configuration are retained for possible future
+reactivation. Linux is not an active supported target: the current GitHub
+Actions workflow does not build or test Linux, package AppImage or ZIP files,
+upload Linux artifacts, include Linux entries in the release manifest, or
+publish Linux release assets. Linux validation is therefore not part of the
+current Android and Windows release gate.

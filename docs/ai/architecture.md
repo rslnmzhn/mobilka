@@ -195,9 +195,10 @@ Mirror failure does not invalidate the app-private artifact.
 one canonical release manifest and matching signature, and verifies Ed25519
 with the pinned public key before selecting an asset. Download staging enforces
 declared size and SHA-256. Automatic application is limited to Android APK and
-provenance-verified per-machine MSI Windows installs. Windows ZIP and Linux
-ZIP/AppImage remain manual update paths. Preserve Android signer and Windows
-MSI provenance constraints in [AGENTS.md](../../AGENTS.md).
+provenance-verified per-machine MSI Windows installs. Windows ZIP remains a
+manual update path; dormant Linux builds are not currently published. Preserve
+Android signer and Windows MSI provenance constraints in
+[AGENTS.md](../../AGENTS.md).
 
 ## Explicit future boundaries
 
