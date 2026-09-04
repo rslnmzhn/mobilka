@@ -27,10 +27,10 @@ format: dart format .
 - Chat tool availability is fail-closed per stable runtime registration: one optional runtime failure omits only that runtime's tools and must not interrupt a request.
 - Streaming coordination is bound to immutable conversation, request, and assistant-message IDs rather than mutable active-chat state.
 - UI paradigm: Streaming chat with collapsible tool-calling cards, theme presets, and slide-up bottom sheets for artifacts, memory files, and tool execution logs.
-- Current targets are Android, Windows, and Linux; iOS and macOS are future targets.
+- Active build and release targets are Android and Windows. Linux source and its native workspace broker remain dormant and unsupported until explicit reactivation; iOS and macOS are future targets.
 - Android application ID is `com.rslnmzhn.mobilka` and minimum SDK is 29.
 - Updater discovery uses the latest stable GitHub Release and accepts only the canonical release manifest after Ed25519 verification with pinned public key `nH/Hnmn7UJtCy4Qb91c9dIAwQ3LSUkv6yRhDhMlZ3JY=`; selected assets are then size- and SHA-256-verified before staging.
-- Automatic update application is limited to Android APKs and provenance-verified, per-machine MSI-installed Windows; Windows ZIP, Linux ZIP, and AppImage distributions are manual-update-only.
+- Automatic update application is limited to Android APKs and provenance-verified, per-machine MSI-installed Windows; Windows ZIP is manual-update-only. No Linux artifacts are currently built or published.
 - Updater staging metadata is persisted before file/apply transitions; recovery and cleanup are serialized, basename-only, direct-child, no-follow operations with native Android/Windows identity rechecks and bounded retention.
 
 ## Project structure
@@ -97,7 +97,7 @@ format: dart format .
 - Remote Git operations require a configured remote and explicit user authorization under the current agent policy; the user's current request authorizes the current remote sequence only, not future remote sequences.
 - Report automated verification separately from manual device checks, and never claim a manual device check is complete unless it was actually performed.
 - Release signing secrets are named `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `WINDOWS_CERTIFICATE_BASE64`, `WINDOWS_CERTIFICATE_PASSWORD`, and `UPDATE_MANIFEST_PRIVATE_KEY`; never store or print their values.
-- Release workflow tooling uses `.github/scripts/resolve_release_version.sh`, `apply_release_version.sh`, `verify_android_release.sh`, `package_linux_appimage.sh`, `package_windows_msi.ps1`, `generate_release_manifest.sh`, and `sign_release_manifest.sh`; local MSI validation runs `flutter build windows --release`, `dotnet tool install --global wix --version 5.0.2`, then `.github/scripts/package_windows_msi.ps1 -Version <version>`.
+- Active release workflow tooling uses `.github/scripts/resolve_release_version.sh`, `apply_release_version.sh`, `verify_android_release.sh`, `package_windows_msi.ps1`, `generate_release_manifest.sh`, and `sign_release_manifest.sh`; local MSI validation runs `flutter build windows --release`, `dotnet tool install --global wix --version 5.0.2`, then `.github/scripts/package_windows_msi.ps1 -Version <version>`. The retained Linux/AppImage tooling is dormant and is not a required validation path.
 
 ## Agent registry
 | agent | mode | role |

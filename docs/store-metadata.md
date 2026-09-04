@@ -11,9 +11,10 @@ Remote AI workspace: bring your own OpenAI-compatible endpoint and memory.
 mobilka connects to the OpenAI-compatible endpoint YOU choose. Bring your own
 API key, pick any model, and keep a human-readable Markdown memory under your
 control. Chats, artifacts, and keys never leave your device except in direct
-requests to your configured endpoint. Signed auto-updates for Android APK and
-per-machine Windows MSI installs; portable builds for Windows ZIP, Linux ZIP,
-and AppImage are manual-download only.
+requests to your configured endpoint. Signed auto-updates are available for
+Android APK and per-machine Windows MSI installs; Windows ZIP builds are
+manual-download only. Linux source remains dormant and Linux builds are not
+currently published or supported.
 
 ## Category / tags
 Productivity; AI chat client; developer tools.

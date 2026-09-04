@@ -7,7 +7,7 @@ trap 'rm -rf -- "${work}"' EXIT
 version="1.2.3"
 for name in \
   android-armeabi-v7a.apk android-arm64-v8a.apk android-x86_64.apk \
-  linux-x86_64.AppImage linux-x64.zip windows-x64.msi windows-x64.zip; do
+  windows-x64.msi windows-x64.zip; do
   printf 'dummy asset %s\n' "${name}" > "${work}/mobilka-v${version}-${name}"
 done
 
@@ -30,7 +30,11 @@ canonical = json.dumps(value, ensure_ascii=True, allow_nan=False,
                        sort_keys=True, separators=(",", ":")).encode()
 assert raw == canonical
 android = [asset for asset in value["assets"] if asset["platform"] == "android"]
+windows = [asset for asset in value["assets"] if asset["platform"] == "windows"]
+assert len(value["assets"]) == 5
+assert {asset["platform"] for asset in value["assets"]} == {"android", "windows"}
 assert len(android) == 3
+assert len(windows) == 2
 assert all(asset["applicationId"] == "com.rslnmzhn.mobilka" for asset in android)
 scaled = {"armeabi-v7a": 1003003, "arm64-v8a": 1004003, "x86_64": 1006003}
 assert all(asset["versionCode"] == scaled[asset["arch"]] for asset in android)
