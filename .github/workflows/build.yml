@@ -231,6 +231,8 @@ jobs:
         run: flutter pub get
       - name: Build Linux (release)
         run: CXXFLAGS="-Wno-error=unused-but-set-variable" flutter build linux --release -v --dart-define=MOBILKA_VERSION=${RELEASE_VERSION}
+      - name: Run Linux native tests
+        run: ctest --test-dir build/linux/x64/release -C Release --output-on-failure
       - name: Upload Linux bundle CI artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
