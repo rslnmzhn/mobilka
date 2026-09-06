@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "digest_policy": "SHA-256 values must be independently approved in the local provisioning manifest; null is not approval",
+  "sources": {
+    "ZLIB": {"version": "1.3.1", "url": "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz", "sha256": null, "version_file": "zlib.h", "version_pattern": "#define ZLIB_VERSION \"1\\.3\\.1\""},
+    "PNG": {"version": "1.6.47", "url": "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.47.tar.gz", "sha256": null, "version_file": "png.h", "version_pattern": "#define PNG_LIBPNG_VER_STRING \"1\\.6\\.47\""},
+    "JPEG": {"version": "3.1.0", "url": "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.0.tar.gz", "sha256": null, "version_file": "CMakeLists.txt", "version_pattern": "set\\(VERSION 3\\.1\\.0\\)"},
+    "LEPTONICA": {"version": "1.85.0", "url": "https://github.com/DanBloomberg/leptonica/archive/refs/tags/1.85.0.tar.gz", "sha256": null, "version_file": "CMakeLists.txt", "version_pattern": "VERSION 1\\.85\\.0\\)"},
+    "TESSERACT": {"version": "5.5.1", "url": "https://github.com/tesseract-ocr/tesseract/archive/refs/tags/5.5.1.tar.gz", "sha256": null, "version_file": "VERSION", "version_pattern": "^5\\.5\\.1[\r\n]*$"}
+  },
+  "pdfium": {
+    "version": "7520",
+    "required_flags": {"pdf_enable_v8": false, "pdf_enable_xfa": false},
+    "assets": {
+      "windows-x64": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-win-x64.tgz", "sha256": null},
+      "android-arm64-v8a": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-android-arm64.tgz", "sha256": null},
+      "android-armeabi-v7a": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-android-arm.tgz", "sha256": null},
+      "android-x86_64": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-android-x64.tgz", "sha256": null}
+    }
+  },
+  "tessdata_fast": {
+    "version": "4.1.0",
+    "eng": {"url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/eng.traineddata", "sha256": null},
+    "rus": {"url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/rus.traineddata", "sha256": null}
+  }
+}

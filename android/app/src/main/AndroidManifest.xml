@@ -10,6 +10,11 @@
         android:usesCleartextTraffic="true"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher">
+        <service
+            android:name=".documents.DocumentWorkerService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":document_worker" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
