@@ -3,6 +3,32 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'Android resolves trusted cache parent before validating updates child',
+    () {
+      final source = File(
+        'android/app/src/main/kotlin/com/rslnmzhn/mobilka/MainActivity.kt',
+      ).readAsStringSync();
+      final start = source.indexOf('private fun requireUpdatesDirectory()');
+      final end = source.indexOf('private fun safeListUpdates()', start);
+      final guard = source.substring(start, end);
+      expect(guard, contains('val cacheRoot = cacheDir.canonicalFile'));
+      expect(
+        guard,
+        contains('val directory = File(cacheRoot, UPDATES_DIRECTORY)'),
+      );
+      expect(guard, isNot(contains('File(cacheDir, UPDATES_DIRECTORY)')));
+      expect(guard, contains('Files.isSymbolicLink(path)'));
+      expect(
+        guard,
+        contains('Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)'),
+      );
+      expect(guard, contains('canonical.parentFile != cacheRoot'));
+      expect(guard, contains('canonical != directory.absoluteFile'));
+      expect(guard, contains('return canonical'));
+    },
+  );
+
   test('PowerShell helper enforces direct no-reparse bounded operations', () {
     final source = File(
       '.github/windows/mobilka_update.ps1',
@@ -69,7 +95,7 @@ void main() {
       final source = File(
         'android/app/src/main/kotlin/com/rslnmzhn/mobilka/MainActivity.kt',
       ).readAsStringSync();
-      expect(source, contains('File(cacheDir, UPDATES_DIRECTORY)'));
+      expect(source, contains('File(cacheRoot, UPDATES_DIRECTORY)'));
       expect(source, contains('LinkOption.NOFOLLOW_LINKS'));
       expect(source, contains('Files.isSymbolicLink'));
       expect(source, contains('candidate.parent != root'));
@@ -144,10 +170,7 @@ void main() {
     expect(verifier, contains('data class PackagedResourceRef'));
     expect(verifier, contains('PackagedResourceRef(id, archivePath)'));
     expect(wiring, contains('dump(apk, filePathsResource.archivePath)'));
-    expect(
-      wiring,
-      contains('build-tools/\${android.buildToolsVersion}'),
-    );
+    expect(wiring, contains('build-tools/\${android.buildToolsVersion}'));
     expect(wiring, isNot(contains('dump(apk, "res/xml/file_paths.xml")')));
     expect(wiring, isNot(contains('maxByOrNull { it.name }')));
     expect(wiring, isNot(contains('app-\${variant.name}.apk')));
