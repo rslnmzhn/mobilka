@@ -192,7 +192,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun requireUpdatesDirectory(): File {
-        val directory = File(cacheDir, UPDATES_DIRECTORY)
+        // Android may expose cacheDir through a system alias (/data/data).
+        // Resolve only that trusted parent before checking our no-follow child.
+        val cacheRoot = cacheDir.canonicalFile
+        val directory = File(cacheRoot, UPDATES_DIRECTORY)
         if (!directory.exists() && !directory.mkdir()) {
             throw UpdaterException(ERROR_INVALID_PATH, "Could not create the update cache directory")
         }
@@ -201,7 +204,7 @@ class MainActivity : FlutterActivity() {
             throw UpdaterException(ERROR_INVALID_PATH, "Update cache root is not a regular directory")
         }
         val canonical = directory.canonicalFile
-        if (canonical != directory.absoluteFile) {
+        if (canonical.parentFile != cacheRoot || canonical != directory.absoluteFile) {
             throw UpdaterException(ERROR_INVALID_PATH, "Update cache root identity changed")
         }
         return canonical
