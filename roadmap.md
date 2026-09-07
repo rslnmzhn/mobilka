@@ -1,4 +1,7 @@
 # mobilka roadmap
+- [ ] Иконка mobilka: исходник `mobilka-icon.jpeg`, Android launcher PNG и Windows ICO заменены; публикация только вместе с изменениями roadmap. Внешний вид на устройствах ещё не проверен.
+- [ ] Продолжение №25: исправлена совместимость DOCX/XLSX с комментариями и CDATA, содержащими примеры XML-деклараций, и ZIP с CRC, совпадающим с сигнатурой data descriptor. 26 целевых тестов пройдены; PDF/OCR и полная интеграция остаются незавершёнными.
+- [ ] №25 explicit callable stage: добавлены отдельные read-only контракты `extract_document` / `ocr_document`, строгие bounded arguments и локальный сервис с проверкой path/SHA-256 immutable snapshot. CSV/DOCX/XLSX используют существующий extractor; PDF/OCR закрыты по умолчанию отдельной readiness операций и обязательными safety capabilities supervisor. Типизированные undisclosed wrappers сохраняют исходные payload/provenance и digest; новые тесты ещё не запускались. Native production readiness не заявлена. Далее: `DocumentProposalRuntime` должен сохранять exact disclosure proposal и приостанавливать передачу текста модели до подтверждения; registry, Conversation/UI, native adapters и attachments не подключены. №25 остаётся незавершённым.
 
 ## Urgent — Android storage blocker
 - [ ] Android updater: исправлена ложная ошибка `Update cache root identity changed` при системном алиасе пути cache. Канонизируется доверенный `cacheDir`, затем проверяется прямой no-follow дочерний `updates`; область FileProvider не расширяется. Требуется проверка автообновления на затронутом устройстве.

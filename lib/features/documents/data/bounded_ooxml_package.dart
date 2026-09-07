@@ -108,23 +108,11 @@ final class BoundedOoxmlPackage {
         final value = u32(local + pair.$1);
         if (value != pair.$2 && !(descriptor && value == 0)) _invalid();
       }
-      var localEnd = payload + compressed;
-      if (descriptor) {
-        if (localEnd + 12 > centralStart) _invalid();
-        if (u32(localEnd) == 0x08074b50) localEnd += 4;
-        if (localEnd + 12 > centralStart ||
-            u32(localEnd) != crc ||
-            u32(localEnd + 4) != compressed ||
-            u32(localEnd + 8) != expanded) {
-          _invalid();
-        }
-        localEnd += 12;
-      }
       entries.add(
         _ZipPart(
           name,
           local,
-          localEnd,
+          descriptor,
           payload,
           compressed,
           expanded,
@@ -137,13 +125,31 @@ final class BoundedOoxmlPackage {
     if (at != end) _invalid();
     final ordered = entries.toList()
       ..sort((a, b) => a.start.compareTo(b.start));
-    var previousEnd = 0;
-    for (final entry in ordered) {
-      // Gaps also hide unreferenced local records and self-extracting payloads.
-      if (entry.start != previousEnd) _invalid();
-      previousEnd = entry.end;
+    if (ordered.first.start != 0) _invalid();
+    for (var index = 0; index < ordered.length; index++) {
+      final entry = ordered[index];
+      final boundary = index + 1 < ordered.length
+          ? ordered[index + 1].start
+          : centralStart;
+      var record = entry.payload + entry.compressed;
+      final length = boundary - record;
+      if (!entry.descriptor) {
+        if (length != 0) _invalid();
+        continue;
+      }
+      // The next validated record boundary disambiguates a CRC equal to the signature.
+      if (length == 16) {
+        if (u32(record) != 0x08074b50) _invalid();
+        record += 4;
+      } else if (length != 12) {
+        _invalid();
+      }
+      if (u32(record) != entry.crc ||
+          u32(record + 4) != entry.compressed ||
+          u32(record + 8) != entry.expanded) {
+        _invalid();
+      }
     }
-    if (previousEnd != centralStart) _invalid();
     final parts = <String, Uint8List>{};
     var actualTotal = 0;
     for (final entry in entries) {
@@ -237,7 +243,7 @@ final class _ZipPart {
   const _ZipPart(
     this.name,
     this.start,
-    this.end,
+    this.descriptor,
     this.payload,
     this.compressed,
     this.expanded,
@@ -246,7 +252,7 @@ final class _ZipPart {
   );
   final String name;
   final int start;
-  final int end;
+  final bool descriptor;
   final int payload;
   final int compressed;
   final int expanded;

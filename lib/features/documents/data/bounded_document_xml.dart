@@ -45,8 +45,14 @@ final class BoundedDocumentXml {
     try {
       var source = utf8.decode(bytes, allowMalformed: false);
       if (source.startsWith('\ufeff')) source = source.substring(1);
-      if (source.contains('<!DOCTYPE') ||
-          source.contains('<!ENTITY') ||
+      final declarations = RegExp(
+        r'<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<!DOCTYPE|<!ENTITY',
+      );
+      if (declarations
+              .allMatches(source)
+              .any(
+                (match) => match[0] == '<!DOCTYPE' || match[0] == '<!ENTITY',
+              ) ||
           source.contains('\u0000')) {
         throw const DocumentException('unsafe_document_xml');
       }
