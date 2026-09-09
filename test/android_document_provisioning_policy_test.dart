@@ -55,10 +55,11 @@ void main() {
       'LEPTONICA',
       'TESSERACT',
       'TESSDATA_FAST',
-      'PDFIUM',
     ]) {
-      expect(script, contains(r'$dependency LICENSE'));
+      expect(script, contains('$dependency = Join-Path'));
     }
+    expect(script, contains(r'===== PDFIUM LICENSE ====='));
+    expect(script, contains(r'===== $dependency LICENSE ====='));
     expect(script, contains('Complete license file is absent for'));
     expect(script, contains("Join-Path \$assetRoot 'NOTICE.txt'"));
     expect(
