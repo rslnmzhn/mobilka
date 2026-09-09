@@ -12,6 +12,7 @@ class ChatState {
     this.confirmingToolCallId,
     this.confirmingSkillName,
     this.confirmingWorkspaceToolCallId,
+    this.confirmingDocumentToolCallId,
   });
 
   final List<Conversation> conversations;
@@ -23,6 +24,7 @@ class ChatState {
   final String? confirmingToolCallId;
   final String? confirmingSkillName;
   final String? confirmingWorkspaceToolCallId;
+  final String? confirmingDocumentToolCallId;
 
   Conversation? get activeConversation =>
       conversationById(activeConversationId);
@@ -35,7 +37,8 @@ class ChatState {
         item.pendingMemoryProposal != null ||
         item.pendingToolProposal != null ||
         item.pendingSkillProposal != null ||
-        item.pendingWorkspaceProposal != null,
+        item.pendingWorkspaceProposal != null ||
+        item.pendingDocumentProposal != null,
   );
 
   List<Conversation> get visibleConversations => conversations
@@ -62,6 +65,8 @@ class ChatState {
     bool clearConfirmingSkill = false,
     String? confirmingWorkspaceToolCallId,
     bool clearConfirmingWorkspace = false,
+    String? confirmingDocumentToolCallId,
+    bool clearConfirmingDocument = false,
   }) => ChatState(
     conversations: conversations ?? this.conversations,
     activeConversationId: clearActiveConversation
@@ -82,6 +87,9 @@ class ChatState {
     confirmingWorkspaceToolCallId: clearConfirmingWorkspace
         ? null
         : (confirmingWorkspaceToolCallId ?? this.confirmingWorkspaceToolCallId),
+    confirmingDocumentToolCallId: clearConfirmingDocument
+        ? null
+        : (confirmingDocumentToolCallId ?? this.confirmingDocumentToolCallId),
   );
 }
 

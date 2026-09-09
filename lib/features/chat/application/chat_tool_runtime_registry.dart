@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -20,6 +22,17 @@ import '../../web_search/application/web_search_chat_tool_runtime.dart';
 import '../domain/pending_workspace_proposal.dart';
 import 'chat_tool_runtime.dart';
 import 'workspace_chat_tool_adapter.dart';
+import 'document_tool_runtime.dart';
+import 'document_proposal_chat_runtime.dart';
+import 'session_document_snapshot_source.dart';
+import '../../memory/application/session_workspace_boundary_adapter.dart';
+import '../../workspace/application/session_workspace_boundary.dart';
+import '../../documents/application/document_tool_service.dart';
+import '../../documents/application/native_document_extractor.dart';
+import '../../documents/data/android_document_worker_supervisor.dart';
+import '../../documents/data/windows_document_worker_supervisor.dart';
+import '../../documents/domain/document_worker_supervisor.dart';
+import '../domain/pending_document_proposal.dart';
 
 /// Merges every feature tool runtime into the single runtime consumed by the
 /// streaming coordinator. A call is dispatched to the runtime that advertises
@@ -34,10 +47,120 @@ final skillsChatToolsProvider = Provider<SkillsChatTools>(
   ),
 );
 
+Future<DocumentToolService> _documentService() async {
+  final DocumentWorkerSupervisor supervisor;
+  if (Platform.isAndroid) {
+    final value = AndroidDocumentWorkerSupervisor();
+    await value.checkAvailability();
+    supervisor = value;
+  } else if (Platform.isWindows) {
+    final value = WindowsDocumentWorkerSupervisor();
+    await value.checkAvailability();
+    supervisor = value;
+  } else {
+    return DocumentToolService();
+  }
+  return DocumentToolService(
+    nativeExtractor: NativeDocumentExtractor(supervisor: supervisor),
+    readyNativeOperations: DocumentWorkerOperation.values.toSet(),
+  );
+}
+
+final class _PlatformDocumentRuntime
+    implements ChatToolRuntime, DocumentProposalRuntime {
+  _PlatformDocumentRuntime(this.source);
+  final DocumentSnapshotSource source;
+  DocumentProposalChatRuntime? _runtime;
+  Future<DocumentProposalChatRuntime> _load() async =>
+      _runtime ??= DocumentProposalChatRuntime(
+        DocumentToolRuntime(service: await _documentService(), source: source),
+      );
+  @override
+  Future<List<ChatToolDefinition>> availableTools(
+    Set<String> allowedTools,
+  ) async => (await _load()).availableTools(allowedTools);
+  @override
+  Future<String> executeTool(
+    ChatToolCall call,
+    Set<String> allowedTools, {
+    ChatToolExecutionContext? context,
+  }) async => (await _load()).executeTool(call, allowedTools, context: context);
+  @override
+  bool handlesDocumentRead(String toolName) =>
+      toolName == 'extract_document' || toolName == 'ocr_document';
+  @override
+  Future<PendingDocumentProposal> prepareDocumentProposal({
+    required ChatToolCall call,
+    required ChatToolExecutionContext context,
+    required String requestId,
+    required String assistantMessageId,
+    required String selectedAgentId,
+    required Set<String> allowedTools,
+    required int callOccurrence,
+    required int toolCallIndex,
+  }) async => (await _load()).prepareDocumentProposal(
+    call: call,
+    context: context,
+    requestId: requestId,
+    assistantMessageId: assistantMessageId,
+    selectedAgentId: selectedAgentId,
+    allowedTools: allowedTools,
+    callOccurrence: callOccurrence,
+    toolCallIndex: toolCallIndex,
+  );
+  @override
+  Future<String> confirmDocumentProposal({
+    required PendingDocumentProposal proposal,
+    required String claimToken,
+    required ChatToolCall call,
+    required ChatToolExecutionContext context,
+    required String requestId,
+    required String assistantMessageId,
+    required String selectedAgentId,
+    required Set<String> allowedTools,
+    required int callOccurrence,
+    required int toolCallIndex,
+  }) async => (await _load()).confirmDocumentProposal(
+    proposal: proposal,
+    claimToken: claimToken,
+    call: call,
+    context: context,
+    requestId: requestId,
+    assistantMessageId: assistantMessageId,
+    selectedAgentId: selectedAgentId,
+    allowedTools: allowedTools,
+    callOccurrence: callOccurrence,
+    toolCallIndex: toolCallIndex,
+  );
+  @override
+  String rejectDocumentProposal() => '{"error":"requires_confirmation"}';
+}
+
 final chatToolRuntimeRegistryProvider = Provider<CompositeChatToolRuntime>((
   ref,
 ) {
   return CompositeChatToolRuntime([
+    RegisteredChatToolRuntime(
+      'documents',
+      () => _PlatformDocumentRuntime(
+        SessionDocumentSnapshotSource(
+          resolveBoundary: (context, sessionKey) {
+            final binding = context.workspaceBinding;
+            if (binding == null) {
+              throw StateError('missing_document_workspace');
+            }
+            final boundary = MemorySessionWorkspaceBoundaryAdapter(
+              ref.read(memoryRepositoryProvider),
+            ).resolve(binding, sessionKey);
+            if (boundary is! BinarySessionWorkspaceBoundary) {
+              throw StateError('document_binary_source_unavailable');
+            }
+            return boundary;
+          },
+        ),
+      ),
+      failurePolicy: ChatToolRuntimeFailurePolicy.omitOnAvailabilityFailure,
+    ),
     RegisteredChatToolRuntime(
       'artifacts',
       () => ref.read(artifactsChatToolRuntimeProvider),
@@ -88,7 +211,8 @@ class CompositeChatToolRuntime
     implements
         ChatToolRuntime,
         MemoryProposalRuntime,
-        WorkspaceProposalRuntime {
+        WorkspaceProposalRuntime,
+        DocumentProposalRuntime {
   CompositeChatToolRuntime(Iterable<Object> runtimes, {AppLogger? logger})
     : _runtimes = [
         for (final (index, runtime) in runtimes.indexed)
@@ -126,6 +250,87 @@ class CompositeChatToolRuntime
       }
     }
     return null;
+  }
+
+  DocumentProposalRuntime? get _documentProposalRuntime {
+    for (final registration in _runtimes) {
+      try {
+        final runtime = registration.create();
+        if (runtime is DocumentProposalRuntime) {
+          return runtime as DocumentProposalRuntime;
+        }
+      } on Object catch (error, stackTrace) {
+        if (!_omitFailure(registration, error, stackTrace)) rethrow;
+      }
+    }
+    return null;
+  }
+
+  @override
+  bool handlesDocumentRead(String toolName) =>
+      _documentProposalRuntime?.handlesDocumentRead(toolName) ?? false;
+
+  @override
+  Future<PendingDocumentProposal> prepareDocumentProposal({
+    required ChatToolCall call,
+    required ChatToolExecutionContext context,
+    required String requestId,
+    required String assistantMessageId,
+    required String selectedAgentId,
+    required Set<String> allowedTools,
+    required int callOccurrence,
+    required int toolCallIndex,
+  }) {
+    final runtime = _documentProposalRuntime;
+    if (runtime == null || !runtime.handlesDocumentRead(call.name)) {
+      throw StateError('document_runtime_unavailable');
+    }
+    return runtime.prepareDocumentProposal(
+      call: call,
+      context: context,
+      requestId: requestId,
+      assistantMessageId: assistantMessageId,
+      selectedAgentId: selectedAgentId,
+      allowedTools: allowedTools,
+      callOccurrence: callOccurrence,
+      toolCallIndex: toolCallIndex,
+    );
+  }
+
+  @override
+  Future<String> confirmDocumentProposal({
+    required PendingDocumentProposal proposal,
+    required String claimToken,
+    required ChatToolCall call,
+    required ChatToolExecutionContext context,
+    required String requestId,
+    required String assistantMessageId,
+    required int toolCallIndex,
+    required int callOccurrence,
+    required String selectedAgentId,
+    required Set<String> allowedTools,
+  }) {
+    final runtime = _documentProposalRuntime;
+    if (runtime == null) throw StateError('document_runtime_unavailable');
+    return runtime.confirmDocumentProposal(
+      proposal: proposal,
+      claimToken: claimToken,
+      call: call,
+      context: context,
+      requestId: requestId,
+      assistantMessageId: assistantMessageId,
+      toolCallIndex: toolCallIndex,
+      callOccurrence: callOccurrence,
+      selectedAgentId: selectedAgentId,
+      allowedTools: allowedTools,
+    );
+  }
+
+  @override
+  String rejectDocumentProposal() {
+    final runtime = _documentProposalRuntime;
+    if (runtime == null) throw StateError('document_runtime_unavailable');
+    return runtime.rejectDocumentProposal();
   }
 
   @override

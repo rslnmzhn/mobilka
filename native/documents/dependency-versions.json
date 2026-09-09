@@ -2,25 +2,25 @@
   "schema": 1,
   "digest_policy": "SHA-256 values must be independently approved in the local provisioning manifest; null is not approval",
   "sources": {
-    "ZLIB": {"version": "1.3.1", "url": "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz", "sha256": null, "version_file": "zlib.h", "version_pattern": "#define ZLIB_VERSION \"1\\.3\\.1\""},
-    "PNG": {"version": "1.6.47", "url": "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.47.tar.gz", "sha256": null, "version_file": "png.h", "version_pattern": "#define PNG_LIBPNG_VER_STRING \"1\\.6\\.47\""},
-    "JPEG": {"version": "3.1.0", "url": "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.0.tar.gz", "sha256": null, "version_file": "CMakeLists.txt", "version_pattern": "set\\(VERSION 3\\.1\\.0\\)"},
-    "LEPTONICA": {"version": "1.85.0", "url": "https://github.com/DanBloomberg/leptonica/archive/refs/tags/1.85.0.tar.gz", "sha256": null, "version_file": "CMakeLists.txt", "version_pattern": "VERSION 1\\.85\\.0\\)"},
-    "TESSERACT": {"version": "5.5.1", "url": "https://github.com/tesseract-ocr/tesseract/archive/refs/tags/5.5.1.tar.gz", "sha256": null, "version_file": "VERSION", "version_pattern": "^5\\.5\\.1[\r\n]*$"}
+    "ZLIB": {"version": "1.3.1", "url": "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz", "sha256": "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c", "version_file": "zlib.h", "version_pattern": "#define ZLIB_VERSION \"1\\.3\\.1\""},
+    "PNG": {"version": "1.6.47", "url": "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.47.tar.gz", "sha256": "631a4c58ea6c10c81f160c4b21fa8495b715d251698ebc2552077e8450f30454", "version_file": "png.h", "version_pattern": "#define PNG_LIBPNG_VER_STRING \"1\\.6\\.47\""},
+    "JPEG": {"version": "3.1.0", "url": "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.0.tar.gz", "sha256": "35fec2e1ddfb05ecf6d93e50bc57c1e54bc81c16d611ddf6eff73fff266d8285", "version_file": "CMakeLists.txt", "version_pattern": "set\\(VERSION 3\\.1\\.0\\)"},
+    "LEPTONICA": {"version": "1.85.0", "url": "https://github.com/DanBloomberg/leptonica/archive/refs/tags/1.85.0.tar.gz", "sha256": "c01376bce0379d4ea4bc2ec5d5cbddaa49e2f06f88242619ab8c059e21adf233", "version_file": "CMakeLists.txt", "version_pattern": "VERSION 1\\.85\\.0\\)"},
+    "TESSERACT": {"version": "5.5.1", "url": "https://github.com/tesseract-ocr/tesseract/archive/refs/tags/5.5.1.tar.gz", "sha256": "a7a3f2a7420cb6a6a94d80c24163e183cf1d2f1bed2df3bbc397c81808a57237", "version_file": "VERSION", "version_pattern": "^5\\.5\\.1[\r\n]*$"}
   },
   "pdfium": {
     "version": "7520",
     "required_flags": {"pdf_enable_v8": false, "pdf_enable_xfa": false},
     "assets": {
-      "windows-x64": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-win-x64.tgz", "sha256": null},
-      "android-arm64-v8a": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-android-arm64.tgz", "sha256": null},
-      "android-armeabi-v7a": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-android-arm.tgz", "sha256": null},
-      "android-x86_64": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-android-x64.tgz", "sha256": null}
+      "windows-x64": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-win-x64.tgz", "sha256": "738027b292a9b023d121aab76d19c6ec025ddd584b96fa19b73d81af6d237a6a"},
+      "android-arm64-v8a": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-android-arm64.tgz", "sha256": "785d4804656f42199c9bb2f5c69a6f3e07a1514cc251d1e12d425cf87b4982f8"},
+      "android-armeabi-v7a": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-android-arm.tgz", "sha256": "8c778dad06818d1463c7b006325c9b52a86e21f591c5db78ac12287fd1112993"},
+      "android-x86_64": {"url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7520/pdfium-android-x64.tgz", "sha256": "ad0988f7b59b617eb02a15e27888e34edb76cd13d136a4236411bfb99e410d31"}
     }
   },
   "tessdata_fast": {
     "version": "4.1.0",
-    "eng": {"url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/eng.traineddata", "sha256": null},
-    "rus": {"url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/rus.traineddata", "sha256": null}
+    "eng": {"url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/eng.traineddata", "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"},
+    "rus": {"url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/rus.traineddata", "sha256": "e16e5e036cce1d9ec2b00063cf8b54472625b9e14d893a169e2b0dedeb4df225"}
   }
 }

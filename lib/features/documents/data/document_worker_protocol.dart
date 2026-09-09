@@ -210,6 +210,27 @@ final class DocumentWorkerResponseDecoder {
       _terminal = true;
       return;
     }
+    if (frame[1] == 2) {
+      if (page != 0 ||
+          offset != 0 ||
+          width != 0 ||
+          height != 0 ||
+          textLength == 0 ||
+          _pages.isNotEmpty ||
+          status != 0) {
+        _invalid();
+      }
+      const codes = <String>{
+        'invalid_document_worker_request',
+        'document_worker_unsupported',
+        'invalid_document',
+        'document_limit',
+        'document_worker_unavailable',
+      };
+      final code = utf8.decode(Uint8List.sublistView(frame, 47));
+      if (!codes.contains(code)) _invalid();
+      throw DocumentException(code);
+    }
     if (frame[1] != 0 ||
         _pages.length >= request.options.pageCount ||
         page != request.options.firstPage + _pages.length) {

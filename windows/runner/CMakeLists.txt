@@ -7,6 +7,7 @@ project(runner LANGUAGES CXX)
 #
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
+  "document_worker_broker.cpp"
   "flutter_window.cpp"
   "main.cpp"
   "session_workspace_common.cpp"
@@ -42,10 +43,13 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "bcrypt.lib")
-target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+target_link_libraries(${BINARY_NAME} PRIVATE "userenv.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "advapi32.lib")
+target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}"
+  "${CMAKE_BINARY_DIR}/generated")
 
 # Run the Flutter tool portions of the build. This must not be removed.
-add_dependencies(${BINARY_NAME} flutter_assemble)
+add_dependencies(${BINARY_NAME} flutter_assemble document_worker_manifest_header)
 
 add_executable(session_workspace_native_test
   "session_workspace_native_test.cpp"

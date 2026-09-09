@@ -9,7 +9,8 @@ import 'saf_workspace_read_support.dart';
 import 'saf_workspace_channel.dart';
 import 'saf_workspace_models.dart';
 
-final class SafSessionWorkspaceBoundary implements SessionWorkspaceBoundary {
+final class SafSessionWorkspaceBoundary
+    implements BinarySessionWorkspaceBoundary {
   SafSessionWorkspaceBoundary({
     required String directoryUri,
     required WorkspaceSafAccess access,
@@ -115,7 +116,9 @@ final class SafSessionWorkspaceBoundary implements SessionWorkspaceBoundary {
   }) async {
     await _revalidate();
     final document = await _document(path, directory: false);
-    if (document == null) throw const WorkspaceBoundaryException('not_found');
+    if (document == null) {
+      throw const WorkspaceBoundaryException('not_found');
+    }
     final before = await _validateDocument(path.value, document);
     if (before == null || before.type != WorkspaceEntryType.file) {
       throw const WorkspaceBoundaryException('metadata_changed');
@@ -167,6 +170,50 @@ final class SafSessionWorkspaceBoundary implements SessionWorkspaceBoundary {
   }
 
   @override
+  Future<WorkspaceBinaryReadResult> readBinary(
+    SessionWorkspacePath path, {
+    required int maxBytes,
+  }) async {
+    if (maxBytes < 0 || maxBytes > workspaceMaxAggregateBytes) {
+      throw const FormatException('workspace_binary_limit_invalid');
+    }
+    await _revalidate();
+    final root = await rootIdentity();
+    final document = await _document(path, directory: false);
+    if (document == null) throw const WorkspaceBoundaryException('not_found');
+    final before = await _validateDocument(path.value, document, hash: false);
+    if (before == null || before.type != WorkspaceEntryType.file) {
+      throw const WorkspaceBoundaryException('metadata_changed');
+    }
+    if (before.size > maxBytes) {
+      throw const FormatException('workspace_file_too_large');
+    }
+    final native = await _readBinaryDocument(path.value, document, maxBytes);
+    final after = await _validateDocument(path.value, document, hash: false);
+    if (native.inspected.documentId != before.documentId ||
+        native.inspected.size != before.size ||
+        native.inspected.sha256 != workspaceHash(native.bytes) ||
+        after == null ||
+        after.documentId != before.documentId ||
+        after.size != before.size ||
+        after.sha256 != before.sha256 ||
+        native.bytes.length != before.size) {
+      throw const WorkspaceBoundaryException('metadata_changed');
+    }
+    final afterRoot = await rootIdentity();
+    if (afterRoot != root) {
+      throw const WorkspaceBoundaryException('workspace_binding_changed');
+    }
+    return WorkspaceBinaryReadResult(
+      bytes: native.bytes,
+      size: before.size,
+      sha256: native.inspected.sha256!,
+      identity: before.documentId,
+      rootIdentity: root,
+    );
+  }
+
+  @override
   Future<WorkspaceEntry?> metadata(SessionWorkspacePath path) async {
     await _revalidate();
     final document = await _document(path);
@@ -186,14 +233,15 @@ final class SafSessionWorkspaceBoundary implements SessionWorkspaceBoundary {
 
   Future<SafInspectedDocument?> _validateDocument(
     String path,
-    WorkspaceSafDocument document,
-  ) async {
+    WorkspaceSafDocument document, {
+    bool hash = true,
+  }) async {
     final value = await _invoke<Object?>('validateDocument', {
       'treeUri': _directoryUri,
       'sessionKey': sessionKey,
       'path': path,
       'documentUri': document.uri,
-      'hash': true,
+      'hash': hash,
     });
     if (value == null) return null;
     if (value is! Map) {
@@ -219,6 +267,30 @@ final class SafSessionWorkspaceBoundary implements SessionWorkspaceBoundary {
       bytes: value['bytes']! as Uint8List,
       inspected: SafInspectedDocument.fromJson(value),
     );
+  }
+
+  Future<({Uint8List bytes, SafInspectedDocument inspected})>
+  _readBinaryDocument(
+    String path,
+    WorkspaceSafDocument document,
+    int maxBytes,
+  ) async {
+    final raw = await _invoke<Object?>('readBinaryDocument', {
+      'treeUri': _directoryUri,
+      'sessionKey': sessionKey,
+      'path': path,
+      'documentUri': document.uri,
+      'maxBytes': maxBytes,
+    });
+    if (raw is! Map<Object?, Object?>) {
+      throw const WorkspaceBoundaryException('invalid_native_result');
+    }
+    final value = raw;
+    final bytes = value['bytes'];
+    if (bytes is! Uint8List || bytes.length > maxBytes) {
+      throw const WorkspaceBoundaryException('invalid_native_result');
+    }
+    return (bytes: bytes, inspected: SafInspectedDocument.fromJson(value));
   }
 
   @override

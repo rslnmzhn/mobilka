@@ -76,7 +76,8 @@ Result process_image(const Request& request, Bytes eng, Bytes rus) {
   const auto limit = std::min(request.limits.page_output_bytes, request.limits.output_bytes);
   Result result;
   result.page_count = 1;
-  result.pages.push_back({1, recognize(image.get(), request.language, eng, rus, limit)});
+  result.pages.push_back({1, recognize(image.get(), request.language, eng, rus, limit),
+      pixGetWidth(image.get()), pixGetHeight(image.get())});
   return result;
 }
 

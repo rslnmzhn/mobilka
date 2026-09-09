@@ -22,6 +22,20 @@ manifest:
 - `mobilka-vX.Y.Z-release-manifest.json`
 - `mobilka-vX.Y.Z-release-manifest.sig`
 
+## Windows document worker provisioning
+
+The Windows release job runs
+`.github/scripts/provision_windows_document_worker.ps1` before Flutter CMake.
+The script downloads only dependency URLs pinned in
+`native/documents/dependency-versions.json`, verifies SHA-256 before extraction,
+builds the static native dependencies, and supplies `DOCUMENTS_PROVISION_ROOT`.
+CMake builds `document_worker.exe` and installs it beside the app with
+`pdfium.dll`, English/Russian tessdata, notices, and a generated SHA-256 package
+manifest. The broker enables PDF/image OCR only when that package and protocol
+verify. The helper has no separate Authenticode requirement; it is included in
+the signed MSI. Portable bundles use the same hash checks but do not claim that
+their same-user-writable files are protected from local replacement.
+
 The producer streams each final artifact through SHA-256 and writes deterministic,
 compact JSON as canonical exact bytes with no trailing newline. The manifest
 records platform, architecture, format, primary status, apply mode, install

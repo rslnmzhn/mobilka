@@ -39,6 +39,8 @@ struct Request {
 struct Page {
   int number;
   std::string text;
+  int width = 0;
+  int height = 0;
 };
 
 struct Result {

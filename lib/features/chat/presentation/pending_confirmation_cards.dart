@@ -1,5 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+export 'pending_document_proposal_card.dart';
 
 class PendingMemoryProposalCard extends StatefulWidget {
   const PendingMemoryProposalCard({

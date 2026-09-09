@@ -260,6 +260,15 @@ class _PendingProposals extends ConsumerWidget {
             onConfirm: controller.confirmPendingWorkspaceProposal,
             onReject: controller.rejectPendingWorkspaceProposal,
           ),
+        if (conversation?.pendingDocumentProposal case final proposal?)
+          PendingDocumentProposalCard(
+            path: proposal.toJson()['sourcePath']! as String,
+            hash: proposal.toJson()['sourceHash']! as String,
+            payload: proposal.payload,
+            isBusy: state.confirmingDocumentToolCallId == proposal.toolCallId,
+            onConfirm: controller.confirmPendingDocumentProposal,
+            onReject: controller.rejectPendingDocumentProposal,
+          ),
       ],
     );
   }

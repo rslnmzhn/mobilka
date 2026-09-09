@@ -47,5 +47,7 @@ set_property(TARGET documents_LEPTONICA PROPERTY INTERFACE_LINK_LIBRARIES
 set_property(TARGET documents_LEPTONICA PROPERTY INTERFACE_COMPILE_DEFINITIONS LIBLEPT_STATIC)
 set_property(TARGET documents_PNG PROPERTY INTERFACE_LINK_LIBRARIES documents_ZLIB)
 if(ANDROID)
-  set_property(TARGET documents_TESSERACT APPEND PROPERTY INTERFACE_LINK_LIBRARIES "log;m")
+  add_subdirectory(android_cpu_features)
+  set_property(TARGET documents_TESSERACT APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+    "CpuFeatures::ndk_compat;log;m")
 endif()

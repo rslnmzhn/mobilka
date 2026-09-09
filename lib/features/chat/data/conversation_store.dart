@@ -7,6 +7,7 @@ import '../domain/conversation.dart';
 import '../domain/pending_tool_proposal.dart';
 import '../domain/pending_skill_proposal.dart';
 import '../domain/pending_workspace_proposal.dart';
+import '../domain/pending_document_proposal.dart';
 
 part 'conversation_store.g.dart';
 
@@ -43,7 +44,16 @@ class ConversationStore {
   }
 
   Future<void> recoverInterrupted() async {
-    for (final conversation in loadAll()) {
+    for (var conversation in loadAll()) {
+      if (conversation.invalidPendingDocumentProposal) {
+        conversation = _terminalizeInvalidDocumentProposal(conversation);
+        await save(conversation);
+      }
+      final document = conversation.pendingDocumentProposal;
+      if (document != null) {
+        await save(_recoverDocumentProposal(conversation, document));
+        continue;
+      }
       if (conversation.invalidPendingWorkspaceProposal) {
         await save(_terminalizeInvalidWorkspaceProposal(conversation));
         continue;
@@ -82,6 +92,117 @@ class ConversationStore {
           toolCallIndex: conversation.invalidWorkspaceToolCallIndex,
         ),
       ],
+    );
+  }
+
+  static const _invalidDocumentResult =
+      '{"error":"document_disclosure_invalid"}';
+
+  Conversation _terminalizeInvalidDocumentProposal(Conversation conversation) {
+    final hasOtherProposal =
+        conversation.pendingMemoryProposal != null ||
+        conversation.pendingSkillProposal != null ||
+        conversation.pendingToolProposal != null ||
+        conversation.pendingWorkspaceProposal != null ||
+        conversation.invalidPendingWorkspaceProposal;
+    final now = DateTime.now();
+    return conversation.copyWith(
+      clearPendingDocumentProposal: true,
+      clearPendingRequest: !hasOtherProposal,
+      updatedAt: now,
+      messages: [
+        ...conversation.messages,
+        ChatMessage(
+          id: '${now.microsecondsSinceEpoch}-document-recovery-invalid',
+          role: ChatRole.system,
+          content: _invalidDocumentResult,
+          createdAt: now,
+        ),
+      ],
+    );
+  }
+
+  Conversation _recoverDocumentProposal(
+    Conversation conversation,
+    PendingDocumentProposal proposal,
+  ) {
+    final assistantIndex = conversation.messages.indexWhere(
+      (message) => message.id == proposal.assistantMessageId,
+    );
+    final following = conversation.messages.skip(assistantIndex + 1).toList();
+    final segment = following
+        .takeWhile(
+          (message) =>
+              message.role != ChatRole.assistant &&
+              message.role != ChatRole.user,
+        )
+        .toList();
+    final results = segment
+        .where(
+          (message) =>
+              message.role == ChatRole.tool &&
+              message.toolCallId == proposal.toolCallId &&
+              message.toolCallIndex == proposal.toolCallIndex,
+        )
+        .toList();
+    final ambiguous = segment
+        .where(
+          (message) =>
+              message.role == ChatRole.tool &&
+              message.toolCallId == proposal.toolCallId &&
+              message.toolCallIndex == null,
+        )
+        .toList();
+    final wrongId = segment.any(
+      (message) =>
+          message.role == ChatRole.tool &&
+          message.toolCallIndex == proposal.toolCallIndex &&
+          message.toolCallId != proposal.toolCallId,
+    );
+    if (results.isNotEmpty || ambiguous.isNotEmpty || wrongId) {
+      final exact =
+          results.length == 1 &&
+          ambiguous.isEmpty &&
+          !wrongId &&
+          results.single.toolCallId == proposal.toolCallId &&
+          results.single.toolCallIndex == proposal.toolCallIndex &&
+          results.single.status == ChatMessageStatus.complete &&
+          (results.single.content ==
+                  '{"error":"document_disclosure_rejected"}' ||
+              (proposal.status == DocumentProposalStatus.claimed &&
+                  results.single.content == proposal.payload));
+      if (exact) {
+        return conversation.copyWith(clearPendingDocumentProposal: true);
+      }
+      final invalid = _terminalizeInvalidDocumentProposal(
+        conversation.copyWith(
+          messages: conversation.messages
+              .map(
+                (message) =>
+                    results.contains(message) || ambiguous.contains(message)
+                    ? message.copyWith(content: _invalidDocumentResult)
+                    : message,
+              )
+              .toList(),
+        ),
+      );
+      return invalid;
+    }
+    if (following.any(
+          (m) => m.role == ChatRole.assistant || m.role == ChatRole.user,
+        ) ||
+        conversation.messages[assistantIndex].status ==
+            ChatMessageStatus.complete ||
+        conversation.messages[assistantIndex].status ==
+            ChatMessageStatus.failed) {
+      final invalid = _terminalizeInvalidDocumentProposal(conversation);
+      return invalid;
+    }
+    return conversation.copyWith(
+      pendingDocumentProposal: proposal.status == DocumentProposalStatus.claimed
+          ? proposal.pending()
+          : proposal,
+      messages: _interruptMessages(conversation.messages),
     );
   }
 

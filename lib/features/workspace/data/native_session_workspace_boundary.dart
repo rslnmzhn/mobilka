@@ -8,7 +8,8 @@ import '../application/session_workspace_boundary.dart';
 import '../domain/session_workspace_path.dart';
 import '../domain/workspace_models.dart';
 
-final class NativeSessionWorkspaceBoundary implements SessionWorkspaceBoundary {
+final class NativeSessionWorkspaceBoundary
+    implements BinarySessionWorkspaceBoundary {
   NativeSessionWorkspaceBoundary({
     required this.rootPath,
     required this.sessionKey,
@@ -105,6 +106,43 @@ final class NativeSessionWorkspaceBoundary implements SessionWorkspaceBoundary {
   }
 
   @override
+  Future<WorkspaceBinaryReadResult> readBinary(
+    SessionWorkspacePath path, {
+    required int maxBytes,
+  }) async {
+    if (maxBytes < 0 || maxBytes > workspaceMaxAggregateBytes) {
+      throw const FormatException('workspace_binary_limit_invalid');
+    }
+    final root = await rootIdentity();
+    final result = _map(
+      await _invoke<Object?>('readBinary', {
+        ..._arguments(path),
+        'maxBytes': maxBytes,
+      }),
+    );
+    final bytes = result['bytes'];
+    if (bytes is! Uint8List || bytes.length > maxBytes) {
+      throw const WorkspaceBoundaryException('invalid_native_result');
+    }
+    final size = _integer(result, 'size');
+    final hash = _string(result, 'sha256');
+    if (size != bytes.length || hash != workspaceHash(bytes)) {
+      throw const WorkspaceBoundaryException('metadata_changed');
+    }
+    final afterRoot = await rootIdentity();
+    if (afterRoot != root) {
+      throw const WorkspaceBoundaryException('workspace_binding_changed');
+    }
+    return WorkspaceBinaryReadResult(
+      bytes: bytes,
+      size: size,
+      sha256: hash,
+      identity: _string(result, 'identity'),
+      rootIdentity: root,
+    );
+  }
+
+  @override
   Future<WorkspaceEntry?> metadata(SessionWorkspacePath path) async {
     final result = await _invoke<Object?>('metadata', _arguments(path));
     return result == null ? null : _entry(_map(result));
@@ -168,8 +206,8 @@ final class NativeSessionWorkspaceBoundary implements SessionWorkspaceBoundary {
     await _revalidate();
     try {
       if (method != 'rootIdentity') {
-        if (_capturedRootIdentity == null) await rootIdentity();
-        arguments = {...arguments, 'rootIdentity': _capturedRootIdentity};
+        final identity = _capturedRootIdentity ?? await rootIdentity();
+        arguments = {...arguments, 'rootIdentity': identity};
       }
       return await _channel.invokeMethod<T>(method, arguments) as T;
     } on PlatformException catch (error) {
@@ -200,25 +238,33 @@ final class NativeSessionWorkspaceBoundary implements SessionWorkspaceBoundary {
   );
 
   static Map<Object?, Object?> _map(Object? value) {
-    if (value is Map<Object?, Object?>) return value;
+    if (value is Map<Object?, Object?>) {
+      return value;
+    }
     throw const WorkspaceBoundaryException('invalid_native_result');
   }
 
   static String _string(Map<Object?, Object?> map, String key) {
     final value = map[key];
-    if (value is String) return value;
+    if (value is String) {
+      return value;
+    }
     throw const WorkspaceBoundaryException('invalid_native_result');
   }
 
   static int _integer(Map<Object?, Object?> map, String key) {
     final value = map[key];
-    if (value is int) return value;
+    if (value is int) {
+      return value;
+    }
     throw const WorkspaceBoundaryException('invalid_native_result');
   }
 
   static bool _boolean(Map<Object?, Object?> map, String key) {
     final value = map[key];
-    if (value is bool) return value;
+    if (value is bool) {
+      return value;
+    }
     throw const WorkspaceBoundaryException('invalid_native_result');
   }
 }

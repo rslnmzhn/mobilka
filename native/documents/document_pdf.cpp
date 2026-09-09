@@ -70,6 +70,8 @@ Result process_pdf(const Request& request, Bytes eng, Bytes rus) {
     const size_t limit = std::min(request.limits.page_output_bytes,
                                   request.limits.output_bytes - output);
     std::string text;
+    int raster_width = 0;
+    int raster_height = 0;
     if (request.operation == Operation::pdf_text) {
       TextPage characters{FPDFText_LoadPage(page.value)};
       require(characters.value != nullptr, Error::invalid_document);
@@ -87,6 +89,8 @@ Result process_pdf(const Request& request, Bytes eng, Bytes rus) {
           Error::limit);
       const int w = static_cast<int>(std::ceil(width));
       const int h = static_cast<int>(std::ceil(height));
+      raster_width = w;
+      raster_height = h;
       check_pixels(w, h, request.limits, pixels);
       std::vector<uint8_t> raster(static_cast<size_t>(w) * h * 4);
       Bitmap bitmap{FPDFBitmap_CreateEx(w, h, FPDFBitmap_BGRA, raster.data(), w * 4)};
@@ -106,7 +110,8 @@ Result process_pdf(const Request& request, Bytes eng, Bytes rus) {
       text = recognize(image.get(), request.language, eng, rus, limit);
     }
     output += text.size();
-    result.pages.push_back({number, std::move(text)});
+    result.pages.push_back({number, std::move(text),
+        raster_width, raster_height});
   }
   return result;
 }

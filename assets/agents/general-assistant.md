@@ -25,6 +25,8 @@ tools:
   - "make_directory"
   - "read_public_source"
   - "web_search"
+  - "extract_document"
+  - "ocr_document"
 ---
 
 ## Role & System Instructions

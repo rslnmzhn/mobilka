@@ -38,6 +38,7 @@ import 'chat_request_admission.dart';
 import 'send_again_service.dart';
 import 'chat_controller_support.dart';
 import 'skill_proposal_controller_actions.dart';
+import '../domain/pending_document_proposal.dart';
 
 export 'chat_state.dart';
 

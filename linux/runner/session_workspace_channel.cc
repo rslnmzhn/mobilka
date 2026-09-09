@@ -2,6 +2,10 @@
 
 #include <cstring>
 
+namespace workspace {
+void HandleReadBinary(FlMethodCall*, FlValue*);
+}
+
 namespace {
 void MethodCall(FlMethodChannel*, FlMethodCall* call, gpointer) {
   try {
@@ -19,6 +23,8 @@ void MethodCall(FlMethodChannel*, FlMethodCall* call, gpointer) {
     workspace::HandleList(call, args);
   else if (!strcmp(method, "read"))
     workspace::HandleRead(call, args);
+  else if (!strcmp(method, "readBinary"))
+    workspace::HandleReadBinary(call, args);
   else if (!strcmp(method, "prepareMutation"))
     workspace::HandlePrepare(call, args);
   else if (!strcmp(method, "commitPrepared"))

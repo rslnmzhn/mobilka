@@ -185,11 +185,17 @@ internal class SafWorkspaceAccess(context: Context) {
         return before.copy(hash = sha256(bytes))
     }
 
-    fun readStable(uri: Uri, scope: Uri): Pair<ByteArray, SafSnapshot> {
+    fun readStable(
+        uri: Uri,
+        scope: Uri,
+        maxBytes: Int = MAX_BYTES,
+    ): Pair<ByteArray, SafSnapshot> {
+        if (maxBytes < 0 || maxBytes > MAX_BINARY_BYTES) brokerFail("invalid_argument")
         validateDocumentUri(scope, uri)
         val before = querySnapshot(uri)
         if (before.directory) brokerFail("wrong_type")
-        val bytes = readBounded(uri, scope, before)
+        if (before.size > maxBytes) brokerFail("workspace_file_too_large")
+        val bytes = readBounded(uri, scope, before, maxBytes)
         val after = querySnapshot(uri)
         val digest = sha256(bytes)
         if (after.documentId != before.documentId || after.size != before.size ||
@@ -197,8 +203,16 @@ internal class SafWorkspaceAccess(context: Context) {
         return bytes to before.copy(hash = digest)
     }
 
-    private fun readBounded(uri: Uri, scope: Uri, before: SafSnapshot): ByteArray {
+    private fun readBounded(
+        uri: Uri,
+        scope: Uri,
+        before: SafSnapshot,
+        maxBytes: Int = MAX_BYTES,
+    ): ByteArray {
         validateDocumentUri(scope, uri)
+        if (before.size < 0 || before.size > maxBytes) {
+            brokerFail("workspace_file_too_large")
+        }
         val output = ByteArrayOutputStream()
         resolver.openFileDescriptor(uri, "r")?.use { descriptor ->
             FileInputStream(descriptor.fileDescriptor).use { input ->
@@ -208,7 +222,7 @@ internal class SafWorkspaceAccess(context: Context) {
                     val count = input.read(buffer)
                     if (count < 0) break
                     total += count
-                    if (total > MAX_BYTES) brokerFail("workspace_file_too_large")
+                    if (total > maxBytes) brokerFail("workspace_file_too_large")
                     output.write(buffer, 0, count)
                 }
             }
@@ -416,6 +430,7 @@ internal class SafWorkspaceAccess(context: Context) {
     companion object {
         const val HIDDEN = ".mobilka-workspace"
         const val MAX_BYTES = 1024 * 1024
+        const val MAX_BINARY_BYTES = 10 * 1024 * 1024
         const val MAX_CURSOR_ROWS = 513
         val OPERATION_ID = Regex("^[A-Za-z0-9_-]{32}$")
         val TOKEN = Regex("^[A-Za-z0-9_-]{43}$")

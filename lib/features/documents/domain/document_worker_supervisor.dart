@@ -77,9 +77,9 @@ enum DocumentWorkerCapability {
   offline,
   immutableInput,
   boundedOutput,
-  nativeMemoryLimit,
+  osManagedMemoryIsolation,
   wallDeadline,
-  confirmedTermination,
+  workerInvalidatedAfterDeadline,
 }
 
 abstract interface class DocumentWorkerSupervisor {
@@ -97,8 +97,9 @@ abstract interface class DocumentWorkerHandle {
   // broker must enforce that bound before allocating or delivering a chunk.
   Stream<List<int>> get output;
 
-  // Idempotent; completes only after startup is cancelled and the process is
-  // confirmed dead and reaped. Failure must throw, never claim termination.
+  // Idempotent. On Android this completes after the isolated service is
+  // invalidated and unbound; that service instance can never be reused.
+  // Platforms with a process handle may additionally wait for process reaping.
   Future<void> terminateAndReap();
 
   // Called only after confirmed termination; releases the immutable snapshot.

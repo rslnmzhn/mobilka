@@ -17,11 +17,13 @@ internal object DocumentWorkerProtocol {
 
     data class Request(
         val jobId: String,
+        val jobBytes: ByteArray,
         val operation: Operation,
         val language: Language,
         val firstPage: Int,
         val pageCount: Int,
         val limits: List<Int>,
+        val source: ByteArray,
     ) {
         val deadlineMillis: Int get() = limits[8]
         val outputBytes: Int get() = limits[7]
@@ -52,7 +54,8 @@ internal object DocumentWorkerProtocol {
         digest.update(bytes, HEADER_BYTES, sourceBytes)
         require(MessageDigest.isEqual(hash, digest.digest()))
         return Request(job.joinToString("") { "%02x".format(it.toInt() and 255) },
-            operation, language, first, count, limits)
+            job, operation, language, first, count, limits,
+            bytes.copyOfRange(HEADER_BYTES, bytes.size))
     }
 
     // Terminal status 2 is unavailable, never a successful extraction.

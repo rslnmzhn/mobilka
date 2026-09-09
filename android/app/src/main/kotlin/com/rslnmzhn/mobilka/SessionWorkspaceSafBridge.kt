@@ -53,6 +53,7 @@ class SessionWorkspaceSafBridge(
             "rootIdentity",
             "validateDocument",
             "readDocument",
+            "readBinaryDocument",
             "listDocuments",
             "prepareMutation",
             "commitPrepared",

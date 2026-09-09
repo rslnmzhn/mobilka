@@ -62,7 +62,7 @@ Keep this trailing whitespace.
     expect(definition.name, 'General Assistant');
     expect(definition.mode, AgentMode.primary);
     expect(definition.tools, contains('update_memory_file'));
-    expect(definition.tools, hasLength(21));
+    expect(definition.tools, hasLength(23));
     expect(definition.tools.toSet(), {
       'update_memory_file',
       'generate_docx',
@@ -85,6 +85,8 @@ Keep this trailing whitespace.
       'make_directory',
       'read_public_source',
       'web_search',
+      'extract_document',
+      'ocr_document',
     });
     expect(
       definition.prompt.replaceAll('\r\n', '\n'),
