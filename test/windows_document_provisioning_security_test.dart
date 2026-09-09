@@ -66,8 +66,9 @@ void main() {
       'PDFIUM',
       'TESSDATA_FAST',
     ]) {
-      expect(provision, contains(r'$dependency LICENSE'));
+      expect(provision, contains('$dependency = Join-Path'));
     }
+    expect(provision, contains(r'===== $dependency LICENSE ====='));
     expect(provision, contains('Complete license file is absent for'));
   });
 }
