@@ -25,6 +25,7 @@ void main() {
   });
 
   test('downloads use strict HTTPS redirect and digest policy', () {
+    expect(script, contains("if (\$IsWindows) { 'curl.exe' } else { 'curl' }"));
     expect(script, contains("'--max-redirs' '3'"));
     expect(script, contains("'--proto' '=https'"));
     expect(script, contains("'--proto-redir' '=https'"));

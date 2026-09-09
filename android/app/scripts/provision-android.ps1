@@ -81,7 +81,8 @@ function Acquire([string]$Name, [string]$Url, [string]$Hash) {
     Assert-OrdinaryPath $outputRoot $target
     if (-not (Test-Path -LiteralPath $target)) {
         Write-Host "NETWORK: acquiring pinned dependency $Name (HTTPS, at most three redirects)"
-        & curl.exe '--fail' '--silent' '--show-error' '--location' '--max-redirs' '3' `
+        $curl = if ($IsWindows) { 'curl.exe' } else { 'curl' }
+        & $curl '--fail' '--silent' '--show-error' '--location' '--max-redirs' '3' `
             '--proto' '=https' '--proto-redir' '=https' '--output' $target '--url' $uri.AbsoluteUri
         if ($LASTEXITCODE -ne 0) { throw "Pinned download failed: $Name" }
     }
