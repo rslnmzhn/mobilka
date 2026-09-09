@@ -63,12 +63,13 @@ void main() {
       'JPEG',
       'LEPTONICA',
       'TESSERACT',
-      'PDFIUM',
       'TESSDATA_FAST',
     ]) {
       expect(provision, contains('$dependency = Join-Path'));
     }
     expect(provision, contains(r'===== $dependency LICENSE ====='));
+    expect(provision, contains(r'===== PDFIUM/$($_.Name) ====='));
+    expect(provision, contains("-contains 'pdfium.txt'"));
     expect(provision, contains('Complete license file is absent for'));
   });
 }

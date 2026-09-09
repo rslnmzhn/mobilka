@@ -147,7 +147,6 @@ $licenseFiles = [ordered]@{
   LEPTONICA = Join-Path $sourcePaths.LEPTONICA 'leptonica-license.txt'
   TESSERACT = Join-Path $sourcePaths.TESSERACT 'LICENSE'
   TESSDATA_FAST = Join-Path $sourcePaths.TESSERACT 'LICENSE'
-  PDFIUM = Join-Path $pdfSource 'LICENSE'
 }
 $noticeParts = @()
 foreach ($dependency in $licenseFiles.Keys) {
@@ -159,6 +158,16 @@ foreach ($dependency in $licenseFiles.Keys) {
     (Get-Content -Raw -LiteralPath $license).TrimEnd()
 }
 $noticeText = ($noticeParts -join "`n`n") + "`n"
+$pdfNotices = @(Get-ChildItem -LiteralPath $pdfSource -File -Filter '*.txt' |
+  Sort-Object Name)
+if ($pdfNotices.Count -eq 0 -or -not ($pdfNotices.Name -contains 'pdfium.txt')) {
+  throw 'Complete license file is absent for PDFIUM'
+}
+$pdfNotice = (($pdfNotices | ForEach-Object {
+  "===== PDFIUM/$($_.Name) =====`n" +
+    (Get-Content -Raw -LiteralPath $_.FullName).TrimEnd()
+}) -join "`n`n") + "`n"
+$noticeText += $pdfNotice
 [IO.File]::WriteAllText((Join-Path $runtime 'document-worker-notices.txt'),
   $noticeText, [Text.UTF8Encoding]::new($false))
 $provision = @"

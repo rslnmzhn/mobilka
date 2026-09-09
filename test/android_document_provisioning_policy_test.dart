@@ -59,7 +59,7 @@ void main() {
     ]) {
       expect(script, contains('$dependency = Join-Path'));
     }
-    expect(script, contains(r'===== PDFIUM LICENSE ====='));
+    expect(script, contains(r'===== PDFIUM/$($_.Name) ====='));
     expect(script, contains(r'===== $dependency LICENSE ====='));
     expect(script, contains('Complete license file is absent for'));
     expect(script, contains("Join-Path \$assetRoot 'NOTICE.txt'"));
@@ -71,7 +71,7 @@ void main() {
 
   test('packages complete dependency license notices', () {
     expect(script, contains('Complete license file is absent for'));
-    expect(script, contains('===== PDFIUM LICENSE ====='));
+    expect(script, contains("-contains 'pdfium.txt'"));
     expect(script, contains("Join-Path \$assetRoot 'NOTICE.txt'"));
     final gradle = File('android/app/build.gradle.kts').readAsStringSync();
     expect(
