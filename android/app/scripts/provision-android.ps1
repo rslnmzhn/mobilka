@@ -170,11 +170,16 @@ foreach ($abi in $abis.Keys) {
     $pdfArchive = Acquire "pdfium-$abi.tgz" $pdfEntry.url $pdfEntry.sha256
     $pdfRoot = Join-Path $work "pdfium-$abi"
     if (-not (Test-Path -LiteralPath $pdfRoot)) { Expand-CheckedTar $pdfArchive $pdfRoot }
-    $pdfLicense = Join-Path $pdfRoot 'LICENSE'
-    if (-not (Test-Path -LiteralPath $pdfLicense -PathType Leaf) -or
-            (Get-Item -LiteralPath $pdfLicense).Length -eq 0) {
+    $pdfNotices = @(Get-ChildItem -LiteralPath $pdfRoot -File -Filter '*.txt' |
+        Sort-Object Name)
+    if ($pdfNotices.Count -eq 0 -or
+            -not ($pdfNotices.Name -contains 'pdfium.txt')) {
         throw 'Complete license file is absent for PDFIUM'
     }
+    $pdfNotice = (($pdfNotices | ForEach-Object {
+        "===== PDFIUM/$($_.Name) =====`n" +
+            (Get-Content -Raw -LiteralPath $_.FullName).TrimEnd()
+    }) -join "`n`n") + "`n"
     $root = Join-Path $outputRoot $abi
     $install = Join-Path $root 'install'
     New-Item -ItemType Directory -Force -Path $root, $install | Out-Null
@@ -226,8 +231,7 @@ foreach ($abi in $abis.Keys) {
     }
     $configuration += "set(DOCUMENTS_PDFIUM_RUNTIME `"$($libraries.PDFIUM.Replace('\', '/'))`")"
     Set-Content -LiteralPath $identity -Value $identityLines -Encoding utf8NoBOM
-    $completeNotice = (($noticeParts + "===== PDFIUM LICENSE =====`n" +
-        (Get-Content -Raw -LiteralPath $pdfLicense).TrimEnd()) -join "`n`n") + "`n"
+    $completeNotice = (($noticeParts + $pdfNotice) -join "`n`n") + "`n"
     if ($null -eq $expectedNotice) {
         $expectedNotice = $completeNotice
     } elseif ($completeNotice -cne $expectedNotice) {
