@@ -5,11 +5,14 @@ import 'package:hive/hive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilka/features/chat/application/chat_tool_runtime.dart';
 import 'package:mobilka/features/chat/application/chat_tool_runtime_registry.dart';
+import 'package:mobilka/features/chat/application/document_tool_runtime.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
 import 'package:mobilka/features/chat/domain/chat_tool.dart';
 import 'package:mobilka/features/chat/domain/pending_memory_proposal.dart';
 import 'package:mobilka/features/agents/data/agent_definition_parser.dart';
 import 'package:mobilka/core/logging/app_logger.dart';
+import 'package:mobilka/features/documents/domain/document_snapshot.dart';
+import 'package:mobilka/features/documents/domain/document_tool_request.dart';
 
 void main() {
   test('composite dedupes advertised tools across runtimes', () async {
@@ -202,7 +205,13 @@ void main() {
       final definition = const AgentDefinitionParser().parse(
         File('assets/agents/general-assistant.md').readAsStringSync(),
       );
-      final container = ProviderContainer();
+      final container = ProviderContainer(
+        overrides: [
+          documentToolRuntimeProvider.overrideWithValue(
+            DocumentToolRuntime(source: _DocumentSource()),
+          ),
+        ],
+      );
       addTearDown(container.dispose);
       final runtime = container.read(chatToolRuntimeRegistryProvider);
       final advertised = await runtime.availableTools(definition.tools.toSet());
@@ -211,9 +220,8 @@ void main() {
         advertised.map((tool) => tool.name).toSet(),
         definition.tools.toSet().difference({
           'update_memory_file',
-        'web_search',
-        'extract_document',
-        'ocr_document',
+          'web_search',
+          'ocr_document',
         }),
       );
       expect(runtime, isA<MemoryProposalRuntime>());
@@ -224,6 +232,22 @@ void main() {
       expect(effects['generate_docx'], ChatToolEffect.mutating);
     },
   );
+}
+
+final class _DocumentSource implements DocumentSnapshotSource {
+  @override
+  Set<DocumentToolInputFormat> get supportedFormats => const {
+    DocumentToolInputFormat.csv,
+    DocumentToolInputFormat.docx,
+    DocumentToolInputFormat.xlsx,
+  };
+
+  @override
+  Future<DocumentSnapshot> capture({
+    required DocumentToolRequest request,
+    required ChatToolExecutionContext context,
+    required String requestId,
+  }) => throw UnimplementedError();
 }
 
 class _ThrowingRuntime implements ChatToolRuntime {

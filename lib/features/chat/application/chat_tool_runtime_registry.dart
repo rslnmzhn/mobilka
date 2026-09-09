@@ -19,6 +19,7 @@ import '../../memory/application/memory_chat_tool_runtime.dart';
 import '../../public_source/application/public_source_chat_tool_runtime.dart';
 import '../../settings/data/settings_repository.dart';
 import '../../web_search/application/web_search_chat_tool_runtime.dart';
+import '../../documents/domain/document_limits.dart';
 import '../domain/pending_workspace_proposal.dart';
 import 'chat_tool_runtime.dart';
 import 'workspace_chat_tool_adapter.dart';
@@ -49,15 +50,21 @@ final skillsChatToolsProvider = Provider<SkillsChatTools>(
 
 Future<DocumentToolService> _documentService() async {
   final DocumentWorkerSupervisor supervisor;
-  if (Platform.isAndroid) {
-    final value = AndroidDocumentWorkerSupervisor();
-    await value.checkAvailability();
-    supervisor = value;
-  } else if (Platform.isWindows) {
-    final value = WindowsDocumentWorkerSupervisor();
-    await value.checkAvailability();
-    supervisor = value;
-  } else {
+  try {
+    if (Platform.isAndroid) {
+      final value = AndroidDocumentWorkerSupervisor();
+      await value.checkAvailability();
+      supervisor = value;
+    } else if (Platform.isWindows) {
+      final value = WindowsDocumentWorkerSupervisor();
+      await value.checkAvailability();
+      supervisor = value;
+    } else {
+      return DocumentToolService();
+    }
+  } on DocumentException {
+    // Local CSV/DOCX/XLSX extraction remains available when the optional
+    // platform PDF/OCR worker is unavailable or unsupported.
     return DocumentToolService();
   }
   return DocumentToolService(
@@ -136,29 +143,33 @@ final class _PlatformDocumentRuntime
   String rejectDocumentProposal() => '{"error":"requires_confirmation"}';
 }
 
+final documentToolRuntimeProvider = Provider<ChatToolRuntime>((ref) {
+  return _PlatformDocumentRuntime(
+    SessionDocumentSnapshotSource(
+      resolveBoundary: (context, sessionKey) {
+        final binding = context.workspaceBinding;
+        if (binding == null) {
+          throw StateError('missing_document_workspace');
+        }
+        final boundary = MemorySessionWorkspaceBoundaryAdapter(
+          ref.read(memoryRepositoryProvider),
+        ).resolve(binding, sessionKey);
+        if (boundary is! BinarySessionWorkspaceBoundary) {
+          throw StateError('document_binary_source_unavailable');
+        }
+        return boundary;
+      },
+    ),
+  );
+});
+
 final chatToolRuntimeRegistryProvider = Provider<CompositeChatToolRuntime>((
   ref,
 ) {
   return CompositeChatToolRuntime([
     RegisteredChatToolRuntime(
       'documents',
-      () => _PlatformDocumentRuntime(
-        SessionDocumentSnapshotSource(
-          resolveBoundary: (context, sessionKey) {
-            final binding = context.workspaceBinding;
-            if (binding == null) {
-              throw StateError('missing_document_workspace');
-            }
-            final boundary = MemorySessionWorkspaceBoundaryAdapter(
-              ref.read(memoryRepositoryProvider),
-            ).resolve(binding, sessionKey);
-            if (boundary is! BinarySessionWorkspaceBoundary) {
-              throw StateError('document_binary_source_unavailable');
-            }
-            return boundary;
-          },
-        ),
-      ),
+      () => ref.read(documentToolRuntimeProvider),
       failurePolicy: ChatToolRuntimeFailurePolicy.omitOnAvailabilityFailure,
     ),
     RegisteredChatToolRuntime(
