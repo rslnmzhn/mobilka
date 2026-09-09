@@ -74,8 +74,24 @@ class DocumentWorkerService : Service() {
                         handler.postDelayed(watchdog, remaining.coerceAtLeast(0))
                     }
                 }
-                val response = DocumentWorkerProcessor.process(request)
-                require(response.size <= request.outputBytes + 51)
+                fun readAsset(name: String): ByteArray = assets.open(name).use { stream ->
+                    val available = stream.available()
+                    require(available in 1..16777216)
+                    val data = ByteArray(available)
+                    var offset = 0
+                    while (offset < data.size) {
+                        val count = stream.read(data, offset, data.size - offset)
+                        require(count > 0)
+                        offset += count
+                    }
+                    require(stream.read() == -1)
+                    data
+                }
+                val english = readAsset("documents/eng.traineddata")
+                val russian = readAsset("documents/rus.traineddata")
+                require(english.size <= 16777216 && russian.size <= 16777216)
+                val response = DocumentWorkerProcessor.process(request, english, russian)
+                require(response.size <= request.outputBytes + 4096)
                 ParcelFileDescriptor.AutoCloseOutputStream(sink).use { it.write(response) }
             } catch (error: Exception) {
                 Log.w("DocumentWorker", "Worker rejected input or transport closed", error)

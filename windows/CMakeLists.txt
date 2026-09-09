@@ -50,6 +50,37 @@ endfunction()
 set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
+set(DOCUMENTS_PROVISION_ROOT "$ENV{DOCUMENTS_PROVISION_ROOT}" CACHE PATH
+    "Verified Windows document worker provision")
+if(DEFINED ENV{DOCUMENTS_PROVISION_ROOT} AND NOT "$ENV{DOCUMENTS_PROVISION_ROOT}" STREQUAL "")
+  set(DOCUMENTS_PROVISION_ROOT "$ENV{DOCUMENTS_PROVISION_ROOT}")
+endif()
+if(NOT DOCUMENTS_PROVISION_ROOT OR NOT EXISTS "${DOCUMENTS_PROVISION_ROOT}/provision.cmake")
+  message(FATAL_ERROR "Run .github/scripts/provision_windows_document_worker.ps1 before building Windows")
+endif()
+include("${DOCUMENTS_PROVISION_ROOT}/provision.cmake")
+set(DOCUMENTS_PROVISIONING_REVIEWED ON)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../native/documents"
+                 "${CMAKE_CURRENT_BINARY_DIR}/documents")
+add_subdirectory(document_worker)
+
+set(DOCUMENT_WORKER_MANIFEST_HEADER
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/document_worker_manifest_digest.h")
+add_custom_command(
+  OUTPUT "${DOCUMENT_WORKER_MANIFEST_HEADER}"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${DOCUMENTS_RUNTIME_FILES}
+          "$<TARGET_FILE_DIR:mobilka_document_worker>"
+  COMMAND powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File
+          "${CMAKE_CURRENT_SOURCE_DIR}/../.github/scripts/generate_document_worker_manifest.ps1"
+          -Worker "$<TARGET_FILE:mobilka_document_worker>"
+          -RuntimeDirectory "$<TARGET_FILE_DIR:mobilka_document_worker>"
+          -Output "${DOCUMENT_WORKER_MANIFEST_HEADER}"
+  DEPENDS mobilka_document_worker ${DOCUMENTS_RUNTIME_FILES}
+          "${CMAKE_CURRENT_SOURCE_DIR}/../.github/scripts/generate_document_worker_manifest.ps1"
+  VERBATIM)
+add_custom_target(document_worker_manifest_header
+                  DEPENDS "${DOCUMENT_WORKER_MANIFEST_HEADER}")
+
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
@@ -81,7 +112,10 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
-
+install(TARGETS mobilka_document_worker RUNTIME DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+install(FILES ${DOCUMENTS_RUNTIME_FILES} DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
 if(PLUGIN_BUNDLED_LIBRARIES)
   install(FILES "${PLUGIN_BUNDLED_LIBRARIES}"
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"

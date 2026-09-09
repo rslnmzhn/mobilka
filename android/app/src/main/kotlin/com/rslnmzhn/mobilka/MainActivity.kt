@@ -26,7 +26,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         SessionWorkspaceSafBridge(this, flutterEngine.dartExecutor.binaryMessenger)
-        DocumentWorkerBroker.register(flutterEngine.dartExecutor.binaryMessenger)
+        DocumentWorkerBroker.register(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
             .setMethodCallHandler { call, result ->
                 try {

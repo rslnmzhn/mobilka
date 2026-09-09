@@ -2,6 +2,10 @@
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 
+namespace workspace {
+void HandleReadBinary(const Map&, Result);
+}
+
 void RegisterSessionWorkspaceChannel(flutter::BinaryMessenger* messenger) {
   using namespace workspace;
   static std::unique_ptr<flutter::MethodChannel<Value>> owner;
@@ -16,6 +20,7 @@ void RegisterSessionWorkspaceChannel(flutter::BinaryMessenger* messenger) {
     else if (method == "metadata") HandleMetadata(*args, std::move(result));
     else if (method == "list") HandleList(*args, std::move(result));
     else if (method == "read") HandleRead(*args, std::move(result));
+    else if (method == "readBinary") HandleReadBinary(*args, std::move(result));
     else if (method == "prepareMutation") HandlePrepare(*args, std::move(result));
     else if (method == "commitPrepared") HandleCommit(*args, std::move(result));
     else if (method == "reconcilePrepared") HandleReconcile(*args, std::move(result));

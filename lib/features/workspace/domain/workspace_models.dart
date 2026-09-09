@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
@@ -67,6 +68,22 @@ final class WorkspaceReadResult {
     'next_offset': nextOffset,
     'truncated': truncated,
   };
+}
+
+final class WorkspaceBinaryReadResult {
+  WorkspaceBinaryReadResult({
+    required List<int> bytes,
+    required this.size,
+    required this.sha256,
+    required this.identity,
+    required this.rootIdentity,
+  }) : bytes = Uint8List.fromList(bytes).asUnmodifiableView();
+
+  final Uint8List bytes;
+  final int size;
+  final String sha256;
+  final String identity;
+  final String rootIdentity;
 }
 
 String workspaceHash(List<int> bytes) => sha256.convert(bytes).toString();

@@ -2,6 +2,115 @@
 part of 'chat_controller.dart';
 
 extension ChatControllerProposalActions on ChatController {
+  Future<void> confirmPendingDocumentProposal() =>
+      _decidePendingDocumentProposal(confirm: true);
+
+  Future<void> rejectPendingDocumentProposal() =>
+      _decidePendingDocumentProposal(confirm: false);
+
+  Future<void> _decidePendingDocumentProposal({required bool confirm}) async {
+    final conversation = state.requireValue.activeConversation;
+    final proposal = conversation?.pendingDocumentProposal;
+    if (conversation == null ||
+        proposal == null ||
+        proposal.status != DocumentProposalStatus.pending) {
+      return;
+    }
+    state = AsyncData(
+      state.requireValue.copyWith(
+        confirmingDocumentToolCallId: proposal.toolCallId,
+        clearError: true,
+      ),
+    );
+    final claimToken = '${DateTime.now().microsecondsSinceEpoch}-document';
+    PendingDocumentProposal? claimed;
+    try {
+      final policy = await _selectedToolPolicy();
+      if (policy.agentId != proposal.selectedAgentId ||
+          policy.allowedTools.length != proposal.allowedTools.length ||
+          !policy.allowedTools.containsAll(proposal.allowedTools)) {
+        throw StateError('document_authorization_changed');
+      }
+      final binding =
+          await WorkspaceStore(
+            repository: ref.read(memoryRepositoryProvider),
+          ).restoreBinding(
+            WorkspaceBindingSnapshot.fromJson(
+              jsonDecode(proposal.toJson()['binding']! as String) as Map,
+            ),
+          );
+      claimed = proposal.claim(claimToken, DateTime.now());
+      final saved = await _persistMutation(conversation.id, (latest) {
+        final current = latest.pendingDocumentProposal;
+        if (current == null ||
+            current.status != DocumentProposalStatus.pending ||
+            current.encode() != proposal.encode() ||
+            !current.belongsTo(
+              conversationId: latest.id,
+              requestId: latest.pendingRequestMessageId,
+              sessionKey: latest.sessionKey,
+              messages: latest.messages,
+            )) {
+          return null;
+        }
+        return latest.copyWith(pendingDocumentProposal: claimed);
+      });
+      if (saved == null) return;
+      final source = saved.messages.firstWhere(
+        (m) => m.id == proposal.assistantMessageId,
+      );
+      final call = source.toolCalls[proposal.toolCallIndex];
+      final runtime = ref.read(chatToolRuntimeRegistryProvider);
+      final result = confirm
+          ? await runtime.confirmDocumentProposal(
+              proposal: claimed,
+              claimToken: claimToken,
+              call: call,
+              context: ChatToolExecutionContext(
+                conversationId: conversation.id,
+                sessionKey: proposal.sessionKey,
+                workspaceBinding: binding,
+              ),
+              requestId: proposal.requestId,
+              assistantMessageId: proposal.assistantMessageId,
+              toolCallIndex: proposal.toolCallIndex,
+              callOccurrence: proposal.callOccurrence,
+              selectedAgentId: policy.agentId ?? '',
+              allowedTools: policy.allowedTools,
+            )
+          : runtime.rejectDocumentProposal();
+      await _lifecycle
+          .currentCoordinator(ref.read(memoryLocationRevisionProvider))
+          .continueAfterDocumentDecision(
+            conversation: saved,
+            proposal: claimed,
+            toolResult: result,
+            binding: binding,
+          );
+    } on Object {
+      final interruptedClaim = claimed;
+      if (interruptedClaim != null) {
+        await _persistMutation(
+          conversation.id,
+          (latest) =>
+              latest.pendingDocumentProposal?.encode() ==
+                  interruptedClaim.encode()
+              ? latest.copyWith(
+                  pendingDocumentProposal: interruptedClaim.pending(),
+                )
+              : null,
+        );
+      }
+      rethrow;
+    } finally {
+      if (state.hasValue) {
+        state = AsyncData(
+          state.requireValue.copyWith(clearConfirmingDocument: true),
+        );
+      }
+    }
+  }
+
   Future<void> confirmPendingMemoryProposal() async {
     final conversation = state.requireValue.activeConversation;
     final proposal = conversation?.pendingMemoryProposal;

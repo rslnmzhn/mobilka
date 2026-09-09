@@ -11,175 +11,196 @@ import android.os.Looper
 import android.os.Message
 import android.os.Messenger
 import android.os.ParcelFileDescriptor
-import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.util.concurrent.Executors
 
-internal class DocumentWorkerBroker(private val context: Context) {
+internal class DocumentWorkerBroker(private val context: Context) : EventChannel.StreamHandler {
     companion object {
-        fun register(messenger: BinaryMessenger) {
+        fun register(context: Context, messenger: BinaryMessenger) {
+            val broker = DocumentWorkerBroker(context.applicationContext)
+            EventChannel(messenger, "mobilka/document_worker/events").setStreamHandler(broker)
             MethodChannel(messenger, "mobilka/document_worker").setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "capabilities" -> result.success(mapOf(
-                        "version" to 1,
-                        "available" to false,
-                        "capabilities" to emptyList<String>(),
-                        "reason" to "document_worker_unavailable",
-                    ))
-                    "start", "cancel" -> result.error("document_worker_unavailable", null, null)
+                    "capabilities" -> {
+                        val available = broker.available()
+                        result.success(mapOf(
+                            "version" to 1,
+                            "available" to available,
+                            "capabilities" to if (available) listOf(
+                                "isolatedProcess", "offline", "immutableInput", "boundedOutput",
+                                "osManagedMemoryIsolation", "wallDeadline",
+                                "workerInvalidatedAfterDeadline",
+                            ) else emptyList<String>(),
+                        ))
+                    }
+                    "start" -> broker.startCall(call.arguments as? Map<*, *>, result)
+                    "cancel" -> broker.cancelCall(call.arguments as? Map<*, *>, result)
                     else -> result.notImplemented()
                 }
             }
         }
     }
 
-    // Internal transport only. The production channel never invokes this until
-    // processor provisioning and memory/termination guarantees are verified.
-    fun start(requestBytes: ByteArray, onDeath: () -> Unit): Job {
-        check(Looper.myLooper() == Looper.getMainLooper())
-        require(requestBytes.size <= DocumentWorkerProtocol.HEADER_BYTES +
-            DocumentWorkerProtocol.MAX_SOURCE_BYTES)
-        val bytes = requestBytes.copyOf()
-        val request = DocumentWorkerProtocol.parse(bytes)
-        val file = File.createTempFile("document-worker-", ".snapshot", context.cacheDir)
-        var opened: ParcelFileDescriptor? = null
-        val input = try {
-            file.outputStream().use { it.write(bytes) }
-            val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            opened = descriptor
-            check(file.delete()) { "Unable to unlink document snapshot" }
-            descriptor
-        } catch (error: Exception) {
-            opened?.close()
-            if (file.exists() && !file.delete()) {
-                Log.w("DocumentWorker", "Unable to remove failed snapshot")
-            }
-            throw error
-        }
-        val pipe = try {
-            ParcelFileDescriptor.createPipe()
-        } catch (error: Exception) {
-            input.close()
-            throw error
-        }
-        return Job(request, input, pipe[0], pipe[1], onDeath).also { it.bind() }
+    private var events: EventChannel.EventSink? = null
+    private var active: Job? = null
+
+    private fun available(): Boolean {
+        val library = File(context.applicationInfo.nativeLibraryDir,
+            System.mapLibraryName("mobilka_documents_jni"))
+        if (!library.isFile) return false
+        return try {
+            DocumentWorkerProcessor.isReady() &&
+                context.assets.open("documents/eng.traineddata").use { it.available() > 0 } &&
+                context.assets.open("documents/rus.traineddata").use { it.available() > 0 }
+        } catch (_: Throwable) { false }
     }
 
-    inner class Job internal constructor(
-        private val request: DocumentWorkerProtocol.Request,
+    override fun onListen(arguments: Any?, sink: EventChannel.EventSink) { events = sink }
+    override fun onCancel(arguments: Any?) {
+        active?.invalidate()
+        active = null
+        events = null
+    }
+
+    private fun startCall(arguments: Map<*, *>?, result: MethodChannel.Result) {
+        val bytes = arguments?.get("request") as? ByteArray
+        val jobId = arguments?.get("jobId") as? String
+        if (!available()) {
+            result.error("document_worker_unavailable", null, null)
+            return
+        }
+        if (bytes == null || jobId == null || active != null || events == null) {
+            result.error("document_worker_busy", null, null)
+            return
+        }
+        try {
+            val request = DocumentWorkerProtocol.parse(bytes)
+            require(request.jobId == jobId)
+            val job = Job.create(context, request, bytes) { workerDied() }
+            active = job
+            job.start(
+                onChunk = { chunk -> events?.success(chunk) },
+                onComplete = { complete(job) },
+            )
+            result.success(null)
+        } catch (_: Throwable) {
+            active = null
+            result.error("invalid_document_worker_request", null, null)
+        }
+    }
+
+    private fun cancelCall(arguments: Map<*, *>?, result: MethodChannel.Result) {
+        val job = active
+        if (job == null || arguments?.get("jobId") != job.jobId) {
+            result.error("document_worker_not_running", null, null)
+            return
+        }
+        active = null
+        job.invalidate()
+        result.success(null)
+    }
+
+    private fun complete(job: Job) {
+        if (active !== job) return
+        active = null
+        job.invalidate()
+        events?.endOfStream()
+    }
+
+    private fun workerDied() {
+        if (active == null) return
+        active = null
+        events?.error("document_worker_died", null, null)
+    }
+
+    private class Job(
+        private val context: Context,
+        val jobId: String,
         private val input: ParcelFileDescriptor,
         private val output: ParcelFileDescriptor,
-        private val sink: ParcelFileDescriptor,
+        private val serviceOutput: ParcelFileDescriptor,
         private val onDeath: () -> Unit,
-    ) : ServiceConnection {
-        private val handler = Handler(Looper.getMainLooper())
-        private val reader = Executors.newSingleThreadExecutor()
-        private var binder: IBinder? = null
+    ) : ServiceConnection, IBinder.DeathRecipient {
+        companion object {
+            fun create(context: Context, request: DocumentWorkerProtocol.Request,
+                bytes: ByteArray, onDeath: () -> Unit): Job {
+                val snapshot = File.createTempFile("document-worker-", ".snapshot", context.cacheDir)
+                snapshot.outputStream().use { it.write(bytes) }
+                val input = ParcelFileDescriptor.open(snapshot, ParcelFileDescriptor.MODE_READ_ONLY)
+                check(snapshot.delete())
+                val pipe = ParcelFileDescriptor.createPipe()
+                return Job(context, request.jobId, input, pipe[0], pipe[1], onDeath)
+            }
+        }
+
+        private var messenger: Messenger? = null
         private var bound = false
-        private var stopping = false
-        private var deathObserved = false
-        private val timeout = Runnable { cancel() }
-        private val deathRecipient = IBinder.DeathRecipient {
-            handler.post { observedDeath() }
-        }
+        private var invalidated = false
 
-        internal fun bind() {
-            try {
-                bound = context.bindIsolatedService(
-                    Intent(context, DocumentWorkerService::class.java),
-                    Context.BIND_AUTO_CREATE, request.jobId, context.mainExecutor, this,
-                )
-                check(bound) { "Document worker binding rejected" }
-                handler.postDelayed(timeout, request.deadlineMillis.toLong())
-            } catch (error: Exception) {
-                input.close()
-                output.close()
-                sink.close()
-                reader.shutdownNow()
-                throw error
-            }
-        }
-
-        override fun onServiceConnected(name: ComponentName, service: IBinder) {
-            binder = service
-            try {
-                service.linkToDeath(deathRecipient, 0)
-                if (stopping) {
-                    cancel()
-                    return
-                }
-                val message = Message.obtain(null, DocumentWorkerProtocol.START)
-                message.data = Bundle().apply {
-                    putParcelable("input", input)
-                    putParcelable("output", sink)
-                }
-                Messenger(service).send(message)
-                sink.close()
-                reader.execute {
-                    try {
-                        ParcelFileDescriptor.AutoCloseInputStream(output).use { stream ->
-                            val buffer = ByteArray(DocumentWorkerProtocol.MAX_CHUNK_BYTES)
-                            var remaining = request.outputBytes + (request.pageCount + 1) * 51
-                            while (true) {
-                                val count = stream.read(buffer)
-                                if (count == -1) break
-                                require(count <= remaining)
-                                remaining -= count
-                            }
+        fun start(onChunk: (ByteArray) -> Unit, onComplete: () -> Unit) {
+            Executors.newSingleThreadExecutor().execute {
+                try {
+                    ParcelFileDescriptor.AutoCloseInputStream(output).use { stream ->
+                        val buffer = ByteArray(DocumentWorkerProtocol.MAX_CHUNK_BYTES)
+                        while (true) {
+                            val count = stream.read(buffer)
+                            if (count < 0) break
+                            val chunk = buffer.copyOf(count)
+                            Handler(Looper.getMainLooper()).post { onChunk(chunk) }
                         }
-                    } catch (error: Exception) {
-                        Log.w("DocumentWorker", "Worker output rejected or closed", error)
-                    } finally {
-                        handler.post { cancel() }
                     }
-                }
-            } catch (error: Exception) {
-                Log.w("DocumentWorker", "Worker connection failed", error)
-                cancel()
+                    Handler(Looper.getMainLooper()).post(onComplete)
+                } catch (_: Throwable) { died() }
             }
+            bound = context.bindService(Intent(context, DocumentWorkerService::class.java), this,
+                Context.BIND_AUTO_CREATE)
+            check(bound)
         }
 
-        fun cancel() {
-            check(Looper.myLooper() == Looper.getMainLooper())
-            stopping = true
-            handler.removeCallbacks(timeout)
+        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+            if (invalidated) return
+            binder.linkToDeath(this, 0)
+            messenger = Messenger(binder)
+            val message = Message.obtain(null, DocumentWorkerProtocol.START)
+            message.data = Bundle().apply {
+                putParcelable("input", input)
+                putParcelable("output", serviceOutput)
+            }
             try {
-                binder?.let { Messenger(it).send(Message.obtain(null, DocumentWorkerProtocol.CANCEL)) }
-            } catch (error: android.os.RemoteException) {
-                Log.w("DocumentWorker", "Worker cancellation transport closed", error)
-            }
-            output.close()
-            sink.close()
-            if (bound) {
-                context.unbindService(this)
-                bound = false
-            }
-            // Keep the source descriptor until actual death notification. An
-            // absent notification deliberately retains it; this is not reaping.
+                messenger!!.send(message)
+                input.close()
+                serviceOutput.close()
+            } catch (_: Throwable) { died() }
         }
 
-        private fun observedDeath() {
-            if (deathObserved) return
-            deathObserved = true
-            cancel()
-            input.close()
-            binder = null
-            reader.shutdownNow()
-            onDeath()
+        fun invalidate() {
+            if (invalidated) return
+            invalidated = true
+            try { messenger?.send(Message.obtain(null, DocumentWorkerProtocol.CANCEL)) } catch (_: Throwable) {}
+            close()
         }
 
-        override fun onServiceDisconnected(name: ComponentName) {
-            cancel()
+        private fun died() {
+            if (invalidated) return
+            invalidated = true
+            close()
+            Handler(Looper.getMainLooper()).post(onDeath)
         }
 
-        override fun onBindingDied(name: ComponentName) {
-            cancel()
+        private fun close() {
+            try { input.close() } catch (_: Throwable) {}
+            try { output.close() } catch (_: Throwable) {}
+            try { serviceOutput.close() } catch (_: Throwable) {}
+            if (bound) { try { context.unbindService(this) } catch (_: Throwable) {}; bound = false }
+            messenger = null
         }
 
-        override fun onNullBinding(name: ComponentName) {
-            cancel()
-        }
+        override fun binderDied() = died()
+        override fun onServiceDisconnected(name: ComponentName) = died()
+        override fun onBindingDied(name: ComponentName) = died()
+        override fun onNullBinding(name: ComponentName) = died()
     }
 }

@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "document_worker_broker.h"
 #include "session_workspace.h"
 #include "updater_staging.h"
 
@@ -27,6 +28,7 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  RegisterDocumentWorkerBroker(flutter_controller_->engine()->messenger());
   RegisterUpdaterStagingChannel(flutter_controller_->engine()->messenger());
   RegisterSessionWorkspaceChannel(flutter_controller_->engine()->messenger());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
@@ -44,6 +46,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  StopDocumentWorkerBroker();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

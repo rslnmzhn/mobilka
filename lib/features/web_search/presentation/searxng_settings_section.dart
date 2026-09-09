@@ -209,11 +209,16 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
           context,
         ).showSnackBar(SnackBar(content: Text('settings.saved'.tr())));
       }
-    } on Object {
+    } on Object catch (error) {
+      final messageKey = switch (error) {
+        WebSearchFailure(code: 'invalid_endpoint') => 'searchInvalidEndpoint',
+        WebSearchFailure(code: 'http_ack_required') => 'searchHttpAckRequired',
+        _ => 'searchSettingsSaveFailed',
+      };
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('common.error'.tr())));
+        ).showSnackBar(SnackBar(content: Text(messageKey.tr())));
       }
     } finally {
       if (mounted) setState(() => saving = false);

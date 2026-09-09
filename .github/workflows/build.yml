@@ -26,6 +26,7 @@ env:
   WIX_TOOLSET_VERSION: "5.0.2"
   FLUTTER_VERSION: "3.38.7"
   OPENSSL_VERSION: "3.0.13"
+  ANDROID_NDK_VERSION: "27.0.12077973"
   ANDROID_SIGNER_SHA256: "4A:76:9B:92:8D:47:82:77:30:E3:C5:E1:5A:E3:86:5C:D8:B8:99:93:13:A3:E5:79:BA:A9:B7:34:56:46:55:CD"
   WINDOWS_SIGNER_SHA256: "84EFAEE8B51EF463E312FC90D8B86613739961F11B0C6582B472BB3845D21BA4"
 
@@ -91,6 +92,17 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+      - name: Cache Android document dependencies
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: |
+            android/app/.cxx/provision
+            android/app/build/generated/document-assets/documents
+          key: documents-android-${{ runner.os }}-${{ runner.arch }}-ndk-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('native/documents/dependency-versions.json', 'native/documents/build-dependencies.cmake', 'android/app/scripts/provision-android.ps1') }}
+      - name: Provision Android document dependencies
+        shell: pwsh
+        timeout-minutes: 60
+        run: ./android/app/scripts/provision-android.ps1 -AndroidNdk "$env:ANDROID_SDK_ROOT/ndk/$env:ANDROID_NDK_VERSION"
       - name: Flutter pub get
         run: flutter pub get
       - name: Build APK (debug, CI validation)
@@ -121,6 +133,17 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+      - name: Cache Android document dependencies
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: |
+            android/app/.cxx/provision
+            android/app/build/generated/document-assets/documents
+          key: documents-android-${{ runner.os }}-${{ runner.arch }}-ndk-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('native/documents/dependency-versions.json', 'native/documents/build-dependencies.cmake', 'android/app/scripts/provision-android.ps1') }}
+      - name: Provision Android document dependencies
+        shell: pwsh
+        timeout-minutes: 60
+        run: ./android/app/scripts/provision-android.ps1 -AndroidNdk "$env:ANDROID_SDK_ROOT/ndk/$env:ANDROID_NDK_VERSION"
       - name: Apply release version
         shell: bash
         run: |
@@ -201,6 +224,11 @@ jobs:
             --version-code "${RELEASE_VERSION_CODE}"
       - name: Flutter pub get
         run: flutter pub get
+      - name: Provision pinned Windows document worker dependencies
+        shell: pwsh
+        run: |
+          .github/scripts/provision_windows_document_worker.ps1
+          Get-Content build/windows-document-provision/flutter-build.env | Out-File -Append -Encoding ascii $env:GITHUB_ENV
       - name: Build Windows (release)
         run: flutter build windows --release --dart-define=MOBILKA_VERSION=${env:RELEASE_VERSION}
       - name: Install pinned WiX Toolset

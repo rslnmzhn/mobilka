@@ -1,6 +1,12 @@
 #include "session_workspace.h"
 
 #include <algorithm>
+#include <array>
+#include <bcrypt.h>
+
+namespace {
+constexpr uint64_t kMaxBinaryFileBytes = 10 * 1024 * 1024;
+}
 
 namespace workspace {
 static Map Entry(const std::string &path, const Node &n, bool dir,
@@ -213,5 +219,95 @@ void HandleRead(const Map &a, Result result) {
                             {Value("nextOffset"), Value((int64_t)end)},
                             {Value("truncated"), Value(end < size)},
                             {Value("identity"), Value(Token(f.id))}}));
+}
+
+void HandleReadBinary(const Map &a, Result result) {
+  const auto *maximum_value = Find(a, "maxBytes");
+  const auto *maximum = maximum_value
+                            ? std::get_if<int64_t>(maximum_value)
+                            : nullptr;
+  if (!maximum || *maximum < 0 ||
+      static_cast<uint64_t>(*maximum) > kMaxBinaryFileBytes) {
+    Error(result, "invalid_argument");
+    return;
+  }
+  Context context;
+  const char *error = nullptr;
+  if (!OpenContext(a, false, &context, &error)) {
+    Error(result, error ? error : "not_found");
+    return;
+  }
+  Node parent, file;
+  std::wstring name;
+  if (!OpenParent(context, &parent, &name, &error) ||
+      !OpenChild(parent, name, GENERIC_READ, false, &file, false, &error)) {
+    Error(result, error ? error : "not_found");
+    return;
+  }
+  ULARGE_INTEGER declared{};
+  declared.HighPart = file.info.nFileSizeHigh;
+  declared.LowPart = file.info.nFileSizeLow;
+  if (declared.QuadPart > static_cast<uint64_t>(*maximum)) {
+    Error(result, "workspace_file_too_large");
+    return;
+  }
+  std::vector<uint8_t> bytes(static_cast<size_t>(declared.QuadPart));
+  DWORD read = 0;
+  if ((!bytes.empty() &&
+       (!ReadFile(file.handle.value, bytes.data(),
+                  static_cast<DWORD>(bytes.size()), &read, nullptr) ||
+        read != bytes.size()))) {
+    Error(result, "metadata_changed");
+    return;
+  }
+  BY_HANDLE_FILE_INFORMATION after{};
+  uint8_t extra = 0;
+  DWORD extra_read = 0;
+  if (!GetFileInformationByHandle(file.handle.value, &after) ||
+      after.nFileSizeHigh != file.info.nFileSizeHigh ||
+      after.nFileSizeLow != file.info.nFileSizeLow ||
+      after.dwVolumeSerialNumber != file.info.dwVolumeSerialNumber ||
+      after.nFileIndexHigh != file.info.nFileIndexHigh ||
+      after.nFileIndexLow != file.info.nFileIndexLow ||
+      !ReadFile(file.handle.value, &extra, 1, &extra_read, nullptr) ||
+      extra_read != 0) {
+    Error(result, "metadata_changed");
+    return;
+  }
+  BCRYPT_ALG_HANDLE algorithm = nullptr;
+  BCRYPT_HASH_HANDLE hasher = nullptr;
+  DWORD object_size = 0, copied = 0;
+  std::vector<UCHAR> object;
+  std::array<UCHAR, 32> digest{};
+  bool hashed = BCryptOpenAlgorithmProvider(
+                    &algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) == 0 &&
+                BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH,
+                    reinterpret_cast<PUCHAR>(&object_size), sizeof(object_size),
+                    &copied, 0) == 0;
+  object.resize(object_size);
+  hashed = hashed && BCryptCreateHash(algorithm, &hasher, object.data(),
+                                      object_size, nullptr, 0, 0) == 0 &&
+           BCryptHashData(hasher, bytes.data(),
+                          static_cast<ULONG>(bytes.size()), 0) == 0 &&
+            BCryptFinishHash(hasher, digest.data(),
+                             static_cast<ULONG>(digest.size()), 0) == 0;
+  if (hasher) BCryptDestroyHash(hasher);
+  if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
+  if (!hashed) {
+    Error(result, "metadata_changed");
+    return;
+  }
+  static constexpr char hex[] = "0123456789abcdef";
+  std::string hash(64, '0');
+  for (size_t i = 0; i < digest.size(); ++i) {
+    hash[i * 2] = hex[digest[i] >> 4];
+    hash[i * 2 + 1] = hex[digest[i] & 15];
+  }
+  result->Success(Value(Map{
+      {Value("bytes"), Value(bytes)},
+      {Value("size"), Value(static_cast<int64_t>(declared.QuadPart))},
+      {Value("sha256"), Value(hash)},
+      {Value("identity"), Value(Token(file.id))},
+  }));
 }
 } // namespace workspace

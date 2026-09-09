@@ -1,11 +1,8 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobilka/features/documents/application/native_document_extractor.dart';
 import 'package:mobilka/features/documents/data/android_document_worker_supervisor.dart';
 import 'package:mobilka/features/documents/domain/document_limits.dart';
 import 'package:mobilka/features/documents/domain/document_worker_supervisor.dart';
-
-import 'support/document_fixtures.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -15,38 +12,21 @@ void main() {
 
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
-  test('unavailable capabilities never launch a worker', () async {
+  test('capabilities are accepted only as a complete policy set', () async {
     final methods = <String>[];
     messenger.setMockMethodCallHandler(channel, (call) async {
       methods.add(call.method);
       return <String, Object>{
         'version': 1,
-        'available': false,
-        'capabilities': <String>[],
-        'reason': 'document_worker_unavailable',
+        'available': true,
+        'capabilities': DocumentWorkerCapability.values
+            .map((value) => value.name)
+            .toList(),
       };
     });
     final supervisor = AndroidDocumentWorkerSupervisor();
-    expect(supervisor.capabilities, isEmpty);
-    await expectLater(
-      supervisor.checkAvailability(),
-      throwsA(
-        isA<DocumentException>().having(
-          (e) => e.code,
-          'code',
-          'document_worker_unavailable',
-        ),
-      ),
-    );
-    await expectLater(
-      NativeDocumentExtractor(supervisor: supervisor).extract(
-        documentSnapshot([1]),
-        options: DocumentWorkerOptions(
-          operation: DocumentWorkerOperation.pdfText,
-        ),
-      ),
-      throwsA(isA<DocumentException>()),
-    );
+    await supervisor.checkAvailability();
+    expect(supervisor.capabilities, DocumentWorkerCapability.values.toSet());
     expect(methods, ['capabilities']);
   });
 

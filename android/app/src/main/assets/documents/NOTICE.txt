@@ -1,0 +1,7 @@
+mobilka's optional document worker incorporates PDFium, Tesseract OCR,
+Leptonica, zlib, libpng, and libjpeg-turbo. Their license and notice files are
+retained from the exact archives identified by native/documents/dependency-versions.json
+during provisioning. Source and license information is documented in
+native/documents/DEPENDENCIES.md. Complete upstream license texts are retained
+inside the verified provisioning trees and build identity output; release
+packaging must preserve this notice together with those texts.

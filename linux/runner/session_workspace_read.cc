@@ -223,4 +223,50 @@ void HandleRead(FlMethodCall *c, FlValue *a) {
                            fl_value_new_string(Token(f.id).c_str()));
   RespondSuccess(c, m);
 }
+void HandleReadBinary(FlMethodCall *c, FlValue *a) {
+  constexpr off_t kMaxBinaryFileBytes = 10 * 1024 * 1024;
+  int64_t max = -1;
+  Context x;
+  const char *e = nullptr;
+  if (!IntArg(a, "maxBytes", &max) || max < 0 ||
+      max > kMaxBinaryFileBytes || !OpenContext(a, false, &x, &e)) {
+    RespondError(c, e ? e : "invalid_argument");
+    return;
+  }
+  Node p, f;
+  std::string n;
+  if (!OpenParent(x, &p, &n, &e) || !OpenFileAt(p.fd.get(), n, O_RDONLY, &f)) {
+    RespondError(c, e ? e : "not_found");
+    return;
+  }
+  if (f.info.st_size < 0 || f.info.st_size > max) {
+    RespondError(c, "workspace_file_too_large");
+    return;
+  }
+  std::vector<uint8_t> bytes(f.info.st_size);
+  if (f.info.st_size &&
+      pread(f.fd.get(), bytes.data(), f.info.st_size, 0) != f.info.st_size) {
+    RespondError(c, "metadata_changed");
+    return;
+  }
+  uint8_t extra = 0;
+  struct stat after{};
+  if (pread(f.fd.get(), &extra, 1, f.info.st_size) != 0 ||
+      fstat(f.fd.get(), &after) || after.st_size != f.info.st_size ||
+      !Same(Id(after), f.id)) {
+    RespondError(c, "metadata_changed");
+    return;
+  }
+  g_autoptr(GChecksum) checksum = g_checksum_new(G_CHECKSUM_SHA256);
+  g_checksum_update(checksum, bytes.data(), bytes.size());
+  const std::string hash = g_checksum_get_string(checksum);
+  g_autoptr(FlValue) out = fl_value_new_map();
+  fl_value_set_string_take(out, "bytes",
+      fl_value_new_uint8_list(bytes.data(), bytes.size()));
+  fl_value_set_string_take(out, "size", fl_value_new_int(f.info.st_size));
+  fl_value_set_string_take(out, "sha256", fl_value_new_string(hash.c_str()));
+  fl_value_set_string_take(out, "identity",
+      fl_value_new_string(Token(f.id).c_str()));
+  RespondSuccess(c, out);
+}
 } // namespace workspace

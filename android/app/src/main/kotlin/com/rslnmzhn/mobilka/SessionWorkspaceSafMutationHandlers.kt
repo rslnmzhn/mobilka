@@ -15,6 +15,10 @@ internal class SessionWorkspaceSafMutationHandlers(context: Context) {
         "rootIdentity" -> access.documentId(access.scopeRoot(args).root)
         "validateDocument" -> validateDocument(args)
         "readDocument" -> readDocument(args)
+        "readBinaryDocument" -> readDocument(
+            args,
+            (args["maxBytes"] as? Number)?.toInt() ?: brokerFail("invalid_argument"),
+        )
         "listDocuments" -> listDocuments(args)
         "prepareMutation" -> mutations.prepare(args)
         "commitPrepared" -> mutations.commit(args)
@@ -47,7 +51,7 @@ internal class SessionWorkspaceSafMutationHandlers(context: Context) {
         return snapshot.toMap()
     }
 
-    private fun readDocument(args: Map<*, *>): Map<String, Any?> {
+    private fun readDocument(args: Map<*, *>, maxBytes: Int = SafWorkspaceAccess.MAX_BYTES): Map<String, Any?> {
         val scope = access.existingScope(args) ?: brokerFail("not_found")
         val path = access.safePath(access.string(args, "path"), false)
         val expected = access.parseUri(access.string(args, "documentUri"))
@@ -58,7 +62,7 @@ internal class SessionWorkspaceSafMutationHandlers(context: Context) {
             access.documentId(document.uri) != access.documentId(expected)) {
             brokerFail("metadata_changed")
         }
-        val (bytes, snapshot) = access.readStable(document.uri, scope.session)
+        val (bytes, snapshot) = access.readStable(document.uri, scope.session, maxBytes)
         return snapshot.toMap() + ("bytes" to bytes)
     }
 

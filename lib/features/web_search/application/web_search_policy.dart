@@ -32,7 +32,7 @@ class WebSearchPolicy {
         uri.fragment.isNotEmpty ||
         uri.hasQuery ||
         uri.host.endsWith('.') ||
-        (uri.hasPort && uri.port != 80 && uri.port != 443)) {
+        (uri.hasPort && (uri.port < 1 || uri.port > 65535))) {
       throw const WebSearchFailure('invalid_endpoint');
     }
     final canonical = PublicTargetPolicy.canonicalize(

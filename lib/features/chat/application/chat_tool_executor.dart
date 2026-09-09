@@ -13,6 +13,7 @@ import '../domain/conversation.dart';
 import '../domain/pending_memory_proposal.dart';
 import '../domain/pending_tool_proposal.dart';
 import '../domain/pending_workspace_proposal.dart';
+import '../domain/pending_document_proposal.dart';
 import 'chat_stream_request.dart';
 import 'chat_tool_runtime.dart';
 import 'memory_tool_dispatcher.dart';
@@ -21,6 +22,7 @@ import 'request_tool_security_state.dart';
 import 'chat_tool_effect_policy.dart';
 
 part 'workspace_tool_dispatcher.dart';
+part 'document_tool_dispatcher.dart';
 
 class ChatToolExecutor {
   ChatToolExecutor({
@@ -73,6 +75,15 @@ class ChatToolExecutor {
         state,
         securityState,
       );
+      if (_documentProposal(state) != null) {
+        _deferCallsAfterDocumentProposal(
+          executor: this,
+          calls: calls,
+          selectedIndex: indexedCall.$1,
+          state: state,
+        );
+        break;
+      }
     }
     if (!await _persistResults(request, assistantId, state)) return false;
     if (state.budgetExceeded) {
@@ -86,7 +97,8 @@ class ChatToolExecutor {
     }
     return state.memoryProposal == null &&
         state.toolProposal == null &&
-        state.workspaceProposal == null;
+        state.workspaceProposal == null &&
+        _documentProposal(state) == null;
   }
 
   Future<bool> _prepare(
@@ -153,13 +165,24 @@ class ChatToolExecutor {
     // A proposal owns the remainder of this dispatch batch. Check before any
     // classification so source, memory, workspace, and generic ordering cannot
     // bypass confirmation exclusivity.
-    if (state.anyProposal != null) {
+    if (state.anyProposal != null || _documentProposal(state) != null) {
       state.addError(call, index, 'confirmation_pending', this);
       return;
     }
     final definition = await _definitionFor(call, request.allowedTools);
     final effect = resolveChatToolEffect(definition, call);
     if (await _dispatchWorkspaceTool(
+      executor: this,
+      request: request,
+      assistantId: assistantId,
+      call: call,
+      callIndex: index,
+      occurrence: occurrence,
+      state: state,
+    )) {
+      return;
+    }
+    if (await _dispatchDocumentTool(
       executor: this,
       request: request,
       assistantId: assistantId,
@@ -353,11 +376,12 @@ class ChatToolExecutor {
       if (latest.pendingRequestMessageId != request.requestMessageId) {
         return null;
       }
-      if (state.anyProposal != null &&
+      if ((state.anyProposal != null || _documentProposal(state) != null) &&
           (latest.pendingMemoryProposal != null ||
               latest.pendingToolProposal != null ||
               latest.pendingSkillProposal != null ||
-              latest.pendingWorkspaceProposal != null)) {
+              latest.pendingWorkspaceProposal != null ||
+              latest.pendingDocumentProposal != null)) {
         return null;
       }
       return latest.copyWith(
@@ -373,6 +397,7 @@ class ChatToolExecutor {
         pendingMemoryProposal: state.memoryProposal,
         pendingToolProposal: state.toolProposal,
         pendingWorkspaceProposal: state.workspaceProposal,
+        pendingDocumentProposal: _documentProposal(state),
       );
     });
     if (persisted == null ||

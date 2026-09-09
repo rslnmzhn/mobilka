@@ -45,7 +45,8 @@ void main() {
       'https://u:p@example.com',
       'https://example.com/?x=1',
       'https://example.com/#x',
-      'https://example.com:8443',
+      'https://example.com:0',
+      'https://example.com:65536',
       'https://example.com\\x',
     ]) {
       expect(
@@ -53,6 +54,22 @@ void main() {
         throwsA(isA<WebSearchFailure>()),
       );
     }
+  });
+
+  test('custom search ports preserve the configured base path', () {
+    const base = 'http://example.com:8080/api/v1';
+    expect(WebSearchPolicy.validateBaseUrl(base), base);
+    expect(
+      WebSearchPolicy.searchUri(base, {
+        'q': 'test',
+        'format': 'json',
+      }).toString(),
+      '$base/search?q=test&format=json',
+    );
+    expect(
+      WebSearchPolicy.validateBaseUrl('https://example.com:8443'),
+      'https://example.com:8443',
+    );
   });
 
   test('public target policy rejects mixed private DNS', () async {

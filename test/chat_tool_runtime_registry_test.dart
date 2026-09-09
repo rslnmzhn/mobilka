@@ -206,12 +206,14 @@ void main() {
       addTearDown(container.dispose);
       final runtime = container.read(chatToolRuntimeRegistryProvider);
       final advertised = await runtime.availableTools(definition.tools.toSet());
-      expect(definition.tools, hasLength(21));
+      expect(definition.tools, hasLength(23));
       expect(
         advertised.map((tool) => tool.name).toSet(),
         definition.tools.toSet().difference({
           'update_memory_file',
-          'web_search',
+        'web_search',
+        'extract_document',
+        'ocr_document',
         }),
       );
       expect(runtime, isA<MemoryProposalRuntime>());

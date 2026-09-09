@@ -4,6 +4,7 @@ import '../domain/pending_memory_proposal.dart';
 import '../../../core/workspace/workspace_binding.dart';
 import '../domain/pending_skill_proposal.dart';
 import '../domain/pending_workspace_proposal.dart';
+import '../domain/pending_document_proposal.dart';
 import 'request_tool_security_state.dart';
 
 abstract interface class ChatToolRuntime {
@@ -106,4 +107,34 @@ abstract interface class WorkspaceProposalRuntime {
     required String? selectedAgentId,
     required Set<String> allowedTools,
   });
+}
+
+abstract interface class DocumentProposalRuntime {
+  bool handlesDocumentRead(String toolName);
+
+  Future<PendingDocumentProposal> prepareDocumentProposal({
+    required ChatToolCall call,
+    required ChatToolExecutionContext context,
+    required String requestId,
+    required String assistantMessageId,
+    required String selectedAgentId,
+    required Set<String> allowedTools,
+    required int callOccurrence,
+    required int toolCallIndex,
+  });
+
+  Future<String> confirmDocumentProposal({
+    required PendingDocumentProposal proposal,
+    required String claimToken,
+    required ChatToolCall call,
+    required ChatToolExecutionContext context,
+    required String requestId,
+    required String assistantMessageId,
+    required int toolCallIndex,
+    required int callOccurrence,
+    required String selectedAgentId,
+    required Set<String> allowedTools,
+  });
+
+  String rejectDocumentProposal();
 }

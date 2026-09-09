@@ -42,6 +42,24 @@ val hasReleaseSigning = listOf(
 ).all { !it.isNullOrBlank() }
 val requestedTaskNames = gradle.startParameter.taskNames.map { it.lowercase() }
 val requiresReleaseSigning = requestedTaskNames.any { it.contains("release") }
+val documentAssets = layout.buildDirectory.dir("generated/document-assets/documents")
+val documentProvision = layout.projectDirectory.dir(".cxx/provision")
+val verifyDocumentProvision by tasks.registering {
+    inputs.file(rootProject.file("../native/documents/dependency-versions.json"))
+    doLast {
+        val provision = project.layout.projectDirectory.dir(".cxx/provision").asFile
+        listOf("armeabi-v7a", "arm64-v8a", "x86_64").forEach { abi ->
+            check(provision.resolve("$abi/provision.cmake").isFile) {
+                "Missing verified document worker provision for $abi; run native/documents/provision-android.ps1"
+            }
+        }
+        listOf("eng.traineddata", "rus.traineddata", "NOTICE.txt").forEach { name ->
+            check(documentAssets.get().file(name).asFile.isFile) {
+                "Missing verified document language asset $name; run native/documents/provision-android.ps1"
+            }
+        }
+    }
+}
 
 android {
     namespace = "com.rslnmzhn.mobilka"
@@ -67,7 +85,24 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += "-DDOCUMENTS_PROVISION_ROOT=${project.layout.projectDirectory.dir(".cxx/provision").asFile.absolutePath.replace("\\", "/")}" 
+            }
+        }
     }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/document-assets"))
 
     signingConfigs {
         if (hasReleaseSigning) {
@@ -88,6 +123,11 @@ android {
         }
     }
 }
+
+android.sourceSets.getByName("main").jniLibs.srcDir(documentProvision)
+
+tasks.matching { it.name.startsWith("pre") && it.name.endsWith("Build") }
+    .configureEach { dependsOn(verifyDocumentProvision) }
 
 if (requiresReleaseSigning && !hasReleaseSigning) {
     throw GradleException(

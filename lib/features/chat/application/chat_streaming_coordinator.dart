@@ -14,6 +14,7 @@ import 'conversation_mutation.dart';
 import 'request_tool_security_state.dart';
 import 'memory_decision_continuation.dart';
 import 'workspace_decision_continuation.dart';
+import 'document_decision_continuation.dart';
 import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
 import '../../../features/memory/application/workspace_paths.dart';
@@ -25,6 +26,7 @@ import '../domain/chat_tool.dart';
 import '../domain/pending_memory_proposal.dart';
 import '../domain/request_execution_ledger.dart';
 import '../domain/pending_workspace_proposal.dart';
+import '../domain/pending_document_proposal.dart';
 
 class ChatStreamingCoordinator {
   ChatStreamingCoordinator({
@@ -179,6 +181,22 @@ class ChatStreamingCoordinator {
       _workspaceDecisions.remove(decisionId);
     }
   }
+
+  Future<void> continueAfterDocumentDecision({
+    required Conversation conversation,
+    required PendingDocumentProposal proposal,
+    required String toolResult,
+    required WorkspaceBinding binding,
+  }) =>
+      DocumentDecisionContinuation(
+        persistMutation: _persistMutation,
+        run: run,
+      ).continueRequest(
+        conversation: conversation,
+        proposal: proposal,
+        toolResult: toolResult,
+        binding: binding,
+      );
 
   void cancel(String conversationId) {
     if (_activeRequest?.conversationId == conversationId) {

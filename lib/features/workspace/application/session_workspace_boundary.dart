@@ -36,6 +36,14 @@ abstract interface class SessionWorkspaceBoundary {
   Future<void> cleanupPrepared(PreparedWorkspaceMutation prepared);
 }
 
+abstract interface class BinarySessionWorkspaceBoundary
+    implements SessionWorkspaceBoundary {
+  Future<WorkspaceBinaryReadResult> readBinary(
+    SessionWorkspacePath path, {
+    required int maxBytes,
+  });
+}
+
 enum WorkspacePreparedState {
   committed,
   notCommitted,

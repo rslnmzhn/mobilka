@@ -5,6 +5,7 @@ import 'pending_tool_proposal.dart';
 import 'pending_skill_proposal.dart';
 import 'request_execution_ledger.dart';
 import 'pending_workspace_proposal.dart';
+import 'pending_document_proposal.dart';
 
 enum ConversationTitleState { pendingAutomatic, generated, fallback, manual }
 
@@ -31,6 +32,8 @@ class Conversation {
     this.invalidPendingWorkspaceProposal = false,
     this.invalidWorkspaceToolCallId,
     this.invalidWorkspaceToolCallIndex,
+    this.pendingDocumentProposal,
+    this.invalidPendingDocumentProposal = false,
   });
 
   final String id;
@@ -54,6 +57,8 @@ class Conversation {
   final bool invalidPendingWorkspaceProposal;
   final String? invalidWorkspaceToolCallId;
   final int? invalidWorkspaceToolCallIndex;
+  final PendingDocumentProposal? pendingDocumentProposal;
+  final bool invalidPendingDocumentProposal;
 
   Conversation copyWith({
     String? title,
@@ -77,6 +82,8 @@ class Conversation {
     bool clearRequestExecutionLedger = false,
     PendingWorkspaceProposal? pendingWorkspaceProposal,
     bool clearPendingWorkspaceProposal = false,
+    PendingDocumentProposal? pendingDocumentProposal,
+    bool clearPendingDocumentProposal = false,
   }) => Conversation(
     id: id,
     title: title ?? this.title,
@@ -118,6 +125,12 @@ class Conversation {
     invalidWorkspaceToolCallIndex: clearPendingWorkspaceProposal
         ? null
         : invalidWorkspaceToolCallIndex,
+    pendingDocumentProposal: clearPendingDocumentProposal
+        ? null
+        : (pendingDocumentProposal ?? this.pendingDocumentProposal),
+    invalidPendingDocumentProposal: clearPendingDocumentProposal
+        ? false
+        : invalidPendingDocumentProposal,
   );
 
   Map<String, dynamic> toJson() => {
@@ -131,6 +144,9 @@ class Conversation {
     'contextLimitTokens': contextLimitTokens,
     'usage': usage?.toJson(),
     'pendingMemoryProposal': pendingMemoryProposal?.toJson(),
+    'pendingDocumentProposal': invalidPendingDocumentProposal
+        ? const {'invalid': true}
+        : pendingDocumentProposal?.toJson(),
     'sessionKey': sessionKey,
     'titleState': titleState.name,
     'publicSourceWireBytesUsed': publicSourceWireBytesUsed,
@@ -176,6 +192,34 @@ class Conversation {
     final invalidWorkspaceMarker = invalidWorkspaceProposal
         ? _workspaceProposalMarker(rawWorkspaceProposal)
         : null;
+    final rawDocumentProposal = json['pendingDocumentProposal'];
+    PendingDocumentProposal? documentProposal;
+    if (rawDocumentProposal is Map) {
+      try {
+        final decoded = PendingDocumentProposal.fromJson(rawDocumentProposal);
+        final hasOtherProposal = [
+          'pendingMemoryProposal',
+          'pendingSkillProposal',
+          'pendingToolProposal',
+          'pendingWorkspaceProposal',
+        ].any((key) => json[key] != null);
+        if (!hasOtherProposal &&
+            decoded.belongsTo(
+              conversationId: id,
+              requestId: pendingRequestMessageId,
+              sessionKey: sessionKey,
+              messages: messages,
+            )) {
+          documentProposal = decoded;
+        }
+      } on FormatException {
+        documentProposal = null;
+      } on ArgumentError {
+        documentProposal = null;
+      } on TypeError {
+        documentProposal = null;
+      }
+    }
     return Conversation(
       id: id,
       title: title,
@@ -214,6 +258,9 @@ class Conversation {
       invalidPendingWorkspaceProposal: invalidWorkspaceProposal,
       invalidWorkspaceToolCallId: invalidWorkspaceMarker?.toolCallId,
       invalidWorkspaceToolCallIndex: invalidWorkspaceMarker?.toolCallIndex,
+      pendingDocumentProposal: documentProposal,
+      invalidPendingDocumentProposal:
+          rawDocumentProposal != null && documentProposal == null,
     );
   }
 }
