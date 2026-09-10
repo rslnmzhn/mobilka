@@ -85,11 +85,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
-        }
         externalNativeBuild {
             cmake {
+                abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
                 arguments += "-DDOCUMENTS_PROVISION_ROOT=${project.layout.projectDirectory.dir(".cxx/provision").asFile.absolutePath.replace("\\", "/")}" 
             }
         }
