@@ -79,14 +79,16 @@ extension ChatControllerProposalActions on ChatController {
               allowedTools: policy.allowedTools,
             )
           : runtime.rejectDocumentProposal();
-      await _lifecycle
-          .currentCoordinator(ref.read(memoryLocationRevisionProvider))
-          .continueAfterDocumentDecision(
-            conversation: saved,
-            proposal: claimed,
-            toolResult: result,
-            binding: binding,
-          );
+      final coordinator = _lifecycle.currentCoordinator(
+        ref.read(memoryLocationRevisionProvider),
+      );
+      final request = await coordinator.resolveDocumentDecision(
+        conversation: saved,
+        proposal: claimed,
+        toolResult: result,
+        binding: binding,
+      );
+      if (request != null) coordinator.launchContinuation(request);
     } on Object {
       final interruptedClaim = claimed;
       if (interruptedClaim != null) {
@@ -351,18 +353,18 @@ extension ChatControllerProposalActions on ChatController {
           'workspace_recovery_pending',
         );
       }
-      await _lifecycle
-          .currentCoordinator(ref.read(memoryLocationRevisionProvider))
-          .continueAfterWorkspaceDecision(
-            conversation: saved,
-            proposal: executing,
-            toolResult: jsonEncode(result.payload),
-            workspaceBinding: binding,
-            afterPersist: () => coordinator!.acknowledgeOutcome(
-              result.operationId,
-              result.token,
-            ),
-          );
+      final streamingCoordinator = _lifecycle.currentCoordinator(
+        ref.read(memoryLocationRevisionProvider),
+      );
+      final request = await streamingCoordinator.resolveWorkspaceDecision(
+        conversation: saved,
+        proposal: executing,
+        toolResult: jsonEncode(result.payload),
+        workspaceBinding: binding,
+        afterPersist: () =>
+            coordinator!.acknowledgeOutcome(result.operationId, result.token),
+      );
+      if (request != null) streamingCoordinator.launchContinuation(request);
     } on Object catch (error) {
       final saved = claimed == null
           ? null
@@ -400,18 +402,20 @@ extension ChatControllerProposalActions on ChatController {
         _setError('chat.workspaceConfirmError'.tr());
       } else if (executing != null &&
           saved?.pendingWorkspaceProposal?.hasSameIdentity(executing) == true) {
-        await _lifecycle
-            .currentCoordinator(ref.read(memoryLocationRevisionProvider))
-            .continueAfterWorkspaceDecision(
-              conversation: saved!,
-              proposal: executing,
-              toolResult: jsonEncode({
-                'ok': false,
-                'error_code': 'workspace_confirmation_failed',
-              }),
-              workspaceBinding: binding,
-              continueStreaming: binding != null,
-            );
+        final streamingCoordinator = _lifecycle.currentCoordinator(
+          ref.read(memoryLocationRevisionProvider),
+        );
+        final request = await streamingCoordinator.resolveWorkspaceDecision(
+          conversation: saved!,
+          proposal: executing,
+          toolResult: jsonEncode({
+            'ok': false,
+            'error_code': 'workspace_confirmation_failed',
+          }),
+          workspaceBinding: binding,
+          continueStreaming: binding != null,
+        );
+        if (request != null) streamingCoordinator.launchContinuation(request);
       } else {
         _setError('chat.workspaceConfirmError'.tr());
       }
@@ -450,18 +454,17 @@ extension ChatControllerProposalActions on ChatController {
         // Rejection is still terminally recorded, but never continues against
         // a newly captured or changed workspace.
       }
-      await _lifecycle
-          .currentCoordinator(ref.read(memoryLocationRevisionProvider))
-          .continueAfterWorkspaceDecision(
-            conversation: conversation,
-            proposal: proposal,
-            toolResult: jsonEncode({
-              'ok': false,
-              'error_code': 'user_rejected',
-            }),
-            workspaceBinding: binding,
-            continueStreaming: binding != null,
-          );
+      final streamingCoordinator = _lifecycle.currentCoordinator(
+        ref.read(memoryLocationRevisionProvider),
+      );
+      final request = await streamingCoordinator.resolveWorkspaceDecision(
+        conversation: conversation,
+        proposal: proposal,
+        toolResult: jsonEncode({'ok': false, 'error_code': 'user_rejected'}),
+        workspaceBinding: binding,
+        continueStreaming: binding != null,
+      );
+      if (request != null) streamingCoordinator.launchContinuation(request);
     } on Object {
       _setError('chat.workspaceRejectError'.tr());
     }

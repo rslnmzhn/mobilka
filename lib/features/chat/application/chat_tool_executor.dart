@@ -7,6 +7,8 @@ import '../../../features/memory/application/instant_memory_writer.dart';
 import '../../../features/memory/application/persona_registry.dart';
 import '../../public_source/application/public_source_reader.dart';
 import '../../public_source/application/public_source_policy.dart';
+import '../../documents/domain/document_limits.dart';
+import '../../workspace/application/session_workspace_boundary.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_tool.dart';
 import '../domain/conversation.dart';
@@ -23,6 +25,44 @@ import 'chat_tool_effect_policy.dart';
 
 part 'workspace_tool_dispatcher.dart';
 part 'document_tool_dispatcher.dart';
+
+const _safeDocumentErrorCodes = <String>{
+  'invalid_document_arguments',
+  'document_arguments_limit',
+  'unsupported_document_type',
+  'document_source_unavailable',
+  'document_source_changed',
+  'document_source_limit',
+  'document_snapshot_mismatch',
+  'document_permission_denied',
+  'document_context_unavailable',
+  'document_worker_unavailable',
+  'document_page_limit',
+  'document_output_limit',
+  'document_expansion_limit',
+  'unsafe_document_xml',
+  'not_found',
+};
+
+String _safeDocumentErrorCode(String code) =>
+    _safeDocumentErrorCodes.contains(code) ? code : 'document_operation_failed';
+
+const _safeWorkspaceErrorCodes = <String>{
+  'workspace_unavailable',
+  'workspace_binding_changed',
+  'workspace_path_invalid',
+  'workspace_path_invalid_component',
+  'workspace_path_reserved_internal',
+  'workspace_artifacts_read_only',
+  'source_file_required',
+  'not_found',
+  'permission_changed',
+};
+
+String _safeWorkspaceErrorCode(String code) =>
+    _safeWorkspaceErrorCodes.contains(code)
+    ? code
+    : 'workspace_operation_failed';
 
 class ChatToolExecutor {
   ChatToolExecutor({

@@ -40,7 +40,19 @@ Future<bool> _dispatchWorkspaceTool({
       toolCallIndex: callIndex,
     );
   } on FormatException catch (error) {
-    state.addError(call, callIndex, error.message, executor);
+    state.addError(
+      call,
+      callIndex,
+      _safeWorkspaceErrorCode(error.message),
+      executor,
+    );
+  } on WorkspaceBoundaryException catch (error) {
+    state.addError(
+      call,
+      callIndex,
+      _safeWorkspaceErrorCode(error.code),
+      executor,
+    );
   } on Object {
     state.addError(
       call,

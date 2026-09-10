@@ -6,14 +6,10 @@ import 'chat_stream_request.dart';
 import 'conversation_mutation.dart';
 
 final class DocumentDecisionContinuation {
-  const DocumentDecisionContinuation({
-    required this.persistMutation,
-    required this.run,
-  });
+  const DocumentDecisionContinuation({required this.persistMutation});
   final PersistConversationMutation persistMutation;
-  final Future<void> Function(ChatStreamRequest request) run;
 
-  Future<void> continueRequest({
+  Future<ChatStreamRequest?> continueRequest({
     required Conversation conversation,
     required PendingDocumentProposal proposal,
     required String toolResult,
@@ -69,16 +65,14 @@ final class DocumentDecisionContinuation {
         updatedAt: now,
       );
     });
-    if (updated == null) return;
-    await run(
-      buildChatStreamRequest(
-        updated,
-        proposal.requestId,
-        assistantId,
-        selectedAgentId: proposal.selectedAgentId,
-        allowedTools: proposal.allowedTools,
-        workspaceBinding: binding,
-      ),
+    if (updated == null) return null;
+    return buildChatStreamRequest(
+      updated,
+      proposal.requestId,
+      assistantId,
+      selectedAgentId: proposal.selectedAgentId,
+      allowedTools: proposal.allowedTools,
+      workspaceBinding: binding,
     );
   }
 }

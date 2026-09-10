@@ -14,7 +14,8 @@ import 'package:mobilka/features/memory/application/workspace_paths.dart';
 import 'package:mobilka/features/chat/domain/pending_workspace_proposal.dart';
 import 'package:mobilka/features/workspace/domain/workspace_models.dart';
 
-import 'support/chat_streaming_coordinator_fakes.dart' show EventStreamer;
+import 'support/chat_streaming_coordinator_fakes.dart'
+    show ControlledStreamer, EventStreamer;
 
 void main() {
   test(
@@ -232,7 +233,7 @@ void main() {
           return updated;
         },
       );
-      await coordinator.continueAfterWorkspaceDecision(
+      await coordinator.resolveWorkspaceDecision(
         conversation: conversation,
         proposal: proposal,
         toolResult: '{"ok":true}',
@@ -280,6 +281,40 @@ void main() {
       0,
     );
   });
+
+  test(
+    'workspace decision resolves before continuation stream finishes',
+    () async {
+      var conversation = _conversation().copyWith(
+        pendingWorkspaceProposal: _proposal(),
+      );
+      final streamer = ControlledStreamer();
+      final coordinator = ChatStreamingCoordinator(
+        streamer: streamer,
+        conversationById: (_) => conversation,
+        publishError: (_) {},
+        persistMutation: (_, mutation) async {
+          final updated = mutation(conversation);
+          if (updated != null) conversation = updated;
+          return updated;
+        },
+      );
+
+      final request = await coordinator.resolveWorkspaceDecision(
+        conversation: conversation,
+        proposal: conversation.pendingWorkspaceProposal!,
+        toolResult: '{"ok":true}',
+        workspaceBinding: null,
+      );
+
+      expect(request, isNotNull);
+      expect(conversation.pendingWorkspaceProposal, isNull);
+      coordinator.launchContinuation(request!);
+      await streamer.started.future;
+      expect(conversation.pendingWorkspaceProposal, isNull);
+      await coordinator.cancelAndWait(conversation.id);
+    },
+  );
 }
 
 final class _Runtime
