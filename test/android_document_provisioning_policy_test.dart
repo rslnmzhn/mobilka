@@ -3,6 +3,12 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('generated document notice has no competing source asset', () {
+    expect(
+      File('android/app/src/main/assets/documents/NOTICE.txt').existsSync(),
+      isFalse,
+    );
+  });
   test(
     'native ABI selection does not conflict with Flutter split packaging',
     () {
