@@ -3,6 +3,19 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'native ABI selection does not conflict with Flutter split packaging',
+    () {
+      final gradle = File('android/app/build.gradle.kts').readAsStringSync();
+      expect(RegExp(r'ndk\s*\{\s*abiFilters').hasMatch(gradle), isFalse);
+      expect(
+        RegExp(
+          r'externalNativeBuild\s*\{\s*cmake\s*\{\s*abiFilters',
+        ).hasMatch(gradle),
+        isTrue,
+      );
+    },
+  );
   final script = File(
     'android/app/scripts/provision-android.ps1',
   ).readAsStringSync();
