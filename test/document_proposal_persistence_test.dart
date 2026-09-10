@@ -8,7 +8,6 @@ import 'package:mobilka/core/workspace/workspace_binding.dart';
 import 'package:mobilka/features/chat/application/chat_tool_runtime.dart';
 import 'package:mobilka/features/chat/application/document_disclosure_service.dart';
 import 'package:mobilka/features/chat/application/document_decision_continuation.dart';
-import 'package:mobilka/features/chat/application/chat_stream_request.dart';
 import 'package:mobilka/features/chat/application/document_tool_runtime.dart';
 import 'package:mobilka/features/chat/data/conversation_store.dart';
 import 'package:mobilka/features/chat/domain/chat_message.dart';
@@ -447,20 +446,19 @@ void main() {
           ),
         ],
       );
-      ChatStreamRequest? resumed;
-      await DocumentDecisionContinuation(
-        persistMutation: (_, mutation) async {
-          final updated = mutation(conversation);
-          if (updated != null) conversation = updated;
-          return updated;
-        },
-        run: (request) async => resumed = request,
-      ).continueRequest(
-        conversation: conversation,
-        proposal: conversation.pendingDocumentProposal!,
-        toolResult: proposal.payload,
-        binding: const TestWorkspaceBinding(),
-      );
+      final resumed =
+          await DocumentDecisionContinuation(
+            persistMutation: (_, mutation) async {
+              final updated = mutation(conversation);
+              if (updated != null) conversation = updated;
+              return updated;
+            },
+          ).continueRequest(
+            conversation: conversation,
+            proposal: conversation.pendingDocumentProposal!,
+            toolResult: proposal.payload,
+            binding: const TestWorkspaceBinding(),
+          );
       final results = conversation.messages
           .skip(2)
           .takeWhile((message) => message.role == ChatRole.tool)

@@ -6,15 +6,11 @@ import 'chat_stream_request.dart';
 import 'conversation_mutation.dart';
 
 final class WorkspaceDecisionContinuation {
-  const WorkspaceDecisionContinuation({
-    required this.persistMutation,
-    required this.run,
-  });
+  const WorkspaceDecisionContinuation({required this.persistMutation});
 
   final PersistConversationMutation persistMutation;
-  final Future<void> Function(ChatStreamRequest request) run;
 
-  Future<void> continueRequest({
+  Future<ChatStreamRequest?> continueRequest({
     required Conversation conversation,
     required PendingWorkspaceProposal proposal,
     required String toolResult,
@@ -23,7 +19,7 @@ final class WorkspaceDecisionContinuation {
     required Future<void> Function()? afterPersist,
   }) async {
     final requestId = conversation.pendingRequestMessageId;
-    if (requestId != proposal.requestId) return;
+    if (requestId != proposal.requestId) return null;
     final now = DateTime.now();
     final assistantId = '${now.microsecondsSinceEpoch}-assistant';
     final updated = await persistMutation(conversation.id, (latest) {
@@ -52,18 +48,16 @@ final class WorkspaceDecisionContinuation {
         messages: messages,
       );
     });
-    if (updated == null) return;
+    if (updated == null) return null;
     await afterPersist?.call();
-    if (!continueStreaming) return;
-    await run(
-      buildChatStreamRequest(
-        updated,
-        requestId!,
-        assistantId,
-        selectedAgentId: proposal.selectedAgentId,
-        allowedTools: proposal.allowedTools,
-        workspaceBinding: workspaceBinding,
-      ),
+    if (!continueStreaming) return null;
+    return buildChatStreamRequest(
+      updated,
+      requestId!,
+      assistantId,
+      selectedAgentId: proposal.selectedAgentId,
+      allowedTools: proposal.allowedTools,
+      workspaceBinding: workspaceBinding,
     );
   }
 

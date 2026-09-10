@@ -102,6 +102,7 @@ class ChatStreamingCoordinator {
   Future<void>? _running;
   final Set<String> _memoryDecisions = {};
   final Set<String> _workspaceDecisions = {};
+  final Set<String> _documentDecisions = {};
   RequestToolSecurityState? _requestSecurity;
   final PendingWorkspaceBindingStore _workspaceBindings;
   final bool _ownsWorkspaceBindings;
@@ -114,6 +115,42 @@ class ChatStreamingCoordinator {
     final operation = _run(request);
     _running = operation;
     return operation;
+  }
+
+  void launchContinuation(ChatStreamRequest request) {
+    if (_running != null) {
+      final error = StateError('A chat request is already running');
+      final stackTrace = StackTrace.current;
+      _logRequestFailure(
+        request,
+        phase: 'continuation_admission',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _publishError('The request failed unexpectedly. Please retry.');
+      _finalizer
+          .interrupt(request, 'The request failed unexpectedly. Please retry.')
+          .catchError((Object finalizerError, StackTrace finalizerStackTrace) {
+            _logRequestFailure(
+              request,
+              phase: 'continuation_admission.finalize',
+              error: finalizerError,
+              stackTrace: finalizerStackTrace,
+            );
+          });
+      return;
+    }
+    final operation = _run(request);
+    _running = operation;
+    operation.catchError((Object error, StackTrace stackTrace) {
+      _logRequestFailure(
+        request,
+        phase: 'continuation_lifecycle',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _publishError('The request failed unexpectedly. Please retry.');
+    });
   }
 
   Future<void> continueAfterMemoryDecision({
@@ -146,7 +183,7 @@ class ChatStreamingCoordinator {
     }
   }
 
-  Future<void> continueAfterWorkspaceDecision({
+  Future<ChatStreamRequest?> resolveWorkspaceDecision({
     required Conversation conversation,
     required PendingWorkspaceProposal proposal,
     required String toolResult,
@@ -157,15 +194,10 @@ class ChatStreamingCoordinator {
     final decisionId =
         '${conversation.id}:${proposal.requestId}:${proposal.assistantMessageId}:'
         '${proposal.toolCallId}:${proposal.callOccurrence}';
-    if (!_workspaceDecisions.add(decisionId)) return;
-    if (_running != null) {
-      _workspaceDecisions.remove(decisionId);
-      throw StateError('A chat request is already running');
-    }
+    if (!_workspaceDecisions.add(decisionId)) return null;
     try {
-      await WorkspaceDecisionContinuation(
+      return await WorkspaceDecisionContinuation(
         persistMutation: _persistMutation,
-        run: run,
       ).continueRequest(
         conversation: conversation,
         proposal: proposal,
@@ -182,21 +214,29 @@ class ChatStreamingCoordinator {
     }
   }
 
-  Future<void> continueAfterDocumentDecision({
+  Future<ChatStreamRequest?> resolveDocumentDecision({
     required Conversation conversation,
     required PendingDocumentProposal proposal,
     required String toolResult,
     required WorkspaceBinding binding,
-  }) =>
-      DocumentDecisionContinuation(
+  }) async {
+    final decisionId =
+        '${conversation.id}:${proposal.requestId}:${proposal.assistantMessageId}:'
+        '${proposal.toolCallId}:${proposal.callOccurrence}';
+    if (!_documentDecisions.add(decisionId)) return null;
+    try {
+      return await DocumentDecisionContinuation(
         persistMutation: _persistMutation,
-        run: run,
       ).continueRequest(
         conversation: conversation,
         proposal: proposal,
         toolResult: toolResult,
         binding: binding,
       );
+    } finally {
+      _documentDecisions.remove(decisionId);
+    }
+  }
 
   void cancel(String conversationId) {
     if (_activeRequest?.conversationId == conversationId) {
@@ -220,6 +260,9 @@ class ChatStreamingCoordinator {
     _workspaceDecisions.removeWhere(
       (decision) => decision.startsWith('$conversationId:'),
     );
+    _documentDecisions.removeWhere(
+      (decision) => decision.startsWith('$conversationId:'),
+    );
     if (_requestSecurity?.conversationId == conversationId) {
       _requestSecurity = null;
     }
@@ -235,6 +278,7 @@ class ChatStreamingCoordinator {
     if (_ownsWorkspaceBindings) _workspaceBindings.reset();
     _memoryDecisions.clear();
     _workspaceDecisions.clear();
+    _documentDecisions.clear();
     _requestSecurity = null;
   }
 

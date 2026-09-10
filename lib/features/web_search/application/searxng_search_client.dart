@@ -80,7 +80,13 @@ class SearxngSearchClient {
           throw const WebSearchFailure('redirect_not_allowed');
         }
         if (response.status < 200 || response.status >= 300) {
-          throw const WebSearchFailure('provider_error');
+          throw WebSearchFailure(switch (response.status) {
+            401 || 403 => 'provider_auth_failed',
+            404 => 'provider_path_not_found',
+            429 => 'provider_rate_limited',
+            >= 500 => 'provider_unavailable',
+            _ => 'provider_rejected',
+          });
         }
         final type = response.headers['content-type']?.toLowerCase() ?? '';
         if (!RegExp(

@@ -72,6 +72,38 @@ void main() {
     );
   });
 
+  for (final entry in <int, String>{
+    401: 'provider_auth_failed',
+    403: 'provider_auth_failed',
+    404: 'provider_path_not_found',
+    429: 'provider_rate_limited',
+    503: 'provider_unavailable',
+    400: 'provider_rejected',
+  }.entries) {
+    test('provider HTTP ${entry.key} returns a safe diagnostic', () async {
+      final client = _client(policy, _Transport('{}', status: entry.key));
+      await expectLater(
+        client.search(
+          const SearxngSearchSettings(
+            enabled: true,
+            baseUrl: 'https://example.com',
+          ),
+          const WebSearchArguments('test', 'en', 'none', 1),
+          execution: SearchExecutionDeadline(const Duration(seconds: 1), null),
+          reserveWireBytes: (_) async => webSearchResponseLimit,
+          refundWireBytes: (_) async {},
+        ),
+        throwsA(
+          isA<WebSearchFailure>().having(
+            (error) => error.code,
+            'code',
+            entry.value,
+          ),
+        ),
+      );
+    });
+  }
+
   test('public target policy rejects mixed private DNS', () async {
     resolver.addresses = [
       InternetAddress('93.184.216.34'),
@@ -360,9 +392,8 @@ class _Resolver implements PublicSourceResolver {
 }
 
 class _Transport implements SearxngTransport {
-  _Transport(this.data)
-    : status = 200,
-      responseHeaders = const {'content-type': 'application/json'};
+  _Transport(this.data, {this.status = 200})
+    : responseHeaders = const {'content-type': 'application/json'};
   _Transport.redirect(
     this.data, {
     required this.status,
