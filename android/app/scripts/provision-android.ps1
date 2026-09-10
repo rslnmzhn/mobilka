@@ -205,13 +205,15 @@ foreach ($abi in $abis.Keys) {
     $pdfInclude = $pdfHeader[0].Directory.FullName
     Copy-Item -Force -LiteralPath $pdfLibrary[0].FullName `
         -Destination (Join-Path $root 'libpdfium.so')
+    $selectedLibraries = Get-Content -Raw -LiteralPath (Join-Path $root 'build/selected-libraries.json') |
+        ConvertFrom-Json
     $libraries = [ordered]@{
         PDFIUM = $pdfLibrary[0].FullName
-        TESSERACT = Join-Path $install 'lib/libtesseract.a'
-        LEPTONICA = (@(Get-ChildItem -LiteralPath (Join-Path $install 'lib') -File -Filter '*lept*.a'))[0].FullName
-        PNG = (@(Get-ChildItem -LiteralPath (Join-Path $install 'lib') -File -Filter '*png*.a'))[0].FullName
-        JPEG = (@(Get-ChildItem -LiteralPath (Join-Path $install 'lib') -File -Filter '*jpeg*.a'))[0].FullName
-        ZLIB = (@(Get-ChildItem -LiteralPath (Join-Path $install 'lib') -File -Filter '*z*.a'))[0].FullName
+        TESSERACT = $selectedLibraries.TESSERACT
+        LEPTONICA = $selectedLibraries.LEPTONICA
+        PNG = $selectedLibraries.PNG
+        JPEG = $selectedLibraries.JPEG
+        ZLIB = $selectedLibraries.ZLIB
     }
     foreach ($library in $libraries.Values) {
         if (-not (Test-Path -LiteralPath $library -PathType Leaf)) {

@@ -150,6 +150,9 @@ void main() {
       expect(recipe, contains('dependency_lock_sha256'));
       expect(recipe, contains('actual_output_sha'));
       expect(recipe, contains('actual_header_sha'));
+      expect(recipe, contains('selected-libraries.json'));
+      expect(script, contains(r'PNG = $selectedLibraries.PNG'));
+      expect(script, isNot(contains("-Filter '*png*.a'")));
       expect(recipe, contains('set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib")'));
       expect(recipe, contains(r'if(IS_SYMLINK "${found}")'));
       expect(recipe, contains('already complete'));
