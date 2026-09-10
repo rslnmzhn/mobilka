@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $files = @('document_worker.exe', 'pdfium.dll', 'eng.traineddata', 'rus.traineddata', 'document-worker-notices.txt')
 $workerPath = [IO.Path]::GetFullPath($Worker)
-$runtimePath = [IO.Path]::GetFullPath($RuntimeDirectory).TrimEnd('\') + '\'
+$runtimePath = [IO.Path]::GetFullPath($RuntimeDirectory).TrimEnd('\', '/')
 $entries = foreach ($name in $files) {
   $candidate = if ($name -eq 'document_worker.exe') {
     $workerPath
@@ -15,7 +15,8 @@ $entries = foreach ($name in $files) {
   }
   $path = [IO.Path]::GetFullPath($candidate)
   if ([IO.Path]::GetFileName($path) -cne $name -or
-      -not $path.StartsWith($runtimePath, [StringComparison]::OrdinalIgnoreCase) -or
+      -not [string]::Equals([IO.Path]::GetDirectoryName($path), $runtimePath,
+          [StringComparison]::OrdinalIgnoreCase) -or
       -not (Test-Path -LiteralPath $path -PathType Leaf)) {
     throw "Manifest input is absent or not exact: $name"
   }

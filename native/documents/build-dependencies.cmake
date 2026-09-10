@@ -181,8 +181,14 @@ function(library dep)
     return()
   endif()
   unset(found CACHE)
+  # Script-mode lookup uses the build host, not the Android toolchain. Require
+  # archives explicitly so a host's shared zlib symlink cannot be selected.
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib")
   find_library(found NAMES ${ARGN} PATHS "${DOCUMENTS_INSTALL_PREFIX}/lib"
     NO_DEFAULT_PATH REQUIRED)
+  if(IS_SYMLINK "${found}")
+    message(FATAL_ERROR "Expected a regular static archive for ${dep}")
+  endif()
   if(dep STREQUAL "ZLIB")
     set(header "${DOCUMENTS_INSTALL_PREFIX}/include/zlib.h")
   elseif(dep STREQUAL "PNG")

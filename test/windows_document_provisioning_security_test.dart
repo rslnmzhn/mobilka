@@ -45,6 +45,8 @@ void main() {
     expect(cmake, isNot(contains('document_worker.sha256')));
     expect(workerCmake, isNot(contains('document_worker.sha256')));
     expect(generator, contains('Manifest input is a reparse point'));
+    expect(generator, contains(r'[IO.Path]::GetDirectoryName($path)'));
+    expect(generator, isNot(contains(r'$path.StartsWith($runtimePath')));
     for (final file in [
       'document_worker.exe',
       'pdfium.dll',
