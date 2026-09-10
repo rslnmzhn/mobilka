@@ -45,6 +45,9 @@ void main() {
     expect(cmake, isNot(contains('document_worker.sha256')));
     expect(workerCmake, isNot(contains('document_worker.sha256')));
     expect(generator, contains('Manifest input is a reparse point'));
+    expect(generator, contains('[Security.Cryptography.SHA256]::Create()'));
+    expect(generator, contains(r'$lines += @($entries)'));
+    expect(generator, isNot(contains('Get-FileHash')));
     expect(generator, contains(r'[IO.Path]::GetDirectoryName($path)'));
     expect(generator, isNot(contains(r'$path.StartsWith($runtimePath')));
     for (final file in [

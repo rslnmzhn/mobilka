@@ -24,14 +24,24 @@ $entries = foreach ($name in $files) {
   if ($item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) {
     throw "Manifest input is a reparse point: $name"
   }
-  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+  $stream = [IO.File]::OpenRead($path)
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  try {
+    $hash = [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $algorithm.Dispose()
+    $stream.Dispose()
+  }
   "    {L`"$name`", `"$hash`"},"
 }
-$content = @(
+$lines = @(
   '#pragma once', '#include <array>', '#include <utility>',
   'inline constexpr std::array<std::pair<const wchar_t*, const char*>, 5>',
-  '    kDocumentWorkerManifest = {{', $entries, '}};'
-) -join "`n"
+  '    kDocumentWorkerManifest = {{'
+)
+$lines += @($entries)
+$lines += '}};'
+$content = $lines -join "`n"
 $parent = Split-Path -Parent $Output
 New-Item -ItemType Directory -Force -Path $parent | Out-Null
 [IO.File]::WriteAllText($Output, $content + "`n", [Text.UTF8Encoding]::new($false))
