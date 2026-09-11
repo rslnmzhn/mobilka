@@ -58,7 +58,12 @@ class ChatApiClient {
         yield const ChatStreamEvent(isTerminal: true);
         return;
       }
-      final decoded = jsonDecode(payload);
+      final Object? decoded;
+      try {
+        decoded = jsonDecode(payload);
+      } on FormatException {
+        continue;
+      }
       if (decoded is! Map) continue;
       final choices = decoded['choices'];
       String delta = '';

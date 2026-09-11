@@ -79,3 +79,26 @@
 - [ ] Разрешать ИИ создавать или изменять coding-агентов только по явному запросу пользователя и после явного подтверждения точного изменения.
 - [ ] Определить отдельные политики инструментов, моделей и workspace для Coding mode.
 - [ ] Решить будущее размещение текущего каталога агентов относительно Chat и Advanced Coding mode.
+
+
+## Аудит безопасности и качества — 2026-09-12
+
+### Critical
+*(Критических уязвимостей уровня немедленного RCE или полного удалённого захвата устройства без взаимодействия не обнаружено; наиболее опасные векторные уязвимости классифицированы в High).*
+
+### High
+- [x] Утечка Bearer API-ключа при HTTP-редиректах из-за регистрозависимой проверки заголовка `Authorization`, файл: `lib/core/network/endpoint_policy.dart`, тест: `test/security_audit_adversarial_test.dart` (VULN-01). Исправлено: проверка выполняется регистронезависимо по всем ключам `headers`.
+- [x] Обход санитизации YAML-фронтматтера и фильтра инъекций в PromptGuard, файл: `lib/features/memory/application/prompt_guard.dart`, тест: `test/security_audit_adversarial_test.dart` (VULN-02). Исправлено: регулярное выражение фронтматтера нормализовано для поддержки ведущих пробелов/переводов строк, добавлен многострочный анализ контента на инъекционные паттерны.
+- [x] Невозможность удаления/отзыва API-ключа из защищенного хранилища в SettingsRepository, файл: `lib/features/settings/data/settings_repository.dart`, тест: `test/security_audit_adversarial_test.dart` (VULN-03). Исправлено: при сохранении пустого API-ключа вызывается `_secureStorage.delete(key: _apiKeyStorageKey)`.
+
+### Medium / Low
+- [x] Необработанный `FormatException` при поврежденных SSE-чанках в `ChatApiClient`, файл: `lib/features/chat/data/chat_api_client.dart`, тест: `test/security_audit_adversarial_test.dart` (VULN-04). Исправлено: разбор JSON в SSE потоке обернут в блок `try/catch (FormatException)` с безопасным пропуском битых чанков.
+- [x] Отсутствие блокировки зарезервированных имен устройств DOS/Windows в `AgentDefinitionParser` и `ArtifactFileName`, файлы: `lib/features/agents/data/agent_definition_parser.dart`, `lib/features/artifacts/domain/artifact_file_name.dart`, тест: `test/security_audit_adversarial_test.dart` (VULN-05). Исправлено: добавлена проверка идентификаторов агентов и артефактов на зарезервированные имена DOS-устройств Windows (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`).
+- [x] Отказ в обслуживании (DoS) при восстановлении метаданных обновлений из-за строгой проверки `value.length == 17`, файл: `lib/features/updater/domain/staged_update_metadata.dart`, тест: `test/security_audit_adversarial_test.dart` (VULN-06). Исправлено: убрано жесткое требование `value.length != 17`, опциональные null-поля корректно пропускаются при десериализации.
+- [x] Отсутствие ограничений на целевые TCP-порты в `PublicSourcePolicy`, файл: `lib/features/public_source/application/public_source_policy.dart`, тест: `test/security_audit_adversarial_test.dart` (VULN-07). Исправлено: сетевой инструмент чтения внешних источников ограничен стандартным HTTPS портом 443, предотвращая SSRF-сканирование внутренних портов.
+- [x] Проверка изоляции артефактов при несовпадающем conversationId, файл: `lib/features/artifacts/application/artifact_link_opener.dart`, тест: `test/security_audit_adversarial_test.dart` (VULN-08). Проверено: `ArtifactLinkOpener` отклоняет открытие артефактов во внешних обработчиках при несоответствии conversationId владельца.
+
+### Технический долг / улучшения покрытия тестами
+- [ ] Добавить регрессионный test suite на корректную очистку секретов (`SecureStorage`, Hive boxes) при удалении связанных сущностей и сессий.
+- [ ] Реализовать property-based fuzzing генератор для `AgentDefinitionParser` и `StrictDeflate` с проверкой устойчивости к неожиданным бинарным вставкам и крайним значениям размеров.
+- [ ] Расширить покрытие интеграционных тестов `ChatRequestRunSession` на сценарии конкурентного удаления диалога во время выполнения фонового инструмента.

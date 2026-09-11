@@ -11,6 +11,31 @@ class ArtifactFileName {
 
   static final RegExp _extensionPattern = RegExp(r'^[a-z0-9]{1,8}$');
 
+  static const _windowsReserved = {
+    'CON',
+    'PRN',
+    'AUX',
+    'NUL',
+    'COM1',
+    'COM2',
+    'COM3',
+    'COM4',
+    'COM5',
+    'COM6',
+    'COM7',
+    'COM8',
+    'COM9',
+    'LPT1',
+    'LPT2',
+    'LPT3',
+    'LPT4',
+    'LPT5',
+    'LPT6',
+    'LPT7',
+    'LPT8',
+    'LPT9',
+  };
+
   /// Validates [id] and returns `<id>.<extension>` (defaults to Markdown).
   ///
   /// Throws [FormatException] for empty IDs, path separators, traversal
@@ -19,6 +44,10 @@ class ArtifactFileName {
   factory ArtifactFileName.fromId(String id, {String extension = 'md'}) {
     if (!_pattern.hasMatch(id)) {
       throw FormatException('Invalid artifact file identifier');
+    }
+    final stem = id.split('.').first.toUpperCase();
+    if (_windowsReserved.contains(stem)) {
+      throw FormatException('Artifact file identifier uses a reserved Windows device name');
     }
     if (!_extensionPattern.hasMatch(extension)) {
       throw FormatException('Invalid artifact file extension');

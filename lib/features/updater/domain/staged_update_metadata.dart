@@ -73,7 +73,7 @@ class StagedUpdateMetadata {
 
   static StagedUpdateMetadata? tryDecode(Object? value) {
     try {
-      if (value is! Map || value.length != 17) return null;
+      if (value is! Map) return null;
       final map = Map<String, Object?>.from(value);
       if (map['schemaVersion'] != schemaVersion) return null;
       final lifecycle = StagedUpdateLifecycle.values.singleWhere(

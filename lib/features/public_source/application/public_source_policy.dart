@@ -85,6 +85,9 @@ class PublicTargetPolicy {
         uri.host.endsWith('.')) {
       throw const PublicSourceFailure('invalid_url');
     }
+    if (uri.hasPort && uri.port != 443) {
+      throw const PublicSourceFailure('destination_blocked');
+    }
     return uri;
   }
 
