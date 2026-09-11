@@ -34,5 +34,5 @@ Map<String, String> endpointAuthorizationHeaders({
 }
 
 bool endpointRequestMayFollowRedirects(Map<String, String> headers) {
-  return !headers.containsKey('Authorization');
+  return !headers.keys.any((key) => key.toLowerCase() == 'authorization');
 }

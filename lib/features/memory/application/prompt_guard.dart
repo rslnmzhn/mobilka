@@ -48,7 +48,7 @@ class PromptGuard {
   ];
 
   static final _frontmatter = RegExp(
-    r'^---\r?\n.*?\r?\n---\r?\n?',
+    r'^\s*---\r?\n.*?\r?\n---\r?\n?',
     dotAll: true,
   );
 
@@ -72,6 +72,20 @@ class PromptGuard {
         lines[i] = '[suspected-injection] ${lines[i]}';
       }
     }
+
+    // Also check normalized multi-line content for injections spanning across newlines
+    if (flagged.isEmpty) {
+      final normalizedFull = working.replaceAll(RegExp(r'\s+'), ' ');
+      for (final pattern in _injectionPatterns) {
+        final match = pattern.firstMatch(normalizedFull);
+        if (match != null) {
+          flagged.add(match.group(0)!);
+          lines[0] = '[suspected-injection] ${lines[0]}';
+          break;
+        }
+      }
+    }
+
     return GuardedContent(
       content: lines.join('\n'),
       frontmatterStripped: stripped,

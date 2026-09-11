@@ -28,6 +28,30 @@ class AgentDefinitionParser {
     'tools',
   };
   static const _listKeys = {'subagents', 'tools'};
+  static const _windowsReserved = {
+    'CON',
+    'PRN',
+    'AUX',
+    'NUL',
+    'COM1',
+    'COM2',
+    'COM3',
+    'COM4',
+    'COM5',
+    'COM6',
+    'COM7',
+    'COM8',
+    'COM9',
+    'LPT1',
+    'LPT2',
+    'LPT3',
+    'LPT4',
+    'LPT5',
+    'LPT6',
+    'LPT7',
+    'LPT8',
+    'LPT9',
+  };
 
   AgentDefinition parse(String source) {
     if (utf8.encode(source).length > maxDocumentBytes) {
@@ -261,6 +285,10 @@ class AgentDefinitionParser {
   void _requireSafeId(String value, String field) {
     if (!_safeId.hasMatch(value)) {
       throw AgentDefinitionFormatException('$field is not a safe identifier');
+    }
+    final stem = value.split('.').first.toUpperCase();
+    if (_windowsReserved.contains(stem)) {
+      throw AgentDefinitionFormatException('$field uses a reserved Windows device name');
     }
   }
 }

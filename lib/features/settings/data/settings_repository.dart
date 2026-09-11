@@ -32,6 +32,8 @@ class SettingsRepository {
     await preferencesBox.put('baseUrl', validatedBaseUrl);
     if (apiKey != null && apiKey.trim().isNotEmpty) {
       await _secureStorage.write(key: _apiKeyStorageKey, value: apiKey.trim());
+    } else if (apiKey != null && apiKey.trim().isEmpty) {
+      await _secureStorage.delete(key: _apiKeyStorageKey);
     }
   }
 
