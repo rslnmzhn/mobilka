@@ -43,12 +43,17 @@ class PublicSourcePolicy {
 /// Shared fail-closed policy for direct connections to globally routable hosts.
 /// Callers choose schemes; public-source reading remains HTTPS-only.
 class PublicTargetPolicy {
-  const PublicTargetPolicy(this.resolver, {required this.allowedSchemes});
+  const PublicTargetPolicy(
+    this.resolver, {
+    required this.allowedSchemes,
+    this.allowCustomPorts = false,
+  });
   final PublicSourceResolver resolver;
   final Set<String> allowedSchemes;
+  final bool allowCustomPorts;
 
   Future<ValidatedPublicTarget> validate(String rawUrl) async {
-    final uri = _parse(rawUrl, allowedSchemes);
+    final uri = _parse(rawUrl, allowedSchemes, allowCustomPorts: allowCustomPorts);
     final canonical = canonicalize(uri);
     late final List<InternetAddress> addresses;
     try {
@@ -63,7 +68,11 @@ class PublicTargetPolicy {
     return ValidatedPublicTarget(canonical, List.unmodifiable(addresses));
   }
 
-  static Uri _parse(String raw, Set<String> schemes) {
+  static Uri _parse(
+    String raw,
+    Set<String> schemes, {
+    bool allowCustomPorts = false,
+  }) {
     if (raw.length > PublicSourcePolicy.maxCanonicalUrlBytes ||
         raw.codeUnits.any((unit) => unit > 127)) {
       throw const PublicSourceFailure('invalid_url');
@@ -85,7 +94,7 @@ class PublicTargetPolicy {
         uri.host.endsWith('.')) {
       throw const PublicSourceFailure('invalid_url');
     }
-    if (uri.hasPort && uri.port != 443) {
+    if (!allowCustomPorts && uri.hasPort && uri.port != 443) {
       throw const PublicSourceFailure('destination_blocked');
     }
     return uri;

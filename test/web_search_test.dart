@@ -16,7 +16,11 @@ import 'package:mobilka/features/web_search/domain/searxng_search_settings.dart'
 void main() {
   final resolver = _Resolver();
   final policy = WebSearchPolicy(
-    PublicTargetPolicy(resolver, allowedSchemes: const {'http', 'https'}),
+    PublicTargetPolicy(
+      resolver,
+      allowedSchemes: const {'http', 'https'},
+      allowCustomPorts: true,
+    ),
   );
 
   test(

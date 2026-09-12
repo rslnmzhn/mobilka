@@ -28,6 +28,7 @@ final webSearchChatToolRuntimeProvider = Provider<WebSearchChatToolRuntime>((
         PublicTargetPolicy(
           const SystemPublicSourceResolver(),
           allowedSchemes: const {'http', 'https'},
+          allowCustomPorts: true,
         ),
       ),
       transport: const DirectSearxngTransport(),

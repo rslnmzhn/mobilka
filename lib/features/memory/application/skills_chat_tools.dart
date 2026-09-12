@@ -199,7 +199,10 @@ class SkillsChatTools implements ChatToolRuntime {
   }
 
   String _name(Object? raw) {
-    final name = raw?.toString().trim() ?? '';
+    var name = raw?.toString().trim() ?? '';
+    if (name.toLowerCase().endsWith('.md')) {
+      name = name.substring(0, name.length - 3);
+    }
     if (!RegExp(r'^[a-z0-9][a-z0-9-]{0,63}$').hasMatch(name)) {
       throw const FormatException('Invalid skill name');
     }

@@ -365,7 +365,19 @@ extension ChatControllerProposalActions on ChatController {
             coordinator!.acknowledgeOutcome(result.operationId, result.token),
       );
       if (request != null) streamingCoordinator.launchContinuation(request);
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
+      final code = error is WorkspaceBoundaryException
+          ? error.code
+          : (error is StateError ? error.message : error.runtimeType.toString());
+      ref.read(appLoggerProvider).log(
+        event: 'chat.workspace_confirm_error',
+        level: AppLogLevel.error,
+        conversationId: conversation.id,
+        errorCode: code,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      final errorSuffix = code.isNotEmpty ? ' ($code)' : '';
       final saved = claimed == null
           ? null
           : state.requireValue.conversationById(conversation.id);
@@ -379,7 +391,7 @@ extension ChatControllerProposalActions on ChatController {
             proposal.context.ownerToken,
           );
         } on Object {
-          _setError('chat.workspaceConfirmError'.tr());
+          _setError('${'chat.workspaceConfirmError'.tr()}$errorSuffix');
           return;
         }
       }
@@ -395,11 +407,11 @@ extension ChatControllerProposalActions on ChatController {
           }
           return latest.copyWith(pendingWorkspaceProposal: executing.pending());
         });
-        _setError('chat.workspaceConfirmError'.tr());
+        _setError('${'chat.workspaceConfirmError'.tr()}$errorSuffix');
         return;
       }
       if (recoveryBlocked) {
-        _setError('chat.workspaceConfirmError'.tr());
+        _setError('${'chat.workspaceConfirmError'.tr()}$errorSuffix');
       } else if (executing != null &&
           saved?.pendingWorkspaceProposal?.hasSameIdentity(executing) == true) {
         final streamingCoordinator = _lifecycle.currentCoordinator(
@@ -417,7 +429,7 @@ extension ChatControllerProposalActions on ChatController {
         );
         if (request != null) streamingCoordinator.launchContinuation(request);
       } else {
-        _setError('chat.workspaceConfirmError'.tr());
+        _setError('${'chat.workspaceConfirmError'.tr()}$errorSuffix');
       }
     } finally {
       if (state.hasValue) {
