@@ -66,6 +66,17 @@ void main() {
       expect(conversation.pendingWorkspaceProposal?.toolCallId, 'first');
       expect(conversation.pendingWorkspaceProposal?.toolCallIndex, 0);
       expect(conversation.pendingWorkspaceProposal?.proposedContent, 'one');
+      expect(
+        conversation.messages.where((m) => m.id == 'assistant').single.status,
+        ChatMessageStatus.streaming,
+      );
+      expect(
+        workspaceProposalBelongsToConversation(
+          conversation.pendingWorkspaceProposal!,
+          conversation,
+        ),
+        isTrue,
+      );
       expect(runtime.executed, isEmpty);
       final rejected = conversation.messages.singleWhere(
         (message) => message.toolCallId == 'second',

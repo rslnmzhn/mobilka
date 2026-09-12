@@ -29,7 +29,12 @@ final class WorkspaceDecisionContinuation {
           !pending.hasSameIdentity(proposal)) {
         return null;
       }
-      final messages = [...latest.messages];
+      final messages = latest.messages.map((message) {
+        if (message.id == proposal.assistantMessageId) {
+          return message.copyWith(status: ChatMessageStatus.complete);
+        }
+        return message;
+      }).toList();
       _insertToolResult(messages, proposal, toolResult, now);
       if (continueStreaming) {
         messages.add(
