@@ -71,10 +71,49 @@ class StagedUpdateMetadata {
     'fileIdentity': fileIdentity,
   };
 
+  static const _allowedKeys = {
+    'schemaVersion',
+    'lifecycle',
+    'platform',
+    'format',
+    'version',
+    'versionCode',
+    'expectedSize',
+    'sha256',
+    'fileName',
+    'partialName',
+    'createdAt',
+    'updatedAt',
+    'lastAttemptAt',
+    'attemptCount',
+    'manifestBase64',
+    'signatureBase64',
+    'fileIdentity',
+  };
+
+  static const _requiredKeys = {
+    'schemaVersion',
+    'lifecycle',
+    'platform',
+    'format',
+    'version',
+    'expectedSize',
+    'sha256',
+    'fileName',
+    'partialName',
+    'createdAt',
+    'updatedAt',
+    'attemptCount',
+    'manifestBase64',
+    'signatureBase64',
+  };
+
   static StagedUpdateMetadata? tryDecode(Object? value) {
     try {
       if (value is! Map) return null;
       final map = Map<String, Object?>.from(value);
+      if (map.keys.any((k) => !_allowedKeys.contains(k))) return null;
+      if (!_requiredKeys.every(map.containsKey)) return null;
       if (map['schemaVersion'] != schemaVersion) return null;
       final lifecycle = StagedUpdateLifecycle.values.singleWhere(
         (item) => item.name == map['lifecycle'],
