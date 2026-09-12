@@ -20,6 +20,13 @@ abstract interface class SearxngTransport {
     required Map<String, String> headers,
     required ChatToolCancellation cancellation,
   });
+
+  Future<SearxngResponse> post(
+    ValidatedPublicTarget target, {
+    required Map<String, String> headers,
+    required List<int> body,
+    required ChatToolCancellation cancellation,
+  });
 }
 
 class DirectSearxngTransport implements SearxngTransport {
@@ -35,6 +42,33 @@ class DirectSearxngTransport implements SearxngTransport {
     ValidatedPublicTarget target, {
     required Map<String, String> headers,
     required ChatToolCancellation cancellation,
+  }) => _send(
+    target,
+    method: 'GET',
+    headers: headers,
+    cancellation: cancellation,
+  );
+
+  @override
+  Future<SearxngResponse> post(
+    ValidatedPublicTarget target, {
+    required Map<String, String> headers,
+    required List<int> body,
+    required ChatToolCancellation cancellation,
+  }) => _send(
+    target,
+    method: 'POST',
+    headers: headers,
+    body: body,
+    cancellation: cancellation,
+  );
+
+  Future<SearxngResponse> _send(
+    ValidatedPublicTarget target, {
+    required String method,
+    required Map<String, String> headers,
+    List<int>? body,
+    required ChatToolCancellation cancellation,
   }) async {
     if (cancellation.isCancelled) {
       throw const WebSearchFailure('cancelled');
@@ -49,12 +83,18 @@ class DirectSearxngTransport implements SearxngTransport {
     };
     HttpClientRequest? request;
     try {
-      final opened = await _race(client.getUrl(target.uri), cancellation);
+      final requestFuture = method == 'POST'
+          ? client.postUrl(target.uri)
+          : client.getUrl(target.uri);
+      final opened = await _race(requestFuture, cancellation);
       request = opened;
       opened
         ..followRedirects = false
         ..maxRedirects = 0;
       headers.forEach(opened.headers.set);
+      if (body != null && body.isNotEmpty) {
+        opened.add(body);
+      }
       final response = await _race(opened.close(), cancellation);
       cancellation.whenCancelled.then((_) {
         response.detachSocket().then((socket) => socket.destroy()).ignore();

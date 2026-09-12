@@ -41,10 +41,26 @@ class WebSearchPolicy {
     return canonical.toString().replaceFirst(RegExp(r'/$'), '');
   }
 
+  static bool isOmniRouteEndpoint(String base) {
+    final path = Uri.tryParse(base)?.path.toLowerCase() ?? '';
+    return path.endsWith('/api/v1/search');
+  }
+
+  static String resolveSearchEndpoint(String base) {
+    final validated = validateBaseUrl(base);
+    final endpoint = Uri.parse(validated);
+    final path = endpoint.path;
+    if (path.endsWith('/api/v1/search') || path.endsWith('/search')) {
+      return endpoint.toString();
+    }
+    final resolvedPath = '${path == '/' ? '' : path}/search';
+    return endpoint.replace(path: resolvedPath).toString();
+  }
+
   static Uri searchUri(String base, Map<String, String> query) {
-    final endpoint = Uri.parse(validateBaseUrl(base));
-    final path = '${endpoint.path == '/' ? '' : endpoint.path}/search';
-    return endpoint.replace(path: path, queryParameters: query);
+    final resolved = resolveSearchEndpoint(base);
+    final endpoint = Uri.parse(resolved);
+    return endpoint.replace(queryParameters: query);
   }
 }
 
