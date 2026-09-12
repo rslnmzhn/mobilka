@@ -424,12 +424,18 @@ class ChatToolExecutor {
               latest.pendingDocumentProposal != null)) {
         return null;
       }
+      final hasPendingProposal = state.anyProposal != null ||
+          _documentProposal(state) != null;
       return latest.copyWith(
         updatedAt: DateTime.now(),
         messages: [
           ...latest.messages.map(
             (message) => message.id == assistantId
-                ? message.copyWith(status: ChatMessageStatus.complete)
+                ? message.copyWith(
+                    status: hasPendingProposal
+                        ? ChatMessageStatus.streaming
+                        : ChatMessageStatus.complete,
+                  )
                 : message,
           ),
           ...state.results,
