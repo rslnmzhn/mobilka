@@ -364,6 +364,70 @@ void main() {
       });
     }
   }
+
+  test('OmniRoute endpoint resolves without duplicating /search', () {
+      expect(
+        WebSearchPolicy.resolveSearchEndpoint('http://177.1.202.7:20129/api/v1/search'),
+        'http://177.1.202.7:20129/api/v1/search',
+      );
+      expect(
+        WebSearchPolicy.isOmniRouteEndpoint('http://177.1.202.7:20129/api/v1/search'),
+        isTrue,
+      );
+      expect(
+        WebSearchPolicy.resolveSearchEndpoint('http://example.com:8080'),
+        'http://example.com:8080/search',
+      );
+      expect(
+        WebSearchPolicy.resolveSearchEndpoint('http://example.com:8080/search'),
+        'http://example.com:8080/search',
+      );
+    });
+
+    test('OmniRoute POST search sends query body and parses snippet fields', () async {
+      final omniResponse = jsonEncode({
+        'id': 'search-123',
+        'provider': 'context7',
+        'query': 'what is omniroute',
+        'results': [
+          {
+            'title': 'OmniRoute Gateway',
+            'url': 'https://example.com/omniroute',
+            'snippet': 'OmniRoute is an AI gateway routing requests.',
+            'content': null,
+          }
+        ],
+      });
+
+      final transport = _Transport(omniResponse);
+      final client = _client(policy, transport);
+      final settings = SearxngSearchSettings(
+        enabled: true,
+        baseUrl: 'https://example.com/api/v1/search',
+      );
+
+      final result = await client.search(
+        settings,
+        const WebSearchArguments('what is omniroute', 'en', 'none', 5),
+        execution: _execution(),
+        reserveWireBytes: _reserve,
+        refundWireBytes: _refund,
+      );
+
+      expect(transport.target?.uri.toString(), 'https://example.com/api/v1/search');
+      expect(transport.body, isNotNull);
+      final sentBody = jsonDecode(utf8.decode(transport.body!));
+      expect(sentBody['query'], 'what is omniroute');
+      expect(sentBody['max_results'], 5);
+
+      expect(result['untrusted'], isTrue);
+      expect(result['provider'], 'context7');
+      final results = result['results'] as List;
+      expect(results.length, 1);
+      expect(results[0]['title'], 'OmniRoute Gateway');
+      expect(results[0]['url'], 'https://example.com/omniroute');
+      expect(results[0]['snippet'], 'OmniRoute is an AI gateway routing requests.');
+    });
 }
 
 SearxngSearchClient _client(
@@ -404,6 +468,7 @@ class _Transport implements SearxngTransport {
   final Map<String, String> responseHeaders;
   Map<String, String> headers = {};
   ValidatedPublicTarget? target;
+  List<int>? body;
   bool aborted = false;
   @override
   Future<SearxngResponse> get(
@@ -413,6 +478,24 @@ class _Transport implements SearxngTransport {
   }) async {
     this.target = target;
     this.headers = headers;
+    return SearxngResponse(
+      status,
+      responseHeaders,
+      Stream.value(utf8.encode(data)),
+      () async => aborted = true,
+    );
+  }
+
+  @override
+  Future<SearxngResponse> post(
+    ValidatedPublicTarget target, {
+    required Map<String, String> headers,
+    required List<int> body,
+    required cancellation,
+  }) async {
+    this.target = target;
+    this.headers = headers;
+    this.body = body;
     return SearxngResponse(
       status,
       responseHeaders,

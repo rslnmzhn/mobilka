@@ -54,26 +54,53 @@ class SearxngSearchClient {
     var consumed = 0;
     SearxngResponse? activeResponse;
     try {
-      final uri = WebSearchPolicy.searchUri(settings.baseUrl, {
-        'q': arguments.query,
-        'format': 'json',
-        'language': arguments.locale,
-        if (arguments.timeRange != 'none') 'time_range': arguments.timeRange,
-        'pageno': '1',
-      });
-      final target = await execution.run(policy.validate(uri.toString()));
-      final response = await execution.run(
-        transport.get(
-          target,
-          headers: {
-            'accept': 'application/json',
-            'accept-encoding': 'identity',
-            'user-agent': 'mobilka-web-search/1',
-            if (secret?.isNotEmpty == true) 'authorization': 'Bearer $secret',
-          },
-          cancellation: execution,
-        ),
-      );
+      final isOmniRoute = WebSearchPolicy.isOmniRouteEndpoint(settings.baseUrl);
+      final searchEndpoint = WebSearchPolicy.resolveSearchEndpoint(settings.baseUrl);
+      final ValidatedPublicTarget target;
+      final SearxngResponse response;
+
+      if (isOmniRoute) {
+        target = await execution.run(policy.validate(searchEndpoint));
+        final bodyJson = jsonEncode({
+          'query': arguments.query,
+          'max_results': arguments.maxResults,
+        });
+        response = await execution.run(
+          transport.post(
+            target,
+            headers: {
+              'accept': 'application/json',
+              'content-type': 'application/json',
+              'accept-encoding': 'identity',
+              'user-agent': 'mobilka-web-search/1',
+              if (secret?.isNotEmpty == true) 'authorization': 'Bearer $secret',
+            },
+            body: utf8.encode(bodyJson),
+            cancellation: execution,
+          ),
+        );
+      } else {
+        final uri = WebSearchPolicy.searchUri(settings.baseUrl, {
+          'q': arguments.query,
+          'format': 'json',
+          'language': arguments.locale,
+          if (arguments.timeRange != 'none') 'time_range': arguments.timeRange,
+          'pageno': '1',
+        });
+        target = await execution.run(policy.validate(uri.toString()));
+        response = await execution.run(
+          transport.get(
+            target,
+            headers: {
+              'accept': 'application/json',
+              'accept-encoding': 'identity',
+              'user-agent': 'mobilka-web-search/1',
+              if (secret?.isNotEmpty == true) 'authorization': 'Bearer $secret',
+            },
+            cancellation: execution,
+          ),
+        );
+      }
       activeResponse = response;
       try {
         if (_redirect(response.status)) {
@@ -166,7 +193,7 @@ class SearxngSearchClient {
             uri.host.isEmpty) {
           continue;
         }
-        canonical = PublicTargetPolicy.canonicalize(uri.replace(fragment: ''));
+        canonical = PublicTargetPolicy.canonicalize(uri.removeFragment());
         final validated = await execution.run(
           policy.validate(canonical.toString()),
         );
@@ -190,14 +217,17 @@ class SearxngSearchClient {
       };
       final proposed = jsonEncode({
         'untrusted': true,
-        'provider': 'searxng',
+        'provider': decoded['provider'] is String ? decoded['provider'] : 'searxng',
         'results': [...results, item],
       });
       if (utf8.encode(proposed).length > webSearchOutputLimit) break;
       results.add(item);
       if (results.length == maximum) break;
     }
-    return {'untrusted': true, 'provider': 'searxng', 'results': results};
+    final provider = decoded['provider'] is String && (decoded['provider'] as String).isNotEmpty
+        ? decoded['provider'] as String
+        : 'searxng';
+    return {'untrusted': true, 'provider': provider, 'results': results};
   }
 
   bool _redirect(int status) =>

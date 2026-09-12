@@ -52,6 +52,15 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
   final secret = TextEditingController();
   bool saving = false;
   bool get isHttp => Uri.tryParse(endpoint.text.trim())?.scheme == 'http';
+  String? get previewUrl {
+    final text = endpoint.text.trim();
+    if (text.isEmpty) return null;
+    try {
+      return WebSearchPolicy.resolveSearchEndpoint(text);
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   void dispose() {
@@ -90,6 +99,19 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
               prefixIcon: const Icon(Icons.link),
             ),
           ),
+          if (previewUrl != null) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${'settings.searchResolvedUrl'.tr()}: $previewUrl',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+          ],
           if (isHttp) ...[
             const SizedBox(height: 8),
             Text(
