@@ -9,7 +9,8 @@ import 'workspace_recovery_record.dart';
 import 'workspace_mutation_validator.dart';
 
 export '../domain/workspace_mutation_result.dart';
-export 'workspace_recovery_record.dart' show WorkspaceRecoveryPendingException;
+export 'workspace_recovery_record.dart'
+    show WorkspaceRecoveryPendingException, newWorkspaceRecoveryToken;
 
 /// Serializes mutations around boundary-issued, durable operation proofs.
 final class WorkspaceMutationCoordinator {
@@ -69,8 +70,14 @@ final class WorkspaceMutationCoordinator {
     final key = _journalKey(identity);
     await _boundary.synchronized(() async {
       await _recoverLocked(allowClaimKey: key);
-      if (_journal.snapshot().containsKey(key)) {
-        throw StateError('workspace_claim_exists');
+      final existingRaw = _journal.snapshot()[key];
+      if (existingRaw != null) {
+        final existing = WorkspaceRecoveryRecord.decode(existingRaw);
+        if (existing.state == 'claimed' && existing.ownerToken == ownerToken) {
+          await _journal.remove(key);
+        } else if (existing.state != 'terminal') {
+          throw StateError('workspace_claim_exists');
+        }
       }
       await _journal.put(
         key,
@@ -208,6 +215,28 @@ final class WorkspaceMutationCoordinator {
           continue;
         }
         if (record.state == 'terminal') {
+          if (entry.key != allowClaimKey) blocked = true;
+          continue;
+        }
+        if (entry.key == allowClaimKey) {
+          final state = await boundary.reconcilePrepared(record.prepared!);
+          if (state == WorkspacePreparedState.indeterminate) {
+            blocked = true;
+            continue;
+          }
+          if (state == WorkspacePreparedState.notCommitted) {
+            await boundary.rollbackPrepared(record.prepared!);
+            final rolledBack = await boundary.reconcilePrepared(record.prepared!);
+            if (rolledBack == WorkspacePreparedState.rolledBack ||
+                rolledBack == WorkspacePreparedState.notCommitted) {
+              await boundary.cleanupPrepared(record.prepared!);
+              await _journal.remove(entry.key);
+              continue;
+            }
+          }
+          if (state == WorkspacePreparedState.committed) {
+            continue;
+          }
           blocked = true;
           continue;
         }

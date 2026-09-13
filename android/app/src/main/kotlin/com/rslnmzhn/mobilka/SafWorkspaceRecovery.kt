@@ -56,7 +56,17 @@ internal class SafWorkspaceRecovery(
                 return "indeterminate"
             }
             val staged = access.childByDocumentId(loaded.hidden, stageId)
+                ?: access.exact(loaded.hidden, "${loaded.id}.stage", true)
                 ?: access.childByDocumentId(parent, stageId)
+                ?: state.optionalString("stageUri")?.let {
+                    try {
+                        val uri = access.parseUri(it)
+                        access.querySnapshot(uri)
+                        SafDoc(uri, false)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
                 ?: return "indeterminate"
             if (staged.directory || access.inspect(staged.uri, loaded.scope.tree, true).hash !=
                 afterHash) return "indeterminate"
@@ -89,8 +99,19 @@ internal class SafWorkspaceRecovery(
             }
             return "indeterminate"
         }
-        if (stage != null && access.documentId(stage.uri) == stageIdentity) {
-            if (!directory && access.inspect(stage.uri, loaded.scope.tree, true).hash !=
+        val stageDoc = stage
+            ?: access.exact(loaded.hidden, "${loaded.id}.stage", true)
+            ?: state.optionalString("stageUri")?.let {
+                try {
+                    val uri = access.parseUri(it)
+                    access.querySnapshot(uri)
+                    SafDoc(uri, directory)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        if (stageDoc != null) {
+            if (!directory && access.inspect(stageDoc.uri, loaded.scope.tree, true).hash !=
                 state.optionalString("stageHash")) return "indeterminate"
             return "notCommitted"
         }
@@ -290,37 +311,36 @@ internal class SafWorkspaceRecovery(
         val state = loaded.state
         val stageIdentity = state.getString("stageDocId")
         val parent = access.resolveParent(loaded.scope.session, path)
+        val hiddenStage = access.childByDocumentId(loaded.hidden, stageIdentity)
+            ?: access.exact(loaded.hidden, "${loaded.id}.stage", true)
+            ?: state.optionalString("stageUri")?.let {
+                try {
+                    val uri = access.parseUri(it)
+                    access.querySnapshot(uri)
+                    SafDoc(uri, false)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        if (hiddenStage != null) {
+            delete(hiddenStage.uri)
+            return
+        }
         val current = access.resolve(loaded.scope.session, path, true)
             ?: access.childByDocumentId(parent, stageIdentity)
             ?: state.optionalString("movedUri")?.let { SafDoc(Uri.parse(it), false) }
-            ?: access.childByDocumentId(loaded.hidden, stageIdentity)
             ?: return
-        if (access.documentId(current.uri) != stageIdentity) {
+        val resultUri = state.optionalString("resultUri")?.let(Uri::parse)
+        val currentDocId = access.documentId(current.uri)
+        if (currentDocId != stageIdentity &&
+            (resultUri == null || currentDocId != access.documentId(resultUri))) {
             brokerFail("mutation_indeterminate")
         }
         val directory = state.getString("operation") == "make_directory"
         if (current.directory != directory) brokerFail("mutation_indeterminate")
         if (!directory && access.inspect(current.uri, loaded.scope.tree, true).hash !=
             state.getString("stageHash")) brokerFail("mutation_indeterminate")
-        val hiddenCopy = access.childByDocumentId(loaded.hidden, stageIdentity)
-        if (hiddenCopy == null) {
-            val returned = try {
-                moveDocument(access, current.uri, parent, loaded.hidden)
-            } catch (_: Exception) {
-                null
-            }
-            if (returned == null || access.documentId(returned) != stageIdentity) {
-                brokerFail("mutation_indeterminate")
-            }
-            delete(returned)
-        } else {
-            delete(hiddenCopy.uri)
-        }
-        if (access.childByDocumentId(parent, stageIdentity) != null ||
-            access.childByDocumentId(loaded.hidden, stageIdentity) != null ||
-            access.resolve(loaded.scope.session, path, true) != null) {
-            brokerFail("mutation_indeterminate")
-        }
+        delete(current.uri)
     }
 
     fun cleanup(args: Map<*, *>) {

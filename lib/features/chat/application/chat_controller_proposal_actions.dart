@@ -299,6 +299,41 @@ extension ChatControllerProposalActions on ChatController {
           !workspaceProposalBelongsToConversation(proposal, authoritative)) {
         throw StateError('workspace_proposal_not_pending');
       }
+      final existingResult = await coordinator.reconcileProposal(
+        proposal.identity,
+        null,
+        proposal.context.ownerToken,
+      );
+      if (existingResult != null &&
+          existingResult.outcome == WorkspaceMutationOutcome.committed) {
+        final executing = proposal.executing(
+          proposal.claimToken ?? newWorkspaceRecoveryToken(32),
+        );
+        final saved = await _persistMutation(conversation.id, (latest) {
+          final current = latest.pendingWorkspaceProposal;
+          if (current == null ||
+              !current.hasSameIdentity(proposal) ||
+              !workspaceProposalBelongsToConversation(proposal, latest)) {
+            return null;
+          }
+          return latest.copyWith(pendingWorkspaceProposal: executing);
+        });
+        final streamingCoordinator = _lifecycle.currentCoordinator(
+          ref.read(memoryLocationRevisionProvider),
+        );
+        final request = await streamingCoordinator.resolveWorkspaceDecision(
+          conversation: saved ?? authoritative,
+          proposal: executing,
+          toolResult: jsonEncode(existingResult.payload),
+          workspaceBinding: binding,
+          afterPersist: () => coordinator!.acknowledgeOutcome(
+            existingResult.operationId,
+            existingResult.token,
+          ),
+        );
+        if (request != null) streamingCoordinator.launchContinuation(request);
+        return;
+      }
       claimToken = await coordinator.beginClaim(
         proposal.identity,
         proposal.workspaceBindingSnapshot,
@@ -368,7 +403,9 @@ extension ChatControllerProposalActions on ChatController {
     } on Object catch (error, stackTrace) {
       final code = error is WorkspaceBoundaryException
           ? error.code
-          : (error is StateError ? error.message : error.runtimeType.toString());
+          : (error is WorkspaceRecoveryPendingException
+              ? error.code
+              : (error is StateError ? error.message : error.runtimeType.toString()));
       ref.read(appLoggerProvider).log(
         event: 'chat.workspace_confirm_error',
         level: AppLogLevel.error,
