@@ -407,7 +407,7 @@ internal class SafWorkspaceAccess(context: Context) {
         }
     }
 
-    private fun querySnapshot(uri: Uri): SafSnapshot {
+    fun querySnapshot(uri: Uri): SafSnapshot {
         requireContent(uri)
         var result: SafSnapshot? = null
         resolver.query(uri, INSPECT_PROJECTION, null, null, null)?.use { cursor ->
