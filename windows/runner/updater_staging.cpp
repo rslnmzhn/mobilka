@@ -18,7 +18,7 @@
 #include <vector>
 
 namespace {
-const std::wregex kGenerated(LR"(^mobilka-\d+\.\d+\.\d+-(android|windows)-[A-Za-z0-9_-]+-[0-9a-f]+\.(apk|msi)(\.part)?$)");
+const std::wregex kGenerated(LR"(^mobilka-\d+\.\d+\.\d+(_fix[1-9][0-9]*)?-(android|windows)-[A-Za-z0-9_-]+-[0-9a-f]+\.(apk|msi)(\.part)?$)");
 
 std::wstring Utf8ToWide(const std::string& value) {
   if (value.empty()) return L"";

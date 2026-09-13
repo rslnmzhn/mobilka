@@ -238,7 +238,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun isGeneratedName(name: String): Boolean = Regex(
-        "^mobilka-\\d+\\.\\d+\\.\\d+-(android|windows)-[A-Za-z0-9_-]+-[0-9a-f]+\\.(apk|msi)(\\.part)?$",
+        "^mobilka-\\d+\\.\\d+\\.\\d+(_fix[1-9][0-9]*)?-(android|windows)-[A-Za-z0-9_-]+-[0-9a-f]+\\.(apk|msi)(\\.part)?$",
     ).matches(name)
 
     private fun preflightApk(apk: File): ApkPreflight {

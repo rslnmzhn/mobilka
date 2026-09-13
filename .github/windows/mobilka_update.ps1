@@ -194,7 +194,7 @@ function Import-VerifiedFile([string]$Root, [string]$PartName, [string]$Name) {
   return Get-VerifiedFile $Root $Name
 }
 function Test-GeneratedName([string]$Name) {
-  return $Name -match '^mobilka-\d+\.\d+\.\d+-(android|windows)-[A-Za-z0-9_-]+-[0-9a-f]+\.(apk|msi)(\.part)?$'
+  return $Name -match '^mobilka-\d+\.\d+\.\d+(_fix[1-9][0-9]*)?-(android|windows)-[A-Za-z0-9_-]+-[0-9a-f]+\.(apk|msi)(\.part)?$'
 }
 function Get-SafeChild([string]$Root, [string]$Name) {
   if (-not (Test-GeneratedName $Name) -or [IO.Path]::GetFileName($Name) -ne $Name) { throw 'Invalid update basename.' }
