@@ -55,8 +55,13 @@ import tempfile
 assets_dir = pathlib.Path(sys.argv[1])
 version, tag, repository = sys.argv[2:5]
 version_code = int(sys.argv[5])
-major, minor, patch = map(int, version.split('.'))
-expected_version_code = major * 1000000 + minor * 1000 + patch
+if "_fix" in version:
+    base_ver, fix_num = version.split("_fix")
+    major, minor, patch = map(int, base_ver.split('.'))
+    expected_version_code = (major * 1000000 + minor * 1000 + patch) * 100 + int(fix_num)
+else:
+    major, minor, patch = map(int, version.split('.'))
+    expected_version_code = major * 1000000 + minor * 1000 + patch
 if version_code != expected_version_code:
     raise SystemExit(
         f"Android versionCode {version_code} does not match release version {version}"

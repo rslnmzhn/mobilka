@@ -29,10 +29,10 @@ class StagedUpdateMetadata {
 
   static const schemaVersion = 2;
   static final _namePattern = RegExp(
-    r'^mobilka-\d+\.\d+\.\d+-(android|windows)-[A-Za-z0-9_-]+-[0-9a-f]+\.(apk|msi)$',
+    r'^mobilka-\d+\.\d+\.\d+(_fix\d+)?-(android|windows)-[A-Za-z0-9_-]+-[0-9a-f]+\.(apk|msi)$',
   );
   static final _hashPattern = RegExp(r'^[0-9a-f]{64}$');
-  static final _versionPattern = RegExp(r'^\d+\.\d+\.\d+$');
+  static final _versionPattern = RegExp(r'^\d+\.\d+\.\d+(_fix\d+)?$');
 
   final StagedUpdateLifecycle lifecycle;
   final String platform;

@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory = $true)]
-  [ValidatePattern('^\d+\.\d+\.\d+$')]
+  [ValidatePattern('^\d+\.\d+\.\d+(_fix\d+)?$')]
   [string]$Version,
 
   [string]$BundleDir = 'build/windows/x64/runner/Release',
@@ -41,8 +41,13 @@ if (-not ($listedExtensions -match 'WixToolset\.UI\.wixext')) {
 }
 
 New-Item -ItemType Directory -Force -Path $output | Out-Null
+if ($Version -match '^(\d+\.\d+\.\d+)_fix(\d+)$') {
+  $wixVersion = "$($Matches[1]).$($Matches[2])"
+} else {
+  $wixVersion = $Version
+}
 & wix build $wixSource -ext WixToolset.UI.wixext -arch x64 `
-  -d "Version=$Version" -d "BundleDir=$bundle" -o $msi
+  -d "Version=$wixVersion" -d "BundleDir=$bundle" -o $msi
 if ($LASTEXITCODE -ne 0) {
   throw "WiX failed with exit code $LASTEXITCODE"
 }

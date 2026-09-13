@@ -73,7 +73,7 @@ class GithubUpdateRepository implements UpdateRepository {
       (a) =>
           a['name'] is String &&
           RegExp(
-            r'^mobilka-v\d+\.\d+\.\d+-release-manifest\.json$',
+            r'^mobilka-v\d+\.\d+\.\d+(_fix\d+)?-release-manifest\.json$',
           ).hasMatch(a['name'] as String),
     );
     if (manifests.length != 1) {

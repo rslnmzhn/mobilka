@@ -66,45 +66,32 @@ fi
 
 git -C "${ROOT_DIR}" fetch --tags --force >/dev/null 2>&1 || true
 
-LATEST_STABLE_VERSION="$(
-  git -C "${ROOT_DIR}" tag --list 'v*' \
-    | sed -n -E 's/^v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' \
-    | sort -V \
+BASE_VERSION="0.5.1"
+
+LATEST_FIX="$(
+  git -C "${ROOT_DIR}" tag --list "v${BASE_VERSION}_fix*" \
+    | sed -n -E "s/^v${BASE_VERSION//./\\.}_fix([0-9]+)$/\\1/p" \
+    | sort -n \
     | tail -n 1
 )"
 
-if [[ -z "${LATEST_STABLE_VERSION}" ]]; then
-  RELEASE_VERSION="${PUBSPEC_VERSION}"
+if [[ -z "${LATEST_FIX}" ]]; then
+  NEXT_FIX=1
 else
-  IFS='.' read -r MAJOR MINOR PATCH <<<"${LATEST_STABLE_VERSION}"
-  PATCH=$((PATCH + 1))
-  if (( PATCH > 9 )); then
-    PATCH=0
-    MINOR=$((MINOR + 1))
-  fi
-  if (( MINOR > 9 )); then
-    MINOR=0
-    MAJOR=$((MAJOR + 1))
-  fi
-  RELEASE_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+  NEXT_FIX=$((LATEST_FIX + 1))
 fi
 
-IFS='.' read -r MAJOR MINOR PATCH <<<"${RELEASE_VERSION}"
-for segment in "${MAJOR}" "${MINOR}" "${PATCH}"; do
-  if ! [[ "${segment}" =~ ^[0-9]+$ ]]; then
-    echo "Release version contains a non-numeric segment: ${RELEASE_VERSION}" >&2
-    exit 1
-  fi
-done
+RELEASE_VERSION="${BASE_VERSION}_fix${NEXT_FIX}"
+RELEASE_TAG="v${RELEASE_VERSION}"
 
-ANDROID_VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
+IFS='.' read -r MAJOR MINOR PATCH <<<"${BASE_VERSION}"
+BASE_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
+ANDROID_VERSION_CODE=$((BASE_CODE * 100 + NEXT_FIX))
 ANDROID_VERSION_CODE_LIMIT=2100000000
 if (( ANDROID_VERSION_CODE <= 0 || ANDROID_VERSION_CODE > ANDROID_VERSION_CODE_LIMIT )); then
   echo "Computed Android versionCode ${ANDROID_VERSION_CODE} exceeds supported range." >&2
   exit 1
 fi
-
-RELEASE_TAG="v${RELEASE_VERSION}"
 
 if git -C "${ROOT_DIR}" rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
   echo "Resolved stable tag already exists locally: ${RELEASE_TAG}" >&2
