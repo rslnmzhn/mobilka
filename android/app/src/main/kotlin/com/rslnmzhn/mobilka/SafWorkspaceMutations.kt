@@ -179,7 +179,12 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         persist(loaded, "overwriteQuarantineRenamed")
         verifyQuarantine(loaded, namedOld)
 
-        val staged = access.exact(loaded.hidden, "${loaded.id}.stage", true)?.uri
+        val staged = try {
+            val uri = access.parseUri(state.getString("stageUri"))
+            access.querySnapshot(uri)
+            uri
+        } catch (_: Exception) { null }
+            ?: access.exact(loaded.hidden, "${loaded.id}.stage", true)?.uri
             ?: access.childByDocumentId(loaded.hidden, state.getString("stageDocId"))?.uri
             ?: brokerFail("mutation_indeterminate")
         persist(loaded, "overwriteStageMoving")
@@ -213,7 +218,12 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         if (access.resolve(loaded.scope.session, path, true) != null) {
             brokerFail("stale_target")
         }
-        val staged = access.exact(loaded.hidden, "${loaded.id}.stage", true)?.uri
+        val staged = try {
+            val uri = access.parseUri(state.getString("stageUri"))
+            access.querySnapshot(uri)
+            uri
+        } catch (_: Exception) { null }
+            ?: access.exact(loaded.hidden, "${loaded.id}.stage", true)?.uri
             ?: access.childByDocumentId(loaded.hidden, state.getString("stageDocId"))?.uri
             ?: access.parseUri(
                 state.optionalString("stageUri") ?: brokerFail("invalid_prepared_receipt:stage_uri_null"),
@@ -352,7 +362,7 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
             brokerFail("invalid_prepared_receipt:mismatch[op=$opMismatch,tok=$tokMismatch,root=$rootMismatch,sess=$sessMismatch,key=$keyMismatch]")
         }
         // Stage may already have moved into the exact destination parent.
-        state.optionalString("stageUri")?.let {
+        state.optionalString("stageUri")?.let { stageUriStr ->
             val stageId = state.optionalString("stageDocId")
                 ?: brokerFail("invalid_prepared_receipt:stage_id_null")
             val path = access.safePath(state.getString("path"), false)
@@ -361,7 +371,14 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
                 ?: access.childByDocumentId(parent, stageId)
             val stageByName = access.exact(hidden.uri, "${receipt.id}.stage", true)
                 ?: access.exact(parent, "${receipt.id}.stage", true)
-            if (stageByDoc == null && stageByName == null) {
+            val stageByUri = try {
+                val uri = access.parseUri(stageUriStr)
+                access.querySnapshot(uri)
+                uri
+            } catch (_: Exception) {
+                null
+            }
+            if (stageByDoc == null && stageByName == null && stageByUri == null) {
                 brokerFail("invalid_prepared_receipt:stage_missing")
             }
         }

@@ -357,10 +357,19 @@ internal class SafWorkspaceAccess(context: Context) {
     fun requireChild(tree: Uri, child: Uri) {
         requireContent(tree)
         requireContent(child)
-        if (tree.authority == child.authority &&
-            DocumentsContract.isChildDocument(resolver, tree, child)) return
-        if (tree.authority != child.authority || treeId(tree) != treeId(child) ||
-            documentId(tree) != documentId(child)) brokerFail("unsafe_path")
+        if (tree.authority == child.authority) {
+            try {
+                if (DocumentsContract.isChildDocument(resolver, tree, child)) return
+            } catch (_: Exception) {}
+            if (treeId(tree) == treeId(child)) {
+                val parentId = documentId(tree)
+                val childId = documentId(child)
+                if (parentId == childId || childId.startsWith("$parentId/") || childId.startsWith("$parentId%2F")) {
+                    return
+                }
+            }
+        }
+        brokerFail("unsafe_path")
     }
 
     private fun validateDocumentUri(scope: Uri, document: Uri) {
