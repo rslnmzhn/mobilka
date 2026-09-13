@@ -13,7 +13,7 @@ class UpdateManifest {
   final String tag;
   final List<UpdateAsset> assets;
 
-  static final _versionPattern = RegExp(r'^\d+\.\d+\.\d+$');
+  static final _versionPattern = RegExp(r'^\d+\.\d+\.\d+(_fix\d+)?$');
   static final _digestPattern = RegExp(r'^[0-9a-f]{64}$');
   static final _filePattern = RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$');
 
@@ -125,8 +125,14 @@ class UpdateManifest {
         // verifier shares this formula).
         const abiCodes = {'armeabi-v7a': 1, 'arm64-v8a': 2, 'x86_64': 4};
         final abiCode = abiCodes[architecture];
-        final parts = version.split('.').map(int.parse).toList();
-        final baseVersionCode = parts[0] * 1000000 + parts[1] * 1000 + parts[2];
+        final match = RegExp(r'^(\d+)\.(\d+)\.(\d+)(?:_fix(\d+))?$').firstMatch(version)!;
+        final baseMajor = int.parse(match.group(1)!);
+        final baseMinor = int.parse(match.group(2)!);
+        final basePatch = int.parse(match.group(3)!);
+        final fixNum = match.group(4) != null ? int.parse(match.group(4)!) : null;
+        final baseVersionCode = fixNum != null
+            ? (baseMajor * 1000000 + baseMinor * 1000 + basePatch) * 100 + fixNum
+            : baseMajor * 1000000 + baseMinor * 1000 + basePatch;
         final expectedVersionCode = abiCode == null
             ? null
             : abiCode * 1000 + baseVersionCode;

@@ -179,10 +179,11 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         persist(loaded, "overwriteQuarantineRenamed")
         verifyQuarantine(loaded, namedOld)
 
-        val staged = access.childByDocumentId(loaded.hidden, state.getString("stageDocId"))
+        val staged = access.exact(loaded.hidden, "${loaded.id}.stage", true)?.uri
+            ?: access.childByDocumentId(loaded.hidden, state.getString("stageDocId"))?.uri
             ?: brokerFail("mutation_indeterminate")
         persist(loaded, "overwriteStageMoving")
-        val moved = moveDocument(access, staged.uri, loaded.hidden, parent)
+        val moved = moveDocument(access, staged, loaded.hidden, parent)
         state.put("movedUri", moved.toString())
         persist(loaded, "overwriteStageMoved")
         persist(loaded, "overwriteStageRenaming")
@@ -212,12 +213,11 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         if (access.resolve(loaded.scope.session, path, true) != null) {
             brokerFail("stale_target")
         }
-        val staged = access.parseUri(
-            state.optionalString("stageUri") ?: brokerFail("invalid_prepared_receipt"),
-        )
-        if (access.documentId(staged) != state.getString("stageDocId")) {
-            brokerFail("mutation_indeterminate")
-        }
+        val staged = access.exact(loaded.hidden, "${loaded.id}.stage", true)?.uri
+            ?: access.childByDocumentId(loaded.hidden, state.getString("stageDocId"))?.uri
+            ?: access.parseUri(
+                state.optionalString("stageUri") ?: brokerFail("invalid_prepared_receipt:stage_uri_null"),
+            )
         access.requireChild(loaded.hidden, staged)
         persist(loaded, "createMoving")
         val moved = moveDocument(access, staged, loaded.hidden, parent)
@@ -331,11 +331,11 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
     private fun load(args: Map<*, *>): SafLoaded {
         val scope = access.mutationScope(args)
         val receipt = receipt(args)
-        val hidden = access.exact(scope.session, SafWorkspaceAccess.HIDDEN, false)
-            ?: brokerFail("invalid_prepared_receipt")
+        val hidden = access.exact(scope.session, SafWorkspaceAccess.HIDDEN, true)
+            ?: brokerFail("invalid_prepared_receipt:hidden_missing")
         if (!hidden.directory) brokerFail("unsafe_path")
         val stored = stateStore(hidden.uri).load(receipt.id)
-            ?: brokerFail("invalid_prepared_receipt")
+            ?: brokerFail("invalid_prepared_receipt:state_store_load_null")
         val state = stored.payload
         if (state.getString("operationId") != receipt.id ||
             state.getString("token") != receipt.token ||
@@ -343,16 +343,26 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
             state.getString("sessionIdentity") != access.documentId(scope.session) ||
             state.getString("sessionKey") != receipt.sessionKey ||
             state.getString("operation") !in OPERATIONS ||
-            state.getString("phase") !in PHASES) brokerFail("invalid_prepared_receipt")
+            state.getString("phase") !in PHASES) {
+            val opMismatch = state.getString("operationId") != receipt.id
+            val tokMismatch = state.getString("token") != receipt.token
+            val rootMismatch = state.getString("rootIdentity") != access.documentId(access.scopeRoot(args).root)
+            val sessMismatch = state.getString("sessionIdentity") != access.documentId(scope.session)
+            val keyMismatch = state.getString("sessionKey") != receipt.sessionKey
+            brokerFail("invalid_prepared_receipt:mismatch[op=$opMismatch,tok=$tokMismatch,root=$rootMismatch,sess=$sessMismatch,key=$keyMismatch]")
+        }
         // Stage may already have moved into the exact destination parent.
         state.optionalString("stageUri")?.let {
             val stageId = state.optionalString("stageDocId")
-                ?: brokerFail("invalid_prepared_receipt")
+                ?: brokerFail("invalid_prepared_receipt:stage_id_null")
             val path = access.safePath(state.getString("path"), false)
             val parent = access.resolveParent(scope.session, path)
-            if (access.childByDocumentId(hidden.uri, stageId) == null &&
-                access.childByDocumentId(parent, stageId) == null) {
-                brokerFail("invalid_prepared_receipt")
+            val stageByDoc = access.childByDocumentId(hidden.uri, stageId)
+                ?: access.childByDocumentId(parent, stageId)
+            val stageByName = access.exact(hidden.uri, "${receipt.id}.stage", true)
+                ?: access.exact(parent, "${receipt.id}.stage", true)
+            if (stageByDoc == null && stageByName == null) {
+                brokerFail("invalid_prepared_receipt:stage_missing")
             }
         }
         state.optionalString("backupUri")?.let { access.requireChild(hidden.uri, Uri.parse(it)) }
@@ -361,12 +371,12 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
 
     private fun receipt(args: Map<*, *>): SafReceipt {
         val value = args["prepared"] as? Map<*, *>
-            ?: brokerFail("invalid_prepared_receipt")
-        if (value.size != 2) brokerFail("invalid_prepared_receipt")
+            ?: brokerFail("invalid_prepared_receipt:no_prepared_map")
+        if (value.size != 2) brokerFail("invalid_prepared_receipt:bad_prepared_size_${value.size}")
         val id = access.string(value, "operationId")
         val token = access.string(value, "token")
         if (!SafWorkspaceAccess.OPERATION_ID.matches(id) ||
-            !SafWorkspaceAccess.TOKEN.matches(token)) brokerFail("invalid_prepared_receipt")
+            !SafWorkspaceAccess.TOKEN.matches(token)) brokerFail("invalid_prepared_receipt:token_format_invalid")
         return SafReceipt(id, token, access.string(args, "sessionKey"))
     }
 

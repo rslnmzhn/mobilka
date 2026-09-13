@@ -46,8 +46,9 @@ if [[ -z "${RELEASE_VERSION}" || -z "${RELEASE_VERSION_CODE}" ]]; then
   exit 1
 fi
 
+CLEAN_VERSION="${RELEASE_VERSION//_/-}"
 TEMP_FILE="${PUBSPEC_PATH}.tmp"
-awk -v version="${RELEASE_VERSION}" -v version_code="${RELEASE_VERSION_CODE}" '
+awk -v version="${CLEAN_VERSION}" -v version_code="${RELEASE_VERSION_CODE}" '
   BEGIN { updated = 0 }
   {
     line = $0
