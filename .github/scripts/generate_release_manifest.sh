@@ -28,7 +28,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+if [[ ! "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(_fix[0-9]+)?$ ]] ||
    [[ "${RELEASE_TAG}" != "v${RELEASE_VERSION}" ]] ||
    [[ ! "${REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
    [[ ! "${ANDROID_VERSION_CODE}" =~ ^[1-9][0-9]*$ ]] ||
