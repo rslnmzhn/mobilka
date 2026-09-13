@@ -99,7 +99,11 @@ class MainActivity : FlutterActivity() {
         val shareDir = File(cacheDir, "share_plus").apply { mkdirs() }
         val sharedFile = File(shareDir, source.name)
         if (source.canonicalPath != sharedFile.canonicalPath) {
-            source.copyTo(sharedFile, overwrite = true)
+            source.inputStream().use { input ->
+                sharedFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
         }
         val authority = "$packageName.flutter.share_provider"
         val contentUri = FileProvider.getUriForFile(this, authority, sharedFile)
