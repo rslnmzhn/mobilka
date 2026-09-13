@@ -195,6 +195,8 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         val renamed = renameDocument(access, moved, path.last())
         state.put("resultUri", renamed.toString())
         persist(loaded, "overwriteStageRenamed")
+        state.put("stageDocId", access.documentId(renamed))
+        persist(loaded, "overwriteStageRenamed")
         val result = access.exact(parent, path.last(), false)
             ?: brokerFail("mutation_indeterminate")
         if (result.directory || renamed != result.uri ||
@@ -236,6 +238,8 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         persist(loaded, "createRenaming")
         val renamed = renameDocument(access, moved, path.last())
         state.put("resultUri", renamed.toString())
+        persist(loaded, "createRenamed")
+        state.put("stageDocId", access.documentId(renamed))
         persist(loaded, "createRenamed")
         val result = access.exact(parent, path.last(), false)
             ?: brokerFail("mutation_indeterminate")
@@ -361,25 +365,28 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
             val keyMismatch = state.getString("sessionKey") != receipt.sessionKey
             brokerFail("invalid_prepared_receipt:mismatch[op=$opMismatch,tok=$tokMismatch,root=$rootMismatch,sess=$sessMismatch,key=$keyMismatch]")
         }
-        // Stage may already have moved into the exact destination parent.
-        state.optionalString("stageUri")?.let { stageUriStr ->
-            val stageId = state.optionalString("stageDocId")
-                ?: brokerFail("invalid_prepared_receipt:stage_id_null")
-            val path = access.safePath(state.getString("path"), false)
-            val parent = access.resolveParent(scope.session, path)
-            val stageByDoc = access.childByDocumentId(hidden.uri, stageId)
-                ?: access.childByDocumentId(parent, stageId)
-            val stageByName = access.exact(hidden.uri, "${receipt.id}.stage", true)
-                ?: access.exact(parent, "${receipt.id}.stage", true)
-            val stageByUri = try {
-                val uri = access.parseUri(stageUriStr)
-                access.querySnapshot(uri)
-                uri
-            } catch (_: Exception) {
-                null
-            }
-            if (stageByDoc == null && stageByName == null && stageByUri == null) {
-                brokerFail("invalid_prepared_receipt:stage_missing")
+        val phase = state.getString("phase")
+        if (phase !in setOf("committed", "rolledBack", "createRenamed", "overwriteStageRenamed", "deleteMoved", "moveRenamed")) {
+            // Stage must still be present if the mutation hasn't completed its final move/rename or terminal step.
+            state.optionalString("stageUri")?.let { stageUriStr ->
+                val stageId = state.optionalString("stageDocId")
+                    ?: brokerFail("invalid_prepared_receipt:stage_id_null")
+                val path = access.safePath(state.getString("path"), false)
+                val parent = access.resolveParent(scope.session, path)
+                val stageByDoc = access.childByDocumentId(hidden.uri, stageId)
+                    ?: access.childByDocumentId(parent, stageId)
+                val stageByName = access.exact(hidden.uri, "${receipt.id}.stage", true)
+                    ?: access.exact(parent, "${receipt.id}.stage", true)
+                val stageByUri = try {
+                    val uri = access.parseUri(stageUriStr)
+                    access.querySnapshot(uri)
+                    uri
+                } catch (_: Exception) {
+                    null
+                }
+                if (stageByDoc == null && stageByName == null && stageByUri == null) {
+                    brokerFail("invalid_prepared_receipt:stage_missing")
+                }
             }
         }
         state.optionalString("backupUri")?.let { access.requireChild(hidden.uri, Uri.parse(it)) }

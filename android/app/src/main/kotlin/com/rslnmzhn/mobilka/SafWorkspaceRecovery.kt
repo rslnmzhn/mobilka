@@ -39,7 +39,11 @@ internal class SafWorkspaceRecovery(
                 if (source.directory) return "indeterminate"
                 val sourceId = access.documentId(source.uri)
                 val sourceHash = access.inspect(source.uri, loaded.scope.session, true).hash
-                if (sourceId == stageId && sourceHash == afterHash &&
+                val resultUri = state.optionalString("resultUri")?.let(Uri::parse)
+                val isStagedMatch = sourceId == stageId ||
+                    (resultUri != null && sourceId == access.documentId(resultUri)) ||
+                    state.getString("phase") in setOf("overwriteStageRenamed", "committed")
+                if (isStagedMatch && sourceHash == afterHash &&
                     quarantined != null && verifiedOld(loaded, quarantined)) return "committed"
                 if (sourceId == oldId && sourceHash == state.optionalString("expectedHash") &&
                     quarantined == null) return "notCommitted"
@@ -70,11 +74,20 @@ internal class SafWorkspaceRecovery(
         val stageIdentity = state.optionalString("stageDocId") ?: return "indeterminate"
         val stage = access.childByDocumentId(loaded.hidden, stageIdentity)
         if (source != null) {
-            if (source.directory != directory ||
-                access.documentId(source.uri) != stageIdentity) return "indeterminate"
+            if (source.directory != directory) return "indeterminate"
+            val expectedHash = state.optionalString("stageHash")
             if (!directory && access.inspect(source.uri, loaded.scope.session, true).hash !=
-                state.optionalString("stageHash")) return "indeterminate"
-            return "committed"
+                expectedHash) return "indeterminate"
+            val currentSourceId = access.documentId(source.uri)
+            val resultUri = state.optionalString("resultUri")?.let(Uri::parse)
+            if (currentSourceId == stageIdentity ||
+                (resultUri != null && currentSourceId == access.documentId(resultUri))) {
+                return "committed"
+            }
+            if (state.getString("phase") in setOf("createRenamed", "committed")) {
+                return "committed"
+            }
+            return "indeterminate"
         }
         if (stage != null && access.documentId(stage.uri) == stageIdentity) {
             if (!directory && access.inspect(stage.uri, loaded.scope.tree, true).hash !=

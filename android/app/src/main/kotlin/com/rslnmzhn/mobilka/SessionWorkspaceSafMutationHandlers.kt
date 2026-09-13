@@ -103,29 +103,8 @@ internal fun moveDocument(
     to: Uri,
 ): Uri = try {
     DocumentsContract.moveDocument(access.resolver, document, from, to)
-        ?: fallbackMove(access, document, from, to)
+        ?: brokerFail("workspace_operation_unsupported")
 } catch (_: UnsupportedOperationException) {
-    fallbackMove(access, document, from, to)
-} catch (_: Exception) {
-    fallbackMove(access, document, from, to)
-}
-
-private fun fallbackMove(
-    access: SafWorkspaceAccess,
-    document: Uri,
-    from: Uri,
-    to: Uri,
-): Uri = try {
-    val name = access.queryName(document)
-    val (bytes, _) = access.readStable(document, from)
-    val stored = access.createBytes(to, to, name, bytes)
-    if (!DocumentsContract.deleteDocument(access.resolver, document)) {
-        brokerFail("workspace_operation_unsupported")
-    }
-    stored.uri
-} catch (e: WorkspaceBrokerException) {
-    throw e
-} catch (_: Exception) {
     brokerFail("workspace_operation_unsupported")
 }
 

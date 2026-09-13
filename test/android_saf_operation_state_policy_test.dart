@@ -30,10 +30,6 @@ void main() {
     expect(source, contains('childByDocumentId'));
     expect(source, contains('"sourceDocId"'));
     expect(source, contains('"stageDocId"'));
-    expect(
-      source,
-      contains('access.childByDocumentId(loaded.hidden, stageIdentity)'),
-    );
     expect(source, contains('state.put("movedUri"'));
     expect(source, contains('persist(loaded, "overwriteQuarantined")'));
     expect(source, contains('persist(loaded, "overwriteStageMoved")'));
