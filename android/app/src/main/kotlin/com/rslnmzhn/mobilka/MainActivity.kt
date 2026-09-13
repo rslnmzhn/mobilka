@@ -1,7 +1,6 @@
 package com.rslnmzhn.mobilka
 
 import android.content.ActivityNotFoundException
-import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
@@ -14,7 +13,6 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.io.FileNotFoundException
 import java.security.MessageDigest
 import java.util.Locale
 import java.nio.file.Files
@@ -70,79 +68,6 @@ class MainActivity : FlutterActivity() {
                     result.error(ERROR_NATIVE, error.message ?: "Android updater failed", null)
                 }
             }
-
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.rslnmzhn.mobilka/share")
-            .setMethodCallHandler { call, result ->
-                if (call.method == "shareFile") {
-                    val args = call.arguments as? Map<*, *>
-                    val path = args?.get("path") as? String
-                    val mime = args?.get("mimeType") as? String
-                    if (path.isNullOrBlank()) {
-                        result.error("invalid_argument", "path is required", null)
-                        return@setMethodCallHandler
-                    }
-                    try {
-                        shareFile(path, mime)
-                        result.success(null)
-                    } catch (e: Exception) {
-                        result.error("share_failed", e.message, null)
-                    }
-                } else {
-                    result.notImplemented()
-                }
-            }
-    }
-
-    private fun shareFile(path: String, mimeType: String?) {
-        val source = File(path)
-        if (!source.exists()) throw FileNotFoundException("File not found: $path")
-        val shareDir = File(cacheDir, "share_plus").apply { mkdirs() }
-        val sharedFile = File(shareDir, source.name)
-        if (source.canonicalPath != sharedFile.canonicalPath) {
-            source.inputStream().use { input ->
-                sharedFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-        }
-        val authority = "$packageName.flutter.share_provider"
-        val contentUri = FileProvider.getUriForFile(this, authority, sharedFile)
-
-        val resolvedMime = mimeType ?: when (source.extension.lowercase(Locale.US)) {
-            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            "doc" -> "application/msword"
-            "pdf" -> "application/pdf"
-            "txt" -> "text/plain"
-            "md" -> "text/markdown"
-            "json" -> "application/json"
-            "csv" -> "text/csv"
-            "html" -> "text/html"
-            "png" -> "image/png"
-            "jpg", "jpeg" -> "image/jpeg"
-            else -> "*/*"
-        }
-
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = resolvedMime
-            putExtra(Intent.EXTRA_STREAM, contentUri)
-            clipData = ClipData.newRawUri(sharedFile.name, contentUri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-
-        val chooser = Intent.createChooser(shareIntent, null).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-
-        val resInfoList = packageManager.queryIntentActivities(shareIntent, PackageManager.MATCH_DEFAULT_ONLY)
-        for (resolveInfo in resInfoList) {
-            try {
-                grantUriPermission(resolveInfo.activityInfo.packageName, contentUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } catch (_: Exception) {}
-        }
-
-        startActivity(chooser)
-    }
     }
 
     private fun runtimeInfo(): Map<String, Any> {
