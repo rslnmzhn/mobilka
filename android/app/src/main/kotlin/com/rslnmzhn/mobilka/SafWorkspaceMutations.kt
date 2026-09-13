@@ -167,8 +167,7 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
             state.getString("expectedHash"), loaded.scope.session)
         persist(loaded, "overwriteQuarantining")
         val quarantined = moveDocument(access, target.uri, parent, loaded.hidden)
-        if (access.documentId(quarantined) != state.getString("sourceDocId") ||
-            access.inspect(quarantined, loaded.scope.tree, true).hash !=
+        if (access.inspect(quarantined, loaded.scope.tree, true).hash !=
             state.getString("expectedHash")) {
             brokerFail("mutation_indeterminate")
         }
@@ -184,9 +183,6 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
             ?: brokerFail("mutation_indeterminate")
         persist(loaded, "overwriteStageMoving")
         val moved = moveDocument(access, staged.uri, loaded.hidden, parent)
-        if (access.documentId(moved) != state.getString("stageDocId")) {
-            brokerFail("mutation_indeterminate")
-        }
         state.put("movedUri", moved.toString())
         persist(loaded, "overwriteStageMoved")
         persist(loaded, "overwriteStageRenaming")
@@ -196,8 +192,7 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         val result = access.exact(parent, path.last(), false)
             ?: brokerFail("mutation_indeterminate")
         if (result.directory || renamed != result.uri ||
-            access.documentId(renamed) != state.getString("stageDocId") ||
-            access.documentId(result.uri) != state.getString("stageDocId") ||
+            access.documentId(renamed) != access.documentId(result.uri) ||
             access.inspect(result.uri, loaded.scope.session, true).hash !=
             state.getString("stageHash")) brokerFail("mutation_indeterminate")
     }
@@ -206,8 +201,7 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         val state = loaded.state
         val exact = access.exact(loaded.hidden, "${loaded.id}.old", false)
             ?: brokerFail("mutation_indeterminate")
-        if (exact.directory || access.documentId(uri) != state.getString("sourceDocId") ||
-            access.documentId(exact.uri) != state.getString("sourceDocId") ||
+        if (exact.directory || access.documentId(uri) != access.documentId(exact.uri) ||
             access.inspect(exact.uri, loaded.scope.tree, true).hash !=
             state.getString("expectedHash")) brokerFail("mutation_indeterminate")
     }
@@ -227,10 +221,6 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         access.requireChild(loaded.hidden, staged)
         persist(loaded, "createMoving")
         val moved = moveDocument(access, staged, loaded.hidden, parent)
-        if (access.documentId(moved) != state.getString("stageIdentity")) {
-            try { moveDocument(access, moved, parent, loaded.hidden) } catch (_: Exception) {}
-            brokerFail("workspace_operation_unsupported")
-        }
         state.put("movedUri", moved.toString())
         persist(loaded, "createMoved")
         persist(loaded, "createRenaming")
@@ -240,8 +230,7 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         val result = access.exact(parent, path.last(), false)
             ?: brokerFail("mutation_indeterminate")
         if (renamed != result.uri || result.directory != directory ||
-            access.documentId(renamed) != state.getString("stageIdentity") ||
-            access.documentId(result.uri) != state.getString("stageIdentity")) {
+            access.documentId(renamed) != access.documentId(result.uri)) {
             brokerFail("mutation_indeterminate")
         }
         if (!directory && access.inspect(result.uri, loaded.scope.session, true).hash !=
@@ -260,8 +249,7 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         )
         persist(loaded, "deleteMoving")
         val quarantined = moveDocument(access, target.uri, parent, loaded.hidden)
-        if (access.documentId(quarantined) != state.getString("sourceDocId") ||
-            access.inspect(quarantined, loaded.scope.tree, true).hash !=
+        if (access.inspect(quarantined, loaded.scope.tree, true).hash !=
             state.getString("expectedHash")) {
             brokerFail("mutation_indeterminate")
         }
@@ -274,8 +262,7 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         val exact = access.exact(loaded.hidden, "${loaded.id}.old", false)
             ?: brokerFail("mutation_indeterminate")
         if (namedQuarantine != exact.uri || exact.directory ||
-            access.documentId(namedQuarantine) != state.getString("sourceDocId") ||
-            access.documentId(exact.uri) != state.getString("sourceDocId") ||
+            access.documentId(namedQuarantine) != access.documentId(exact.uri) ||
             access.inspect(exact.uri, loaded.scope.tree, true).hash !=
             state.getString("expectedHash")) {
             brokerFail("mutation_indeterminate")
@@ -291,10 +278,6 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         }
         persist(loaded, "moveMoving")
         val moved = moveDocument(access, target.uri, sourceParent, destinationParent)
-        if (access.documentId(moved) != loaded.state.getString("sourceDocId")) {
-            try { moveDocument(access, moved, destinationParent, sourceParent) } catch (_: Exception) {}
-            brokerFail("workspace_operation_unsupported")
-        }
         loaded.state.put("movedUri", moved.toString())
         persist(loaded, "moveMoved")
         persist(loaded, "moveRenaming")
@@ -304,7 +287,8 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         val result = access.exact(destinationParent, destination.last(), false)
             ?: rollbackMovedDocument(loaded, moved, destinationParent, sourceParent, path.last())
         if (result.directory ||
-            access.documentId(result.uri) != loaded.state.getString("sourceDocId") ||
+            renamed != result.uri ||
+            access.documentId(renamed) != access.documentId(result.uri) ||
             access.inspect(result.uri, loaded.scope.session, true).hash !=
             loaded.state.getString("expectedHash")) {
             rollbackMovedDocument(loaded, result.uri, destinationParent, sourceParent, path.last())

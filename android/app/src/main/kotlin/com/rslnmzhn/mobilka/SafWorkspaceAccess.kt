@@ -141,6 +141,21 @@ internal class SafWorkspaceAccess(context: Context) {
         return result
     }
 
+    fun queryName(uri: Uri): String {
+        requireContent(uri)
+        var name: String? = null
+        resolver.query(
+            uri,
+            arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) name = cursor.getString(0)
+        } ?: brokerFail("metadata_unavailable")
+        return name ?: brokerFail("metadata_unavailable")
+    }
+
     fun requireStableMoveIdentity(hidden: Uri, operationId: String) {
         val first = exact(hidden, ".probe-a", true) ?: createDirectory(hidden, ".probe-a")
         val second = exact(hidden, ".probe-b", true) ?: createDirectory(hidden, ".probe-b")
@@ -153,16 +168,15 @@ internal class SafWorkspaceAccess(context: Context) {
         }
         try {
             val moved = moveDocument(this, probe.uri, first.uri, second.uri)
-            if (documentId(moved) != probe.identity) brokerFail("saf_two_phase_unsupported")
             val renamed = renameDocument(this, moved, renamedName)
-            if (documentId(renamed) != probe.identity ||
-                exact(second.uri, renamedName, false)?.let { documentId(it.uri) } !=
-                probe.identity) brokerFail("saf_two_phase_unsupported")
+            val found = exact(second.uri, renamedName, false)
+                ?: brokerFail("saf_two_phase_unsupported")
+            if (documentId(found.uri) != documentId(renamed)) {
+                brokerFail("saf_two_phase_unsupported")
+            }
             val restored = moveDocument(this, renamed, second.uri, first.uri)
-            if (documentId(restored) != probe.identity) brokerFail("saf_two_phase_unsupported")
             val originalName = renameDocument(this, restored, probeName)
-            if (documentId(originalName) != probe.identity ||
-                !DocumentsContract.deleteDocument(resolver, originalName)) {
+            if (!DocumentsContract.deleteDocument(resolver, originalName)) {
                 brokerFail("saf_two_phase_unsupported")
             }
         } catch (_: WorkspaceBrokerException) {
