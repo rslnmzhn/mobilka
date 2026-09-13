@@ -6,8 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../chat/domain/conversation.dart';
 import '../../chat/domain/tool_execution.dart';
+import '../../memory/data/memory_repository.dart';
+import '../../workspace/domain/workspace_models.dart';
 import '../application/artifacts_controller.dart';
 import '../application/artifact_link_opener.dart';
+import '../application/session_workspace_files_provider.dart';
 import '../data/artifact_share_bridge.dart';
 import '../domain/artifact.dart';
 import '../domain/artifact_link.dart';
@@ -161,7 +164,17 @@ class _DocumentsTab extends ConsumerWidget {
               .watch(artifactsControllerProvider)
               .where((artifact) => artifact.conversationId == conversation!.id)
               .toList(growable: false);
-    if (artifacts.isEmpty) {
+    final sessionKey = conversation?.sessionKey ?? '';
+    final workspaceFilesAsync = sessionKey.isNotEmpty
+        ? ref.watch(sessionWorkspaceFilesProvider(sessionKey))
+        : const AsyncValue.data(<WorkspaceEntry>[]);
+    final workspaceFiles = workspaceFilesAsync.when(
+      data: (files) => files,
+      error: (_, _) => const <WorkspaceEntry>[],
+      loading: () => const <WorkspaceEntry>[],
+    );
+
+    if (artifacts.isEmpty && workspaceFiles.isEmpty) {
       return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -209,9 +222,12 @@ class _DocumentsTab extends ConsumerWidget {
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              MaterialLocalizations.of(
-                context,
-              ).formatCompactDate(artifact.updatedAt),
+              [
+                MaterialLocalizations.of(
+                  context,
+                ).formatCompactDate(artifact.updatedAt),
+                if (artifact.docxSourceSha256 != null) 'DOCX + MD' else 'MD',
+              ].join(' · '),
             ),
             onTap: () => _openEditor(context, ref, artifact),
             trailing: Row(
@@ -232,7 +248,94 @@ class _DocumentsTab extends ConsumerWidget {
               ],
             ),
           ),
+        for (final file in workspaceFiles) ...[
+          const SizedBox(height: 8),
+          ListTile(
+            key: Key('workspace-file-${file.path}'),
+            shape: RoundedRectangleBorder(
+              side: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            leading: Icon(
+              file.path.endsWith('.docx')
+                  ? Icons.description
+                  : (file.path.endsWith('.txt') || file.path.endsWith('.md')
+                      ? Icons.article_outlined
+                      : Icons.insert_drive_file_outlined),
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: Text(
+              file.path,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              '${(file.size ?? 0) ~/ 1024 > 0 ? '${(file.size ?? 0) ~/ 1024} KB' : '${file.size ?? 0} B'} · Workspace',
+            ),
+            onTap: () => _openWorkspaceFile(context, ref, sessionKey, file.path),
+            trailing: IconButton(
+              tooltip: 'artifacts.share'.tr(),
+              onPressed: () => shareSessionWorkspaceFile(ref, sessionKey, file.path),
+              icon: const Icon(Icons.share_outlined),
+            ),
+          ),
+        ],
       ],
+    );
+  }
+
+  void _openWorkspaceFile(
+    BuildContext context,
+    WidgetRef ref,
+    String sessionKey,
+    String relativePath,
+  ) async {
+    final memoryRepo = ref.read(memoryRepositoryProvider);
+    final text = await readSessionWorkspaceFile(memoryRepo, sessionKey, relativePath);
+    if (text == null || !context.mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.85,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      relativePath,
+                      style: Theme.of(context).textTheme.titleMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const Divider(),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    text,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
