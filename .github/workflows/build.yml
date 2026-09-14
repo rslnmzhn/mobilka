@@ -173,7 +173,7 @@ jobs:
           keyPassword=${ANDROID_KEY_PASSWORD}
           EOF
       - name: Build APKs (release, split per ABI)
-        run: flutter build apk --release --split-per-abi --dart-define=MOBILKA_VERSION=${RELEASE_VERSION}
+        run: flutter build apk --release --split-per-abi --dart-define=MOBILKA_VERSION=${RELEASE_VERSION} --verbose
       - name: Verify Android signer identity
         shell: bash
         run: |
