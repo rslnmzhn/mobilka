@@ -9,10 +9,11 @@ import 'package:flutter/services.dart';
 import '../domain/chat_message.dart';
 import '../application/image_attachment_processor.dart';
 
-/// Callback picking one file and returning raw bytes + metadata; injectable
-/// for widget tests.
+/// Callback picking attachments and returning raw bytes + metadata; injectable
+/// for widget tests. Supports returning a single [ChatAttachment], a [List<ChatAttachment>],
+/// or null if cancelled.
 typedef AttachmentPicker =
-    Future<ChatAttachment?> Function({required bool image});
+    Future<Object?> Function({required bool image});
 
 class ChatComposer extends StatefulWidget {
   const ChatComposer({
@@ -69,9 +70,20 @@ class _ChatComposerState extends State<ChatComposer> {
   Future<void> _attach({required bool image}) async {
     final picker = widget.pickAttachment ?? _pickViaSystemSelector;
     try {
-      final attachment = await picker(image: image);
-      if (attachment == null) return;
-      setState(() => attachments.add(attachment));
+      final picked = await picker(image: image);
+      if (picked == null) return;
+      final List<ChatAttachment> list;
+      if (picked is List<ChatAttachment>) {
+        list = picked;
+      } else if (picked is ChatAttachment) {
+        list = [picked];
+      } else if (picked is Iterable) {
+        list = picked.whereType<ChatAttachment>().toList();
+      } else {
+        list = const [];
+      }
+      if (list.isEmpty) return;
+      setState(() => attachments.addAll(list));
     } on Object catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -81,20 +93,80 @@ class _ChatComposerState extends State<ChatComposer> {
     }
   }
 
-  Future<ChatAttachment?> _pickViaSystemSelector({required bool image}) async {
+  Future<List<ChatAttachment>> _pickViaSystemSelector({required bool image}) async {
+    if (image && defaultTargetPlatform == TargetPlatform.android) {
+      final galleryResults = await _pickImagesViaAndroidGallery();
+      if (galleryResults != null) {
+        return galleryResults;
+      }
+    }
+
     const imageGroup = XTypeGroup(
       label: 'images',
       mimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
     );
-    const textGroup = XTypeGroup(
+    const documentGroup = XTypeGroup(
       label: 'documents',
-      mimeTypes: ['text/*', 'application/json'],
+      mimeTypes: ['*/*'],
+      extensions: [
+        'txt',
+        'md',
+        'json',
+        'csv',
+        'yaml',
+        'yml',
+        'xml',
+        'docx',
+        'pdf',
+        'xlsx',
+      ],
     );
-    final file = await openFile(
-      acceptedTypeGroups: [image ? imageGroup : textGroup],
+
+    final files = await openFiles(
+      acceptedTypeGroups: [image ? imageGroup : documentGroup],
     );
-    if (file == null) return null;
+    if (files.isEmpty) return const [];
+
+    final list = <ChatAttachment>[];
+    for (final file in files) {
+      final processed = await _processFile(file);
+      if (processed != null) {
+        list.add(processed);
+      }
+    }
+    return list;
+  }
+
+  Future<List<ChatAttachment>?> _pickImagesViaAndroidGallery() async {
+    try {
+      const channel = MethodChannel('com.rslnmzhn.mobilka/gallery');
+      final rawList = await channel.invokeMethod<List<dynamic>>('pickImages');
+      if (rawList == null) return null;
+      final list = <ChatAttachment>[];
+      for (final item in rawList) {
+        if (item is Map) {
+          final path = item['path'] as String?;
+          final name = item['name'] as String? ?? 'image.jpg';
+          final mimeType = item['mimeType'] as String? ?? 'image/jpeg';
+          if (path != null) {
+            final file = XFile(path, name: name, mimeType: mimeType);
+            final processed = await _processFile(file);
+            if (processed != null) {
+              list.add(processed);
+            }
+          }
+        }
+      }
+      return list;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<ChatAttachment?> _processFile(XFile file) async {
     final rawBytes = await file.readAsBytes();
+    if (rawBytes.isEmpty) return null;
     var name = file.name;
     var mimeType =
         file.mimeType ??
@@ -136,6 +208,12 @@ class _ChatComposerState extends State<ChatComposer> {
       'txt' || 'md' || 'csv' => 'text/plain',
       'json' => 'application/json',
       'yaml' || 'yml' => 'application/yaml',
+      'pdf' => 'application/pdf',
+      'docx' =>
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'xlsx' =>
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'xml' => 'application/xml',
       _ => null,
     };
   }

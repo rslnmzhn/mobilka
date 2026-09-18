@@ -1,11 +1,14 @@
 package com.rslnmzhn.mobilka
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.rslnmzhn.mobilka.documents.DocumentWorkerBroker
@@ -15,6 +18,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.Executors
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -66,6 +70,14 @@ class MainActivity : FlutterActivity() {
                     result.error(error.code, error.message, null)
                 } catch (error: Exception) {
                     result.error(ERROR_NATIVE, error.message ?: "Android updater failed", null)
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.rslnmzhn.mobilka/gallery")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "pickImages" -> pickImagesFromGallery(result)
+                    else -> result.notImplemented()
                 }
             }
     }
@@ -331,6 +343,131 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private var pendingGalleryResult: MethodChannel.Result? = null
+
+    private fun pickImagesFromGallery(result: MethodChannel.Result) {
+        if (pendingGalleryResult != null) {
+            result.error("busy", "Another image picker operation is in progress", null)
+            return
+        }
+        pendingGalleryResult = result
+
+        val intent = if (Build.VERSION.SDK_INT >= 33) {
+            Intent("android.provider.action.PICK_IMAGES").apply {
+                type = "image/*"
+                putExtra("android.provider.extra.PICK_IMAGES_MAX", 20)
+            }
+        } else {
+            Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI).apply {
+                type = "image/*"
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }
+        }
+
+        try {
+            startActivityForResult(intent, REQUEST_CODE_PICK_GALLERY)
+        } catch (error: ActivityNotFoundException) {
+            try {
+                val fallback = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "image/*"
+                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                startActivityForResult(fallback, REQUEST_CODE_PICK_GALLERY)
+            } catch (ex: Exception) {
+                pendingGalleryResult = null
+                result.error("unavailable", "No gallery or photo picker found", ex.message)
+            }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_CODE_PICK_GALLERY) {
+            val result = pendingGalleryResult
+            pendingGalleryResult = null
+            if (result == null) return
+
+            if (resultCode != Activity.RESULT_OK || data == null) {
+                result.success(emptyList<Map<String, Any?>>())
+                return
+            }
+
+            val uris = mutableListOf<Uri>()
+            val clipData = data.clipData
+            if (clipData != null) {
+                for (i in 0 until clipData.itemCount) {
+                    clipData.getItemAt(i)?.uri?.let { uris.add(it) }
+                }
+            } else {
+                data.data?.let { uris.add(it) }
+            }
+
+            if (uris.isEmpty()) {
+                result.success(emptyList<Map<String, Any?>>())
+                return
+            }
+
+            Executors.newSingleThreadExecutor().execute {
+                try {
+                    val outputList = mutableListOf<Map<String, Any?>>()
+                    val targetDir = File(cacheDir, "picked_images").apply { mkdirs() }
+
+                    for ((index, uri) in uris.withIndex()) {
+                        var displayName: String? = null
+                        val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
+
+                        try {
+                            contentResolver.query(
+                                uri,
+                                arrayOf(OpenableColumns.DISPLAY_NAME),
+                                null,
+                                null,
+                                null,
+                            )?.use { cursor ->
+                                if (cursor.moveToFirst()) {
+                                    displayName = cursor.getString(0)
+                                }
+                            }
+                        } catch (_: Exception) {}
+
+                        val extension = when {
+                            mimeType.contains("png") -> "png"
+                            mimeType.contains("webp") -> "webp"
+                            mimeType.contains("gif") -> "gif"
+                            else -> "jpg"
+                        }
+                        val safeName = displayName?.takeIf { it.isNotBlank() }
+                            ?: "image_${System.currentTimeMillis()}_$index.$extension"
+
+                        val tempFile = File(targetDir, "${System.currentTimeMillis()}_$safeName")
+                        contentResolver.openInputStream(uri)?.use { input ->
+                            tempFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+
+                        if (tempFile.exists() && tempFile.length() > 0) {
+                            outputList.add(mapOf(
+                                "path" to tempFile.absolutePath,
+                                "name" to safeName,
+                                "mimeType" to mimeType,
+                            ))
+                        }
+                    }
+
+                    runOnUiThread {
+                        result.success(outputList)
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        result.error("read_failed", e.message, null)
+                    }
+                }
+            }
+        }
+    }
+
     private data class ApkPreflight(
         val packageName: String,
         val versionCode: Long,
@@ -347,6 +484,7 @@ class MainActivity : FlutterActivity() {
     private class UpdaterException(val code: String, override val message: String?) : Exception(message)
 
     private companion object {
+        const val REQUEST_CODE_PICK_GALLERY = 1002
         const val CHANNEL_NAME = "com.rslnmzhn.mobilka/updater"
         const val METHOD_RUNTIME_INFO = "getRuntimeInfo"
         const val METHOD_STAGING_PATH = "getStagingPath"
