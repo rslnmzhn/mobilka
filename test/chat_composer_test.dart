@@ -183,4 +183,62 @@ void main() {
     expect(controller.text, 'See files');
     expect(find.byKey(const Key('attachment-chip-0')), findsNothing);
   });
+
+  testWidgets('picker returning multiple attachments adds all as chips', (
+    tester,
+  ) async {
+    final sends = <(String, List<ChatAttachment>)>[];
+    await pumpComposer(
+      tester,
+      isStreaming: false,
+      canSend: true,
+      onSend: (text, attachments) => sends.add((text, attachments)),
+      onCancel: () {},
+      pickAttachment: ({required bool image}) async {
+        return [
+          ChatAttachment(
+            name: 'doc1.pdf',
+            mimeType: 'application/pdf',
+            dataBase64: base64Encode(utf8.encode('pdf-bytes')),
+          ),
+          ChatAttachment(
+            name: 'data.xlsx',
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            dataBase64: base64Encode(utf8.encode('xlsx-bytes')),
+          ),
+          ChatAttachment(
+            name: 'photo.jpg',
+            mimeType: 'image/jpeg',
+            dataBase64: base64Encode(utf8.encode('jpg-bytes')),
+          ),
+        ];
+      },
+    );
+
+    await tester.tap(find.byKey(const Key('attachment-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('attach-document')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('attachment-chip-0')), findsOneWidget);
+    expect(find.byKey(const Key('attachment-chip-1')), findsOneWidget);
+    expect(find.byKey(const Key('attachment-chip-2')), findsOneWidget);
+    expect(find.text('doc1.pdf'), findsOneWidget);
+    expect(find.text('data.xlsx'), findsOneWidget);
+    expect(find.text('photo.jpg'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'Multiple files attached');
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.arrow_upward));
+    await tester.pump();
+
+    expect(sends, hasLength(1));
+    expect(sends.single.$2, hasLength(3));
+    expect(sends.single.$2.map((a) => a.name), [
+      'doc1.pdf',
+      'data.xlsx',
+      'photo.jpg',
+    ]);
+  });
 }
