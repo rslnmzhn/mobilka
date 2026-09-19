@@ -117,6 +117,27 @@ class WorkspaceStore {
     );
   }
 
+  Future<bool> writeBinaryFile(
+    String relativePath,
+    Uint8List bytes, {
+    String? mimeType,
+  }) async {
+    final location = repository.savedLocation();
+    if (location == null) throw const WorkspaceStorageException.unconfigured();
+    await repository.validateSavedLocationAccess(location);
+    final boundary = repository.boundaryFor(location);
+    if (boundary is! SubPathMemoryFileBoundary) {
+      throw const WorkspaceStorageException.io(
+        'Workspace storage is unavailable.',
+      );
+    }
+    return (boundary as SubPathMemoryFileBoundary).writeSubPathBytes(
+      relativePath,
+      bytes,
+      mimeType: mimeType,
+    );
+  }
+
   Future<WorkspaceCompareWriteResult> compareWriteText(
     String relativePath,
     String? expectedContent,

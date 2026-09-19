@@ -103,8 +103,16 @@ class _ChatComposerState extends State<ChatComposer> {
 
     const imageGroup = XTypeGroup(
       label: 'images',
-      mimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
-      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
+      mimeTypes: [
+        'image/png',
+        'image/jpeg',
+        'image/webp',
+        'image/gif',
+        'image/heic',
+        'image/heif',
+        'image/*',
+      ],
+      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'heic', 'heif'],
     );
     const documentGroup = XTypeGroup(
       label: 'documents',
@@ -205,6 +213,8 @@ class _ChatComposerState extends State<ChatComposer> {
       'jpg' || 'jpeg' => 'image/jpeg',
       'webp' => 'image/webp',
       'gif' => 'image/gif',
+      'heic' => 'image/heic',
+      'heif' => 'image/heif',
       'txt' || 'md' || 'csv' => 'text/plain',
       'json' => 'application/json',
       'yaml' || 'yml' => 'application/yaml',
@@ -323,5 +333,8 @@ class _ChatComposerState extends State<ChatComposer> {
     ),
   );
 
-  bool get _canSend => widget.canSend && !widget.isStreaming;
+  bool get _canSend =>
+      widget.canSend &&
+      !widget.isStreaming &&
+      (widget.controller.text.trim().isNotEmpty || attachments.isNotEmpty);
 }

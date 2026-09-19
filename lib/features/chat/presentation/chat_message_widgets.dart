@@ -177,10 +177,35 @@ class _MessageBubble extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (message.attachments.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (final attachment in message.attachments)
+                  Chip(
+                    avatar: Icon(
+                      attachment.isImage
+                          ? Icons.image_outlined
+                          : Icons.insert_drive_file_outlined,
+                      size: 16,
+                    ),
+                    label: Text(
+                      attachment.name,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         if (message.reasoningContent.isNotEmpty)
           _ReasoningBlock(text: message.reasoningContent),
         if (message.content.isNotEmpty ||
-            (message.reasoningContent.isEmpty && message.toolCalls.isEmpty))
+            (message.reasoningContent.isEmpty &&
+                message.toolCalls.isEmpty &&
+                message.attachments.isEmpty))
           MarkdownBody(
             key: Key('message-markdown-${message.id}'),
             data: message.content.isEmpty ? '…' : message.content,

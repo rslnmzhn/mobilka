@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import '../../../core/storage/workspace_root_lock.dart';
 import 'memory_file_store_contracts.dart';
 import 'path_skill_commit.dart';
@@ -82,6 +83,29 @@ class PathMemoryFileStore
         canonicalParent: parent.path,
         destination: file,
         bytes: MemoryFileCodec.encode(content),
+      );
+      return true;
+    });
+  }
+
+  @override
+  Future<bool> writeSubPathBytes(
+    String relativePath,
+    Uint8List bytes, {
+    String? mimeType,
+  }) async {
+    final parts = MemoryFileValidation.subPath(relativePath);
+    if (parts == null) return false;
+    return _withCanonicalRoot((guard) async {
+      final parent = await guard.parent(parts, create: true);
+      if (parent == null) return false;
+      final file = File(_join(parent.path, parts.last));
+      await _atomicWrite(
+        guard: guard,
+        parentParts: parts,
+        canonicalParent: parent.path,
+        destination: file,
+        bytes: bytes,
       );
       return true;
     });

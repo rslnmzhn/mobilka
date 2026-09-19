@@ -40,7 +40,18 @@ class ChatAttachment {
     'image_url': {'url': 'data:$mimeType;base64,$dataBase64'},
   };
 
-  bool get isImage => mimeType.startsWith('image/');
+  bool get isImage =>
+      mimeType.startsWith('image/') ||
+      const {
+        '.png',
+        '.jpg',
+        '.jpeg',
+        '.webp',
+        '.gif',
+        '.bmp',
+        '.heic',
+        '.heif',
+      }.any(name.toLowerCase().endsWith);
 
   /// Text-like documents are inlined into the prompt; anything else cannot be
   /// represented provider-agnostically yet (capability detection: item 45).

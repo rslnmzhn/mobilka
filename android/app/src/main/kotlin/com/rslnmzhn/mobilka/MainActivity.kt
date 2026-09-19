@@ -352,31 +352,34 @@ class MainActivity : FlutterActivity() {
         }
         pendingGalleryResult = result
 
-        val intent = if (Build.VERSION.SDK_INT >= 33) {
-            Intent("android.provider.action.PICK_IMAGES").apply {
-                type = "image/*"
-                putExtra("android.provider.extra.PICK_IMAGES_MAX", 20)
-            }
+        val galleryIntent = Intent(Intent.ACTION_PICK).apply {
+            setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*")
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+
+        val photoPickerIntent = if (Build.VERSION.SDK_INT >= 33) {
+            try {
+                Intent("android.provider.action.PICK_IMAGES").apply {
+                    type = "image/*"
+                    putExtra("android.provider.extra.PICK_IMAGES_MAX", 20)
+                }
+            } catch (_: Exception) { null }
+        } else null
+
+        val primaryIntent = if (photoPickerIntent != null && photoPickerIntent.resolveActivity(packageManager) != null) {
+            photoPickerIntent
         } else {
-            Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI).apply {
-                type = "image/*"
-                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-            }
+            galleryIntent
         }
 
         try {
-            startActivityForResult(intent, REQUEST_CODE_PICK_GALLERY)
+            startActivityForResult(primaryIntent, REQUEST_CODE_PICK_GALLERY)
         } catch (error: ActivityNotFoundException) {
             try {
-                val fallback = Intent(Intent.ACTION_GET_CONTENT).apply {
-                    type = "image/*"
-                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                }
-                startActivityForResult(fallback, REQUEST_CODE_PICK_GALLERY)
+                startActivityForResult(galleryIntent, REQUEST_CODE_PICK_GALLERY)
             } catch (ex: Exception) {
                 pendingGalleryResult = null
-                result.error("unavailable", "No gallery or photo picker found", ex.message)
+                result.error("unavailable", "No gallery app found", ex.message)
             }
         }
     }

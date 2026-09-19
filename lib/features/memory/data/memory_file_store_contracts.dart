@@ -40,6 +40,11 @@ abstract interface class MemoryFileStore implements MemoryFileBoundary {
 abstract interface class SubPathMemoryFileBoundary {
   Future<String?> readSubPath(String relativePath);
   Future<bool> writeSubPath(String relativePath, String content);
+  Future<bool> writeSubPathBytes(
+    String relativePath,
+    Uint8List bytes, {
+    String? mimeType,
+  });
   Future<List<String>> listSubPath(String relativeDirectory);
 }
 
