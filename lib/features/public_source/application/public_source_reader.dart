@@ -130,7 +130,7 @@ class PublicSourceReader {
           redirects++;
           continue;
         }
-        _validateHeaders(response);
+        _validateHeaders(response, target, redirects);
         final body = await _readBody(
           response,
           transferred,
@@ -139,7 +139,7 @@ class PublicSourceReader {
           consumeWireBytes,
         );
         transferred += body.length;
-        final source = _validateText(target, response.headers, body);
+        final source = _validateText(target, response.headers, body, redirects);
         cache.store(source, aliases);
         return _chunk(requestedUrl, offset, source, redirects);
       } finally {
@@ -160,10 +160,20 @@ class PublicSourceReader {
     ChatToolCancellation? cancellation,
   ) async {
     if (redirects == 5) {
-      throw const PublicSourceFailure('too_many_redirects');
+      throw PublicSourceFailure(
+        'too_many_redirects',
+        finalDomain: current.uri.host,
+        redirectCount: redirects,
+      );
     }
     final location = response.headers['location'];
-    if (location == null) throw const PublicSourceFailure('invalid_redirect');
+    if (location == null) {
+      throw PublicSourceFailure(
+        'invalid_redirect',
+        finalDomain: current.uri.host,
+        redirectCount: redirects,
+      );
+    }
     response.abort();
     final target = await _within(
       policy.validate(current.uri.resolve(location).toString()),
@@ -171,23 +181,48 @@ class PublicSourceReader {
       cancellation,
     );
     final identity = target.uri.toString();
-    if (!seen.add(identity)) throw const PublicSourceFailure('redirect_loop');
+    if (!seen.add(identity)) {
+      throw PublicSourceFailure(
+        'redirect_loop',
+        finalDomain: target.uri.host,
+        redirectCount: redirects,
+      );
+    }
     aliases.add(identity);
     final cached = cache.lookup(identity);
     if (cached != null) cache.aliasAll(aliases, cached);
     return (target: target, cached: cached);
   }
 
-  void _validateHeaders(PublicSourceResponse response) {
+  void _validateHeaders(
+    PublicSourceResponse response,
+    ValidatedPublicTarget target,
+    int redirects,
+  ) {
     if (response.status < 200 || response.status >= 300) {
-      throw const PublicSourceFailure('http_error');
+      throw PublicSourceFailure(
+        'http_error',
+        statusCode: response.status,
+        finalDomain: target.uri.host,
+        redirectCount: redirects,
+      );
     }
     if (response.contentLength > publicSourceTransferLimit) {
-      throw const PublicSourceFailure('response_too_large');
+      throw PublicSourceFailure(
+        'response_too_large',
+        statusCode: response.status,
+        finalDomain: target.uri.host,
+        redirectCount: redirects,
+      );
     }
     final encoding = response.headers['content-encoding']?.trim().toLowerCase();
     if (encoding != null && encoding.isNotEmpty && encoding != 'identity') {
-      throw const PublicSourceFailure('unsupported_encoding');
+      throw PublicSourceFailure(
+        'unsupported_encoding',
+        statusCode: response.status,
+        finalDomain: target.uri.host,
+        redirectCount: redirects,
+      );
     }
   }
 
@@ -223,6 +258,7 @@ class PublicSourceReader {
     ValidatedPublicTarget target,
     Map<String, String> headers,
     List<int> body,
+    int redirects,
   ) {
     final media = _media(headers['content-type']);
     if (!_allowedMime(media.mime)) {
@@ -230,13 +266,37 @@ class PublicSourceReader {
     }
     if (body.contains(0)) throw const PublicSourceFailure('invalid_text');
     final decoder = _decoder(media.charset);
-    _decode(decoder, body);
+    final decodedText = _decode(decoder, body);
+    if (media.mime == 'text/html' && _detectRequiresJs(decodedText)) {
+      throw PublicSourceFailure(
+        'requires_javascript',
+        finalDomain: target.uri.host,
+        redirectCount: redirects,
+        requiresJavaScript: true,
+        details:
+            'The page content appears to be a client-rendered shell or anti-bot challenge requiring JavaScript.',
+      );
+    }
     return PublicSourceCacheEntry(
       finalUrl: target.uri.toString(),
       mime: media.mime,
       charset: media.charset,
       body: List.unmodifiable(body),
     );
+  }
+
+  static bool _detectRequiresJs(String text) {
+    if (text.length > 25000) return false;
+    final lower = text.toLowerCase();
+    return lower.contains('enable javascript') ||
+        lower.contains('you need to enable javascript') ||
+        lower.contains('please enable js') ||
+        lower.contains('checking your browser before accessing') ||
+        lower.contains('cf-browser-verification') ||
+        lower.contains('just a moment...') ||
+        lower.contains('ddos protection by cloudflare') ||
+        (lower.contains('<div id="root"></div>') && text.length < 1500) ||
+        (lower.contains('<div id="app"></div>') && text.length < 1500);
   }
 
   Map<String, Object?> _chunk(

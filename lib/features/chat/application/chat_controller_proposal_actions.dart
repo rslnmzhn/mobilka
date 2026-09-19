@@ -404,16 +404,20 @@ extension ChatControllerProposalActions on ChatController {
       final code = error is WorkspaceBoundaryException
           ? error.code
           : (error is WorkspaceRecoveryPendingException
-              ? error.code
-              : (error is StateError ? error.message : error.runtimeType.toString()));
-      ref.read(appLoggerProvider).log(
-        event: 'chat.workspace_confirm_error',
-        level: AppLogLevel.error,
-        conversationId: conversation.id,
-        errorCode: code,
-        error: error,
-        stackTrace: stackTrace,
-      );
+                ? error.code
+                : (error is StateError
+                      ? error.message
+                      : error.runtimeType.toString()));
+      ref
+          .read(appLoggerProvider)
+          .log(
+            event: 'chat.workspace_confirm_error',
+            level: AppLogLevel.error,
+            conversationId: conversation.id,
+            errorCode: code,
+            error: error,
+            stackTrace: stackTrace,
+          );
       final errorSuffix = code.isNotEmpty ? ' ($code)' : '';
       final saved = claimed == null
           ? null
@@ -428,14 +432,10 @@ extension ChatControllerProposalActions on ChatController {
             proposal.context.ownerToken,
           );
         } on Object {
-          _setError('${'chat.workspaceConfirmError'.tr()}$errorSuffix');
-          return;
+          // Abandon error must not prevent unlocking UI state.
         }
       }
-      if (!recoveryBlocked &&
-          error is WorkspaceBoundaryException &&
-          error.code == 'permission_changed' &&
-          executing != null &&
+      if (executing != null &&
           saved?.pendingWorkspaceProposal?.hasSameIdentity(executing) == true) {
         await _persistMutation(conversation.id, (latest) {
           final current = latest.pendingWorkspaceProposal;
@@ -444,30 +444,8 @@ extension ChatControllerProposalActions on ChatController {
           }
           return latest.copyWith(pendingWorkspaceProposal: executing.pending());
         });
-        _setError('${'chat.workspaceConfirmError'.tr()}$errorSuffix');
-        return;
       }
-      if (recoveryBlocked) {
-        _setError('${'chat.workspaceConfirmError'.tr()}$errorSuffix');
-      } else if (executing != null &&
-          saved?.pendingWorkspaceProposal?.hasSameIdentity(executing) == true) {
-        final streamingCoordinator = _lifecycle.currentCoordinator(
-          ref.read(memoryLocationRevisionProvider),
-        );
-        final request = await streamingCoordinator.resolveWorkspaceDecision(
-          conversation: saved!,
-          proposal: executing,
-          toolResult: jsonEncode({
-            'ok': false,
-            'error_code': 'workspace_confirmation_failed',
-          }),
-          workspaceBinding: binding,
-          continueStreaming: binding != null,
-        );
-        if (request != null) streamingCoordinator.launchContinuation(request);
-      } else {
-        _setError('${'chat.workspaceConfirmError'.tr()}$errorSuffix');
-      }
+      _setError('${'chat.workspaceConfirmError'.tr()}$errorSuffix');
     } finally {
       if (state.hasValue) {
         state = AsyncData(
@@ -482,7 +460,14 @@ extension ChatControllerProposalActions on ChatController {
   ) async {
     if (proposal == null) return false;
     final journal = HiveWorkspaceRecoveryJournal();
-    return journal.snapshot().containsKey(proposal.identity.journalKey);
+    final raw = journal.snapshot()[proposal.identity.journalKey];
+    if (raw == null) return false;
+    try {
+      final record = WorkspaceRecoveryRecord.decode(raw);
+      return record.state == 'prepared';
+    } catch (_) {
+      return true;
+    }
   }
 
   Future<void> rejectPendingWorkspaceProposal() async {
@@ -490,7 +475,8 @@ extension ChatControllerProposalActions on ChatController {
     final proposal = conversation?.pendingWorkspaceProposal;
     if (conversation == null ||
         proposal == null ||
-        proposal.status != WorkspaceProposalStatus.pending) {
+        (proposal.status != WorkspaceProposalStatus.pending &&
+            proposal.status != WorkspaceProposalStatus.executing)) {
       return;
     }
     try {
@@ -502,6 +488,28 @@ extension ChatControllerProposalActions on ChatController {
       } on Object {
         // Rejection is still terminally recorded, but never continues against
         // a newly captured or changed workspace.
+      }
+      if (proposal.claimToken != null && binding != null) {
+        try {
+          final boundary = createChatWorkspaceBoundary(
+            binding,
+            conversation.sessionKey ?? '',
+            ref.read(memoryRepositoryProvider),
+          );
+          final coordinator = WorkspaceMutationCoordinator(
+            rootIdentity: await boundary.rootIdentity(),
+            sessionKey: conversation.sessionKey ?? '',
+            boundary: boundary,
+            journal: HiveWorkspaceRecoveryJournal(),
+          );
+          await coordinator.abandonClaim(
+            proposal.identity,
+            proposal.claimToken!,
+            proposal.context.ownerToken,
+          );
+        } on Object {
+          // Rejection must proceed even if abandon fails.
+        }
       }
       final streamingCoordinator = _lifecycle.currentCoordinator(
         ref.read(memoryLocationRevisionProvider),

@@ -108,9 +108,16 @@ class PinnedPublicSourceTransport implements PublicSourceTransport {
         followRedirects: false,
         maxRedirects: 0,
         headers: const {
-          'accept': 'text/*, application/json, application/xml',
+          'accept':
+              'text/html,application/xhtml+xml,application/xml;q=0.9,text/*;q=0.8,application/json;q=0.7,*/*;q=0.5',
+          'accept-language': 'ru,en;q=0.9,en-US;q=0.8',
           'accept-encoding': 'identity',
-          'user-agent': 'mobilka-public-source/1',
+          'sec-ch-ua': '"Not A(Brand";v="99", "Chromium";v="124"',
+          'sec-ch-ua-mobile': '?1',
+          'sec-ch-ua-platform': '"Android"',
+          'upgrade-insecure-requests': '1',
+          'user-agent':
+              'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
         },
       );
       final response = await _race(opened.close(client), cancellation);

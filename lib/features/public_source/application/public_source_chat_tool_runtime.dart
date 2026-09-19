@@ -92,7 +92,22 @@ class PublicSourceChatToolRuntime implements ChatToolRuntime {
         ),
       );
     } on PublicSourceFailure catch (error) {
-      return jsonEncode({'ok': false, 'error_code': error.code});
+      return jsonEncode({
+        'ok': false,
+        'error_code': error.code,
+        if (error.statusCode != null) 'status_code': error.statusCode,
+        if (error.finalDomain != null) 'final_domain': error.finalDomain,
+        if (error.redirectCount > 0) 'redirects_followed': error.redirectCount,
+        if (error.requiresJavaScript)
+          'requires_javascript': error.requiresJavaScript,
+        if (error.details != null) 'details': error.details,
+        if (error.code != 'cancelled' && error.code != 'missing_context')
+          'suggestion': error.requiresJavaScript
+              ? 'Страница требует выполнения JavaScript (SPA или защита). Попробуйте альтернативный URL из результатов поиска.'
+              : (error.statusCode == 403 || error.statusCode == 401
+                    ? 'Доступ к странице ограничен (403/401). Попробуйте альтернативный URL из результатов поиска.'
+                    : 'Не удалось прочитать содержимое по этой ссылке. Попробуйте другой источник.'),
+      });
     } on Object catch (error) {
       logger.log(
         event: 'public_source.runtime',

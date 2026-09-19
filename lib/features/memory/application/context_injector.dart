@@ -1,3 +1,4 @@
+import '../../chat/application/tool_instruction_synchronizer.dart';
 import '../../chat/domain/chat_message.dart';
 import '../domain/memory_file_names.dart';
 import 'prompt_guard.dart';
@@ -42,11 +43,22 @@ class ContextInjector {
   /// excluded: it feeds the NEXT session's context, not the current one.
   static const orderedMemoryFiles = ['soul.md', 'user.md'];
 
-  Future<List<ChatMessage>> inject(List<ChatMessage> messages) async {
+  Future<List<ChatMessage>> inject(
+    List<ChatMessage> messages, {
+    Set<String>? availableTools,
+    bool toolsSupported = true,
+  }) async {
     final sections = <String>[];
-    final agentPrompt = await _agentSource.readActivePrompt();
-    if (agentPrompt != null && agentPrompt.trim().isNotEmpty) {
-      sections.add('<active_agent>\n${agentPrompt.trim()}\n</active_agent>');
+    final rawAgentPrompt = await _agentSource.readActivePrompt();
+    if (rawAgentPrompt != null && rawAgentPrompt.trim().isNotEmpty) {
+      final prompt = availableTools == null
+          ? rawAgentPrompt.trim()
+          : const ToolInstructionSynchronizer().synchronize(
+              prompt: rawAgentPrompt.trim(),
+              availableTools: availableTools,
+              toolsSupported: toolsSupported,
+            );
+      sections.add('<active_agent>\n$prompt\n</active_agent>');
     }
 
     final atomic = _snapshotSource == null

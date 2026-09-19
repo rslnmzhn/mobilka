@@ -199,7 +199,7 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         persist(loaded, "overwriteStageRenamed")
         val result = access.exact(parent, path.last(), false)
             ?: brokerFail("mutation_indeterminate")
-        if (result.directory || renamed != result.uri ||
+        if (result.directory ||
             access.documentId(renamed) != access.documentId(result.uri) ||
             access.inspect(result.uri, loaded.scope.session, true).hash !=
             state.getString("stageHash")) brokerFail("mutation_indeterminate")
@@ -243,7 +243,7 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         persist(loaded, "createRenamed")
         val result = access.exact(parent, path.last(), false)
             ?: brokerFail("mutation_indeterminate")
-        if (renamed != result.uri || result.directory != directory ||
+        if (result.directory != directory ||
             access.documentId(renamed) != access.documentId(result.uri)) {
             brokerFail("mutation_indeterminate")
         }
@@ -301,7 +301,6 @@ internal class SafWorkspaceMutations(private val access: SafWorkspaceAccess) {
         val result = access.exact(destinationParent, destination.last(), false)
             ?: rollbackMovedDocument(loaded, moved, destinationParent, sourceParent, path.last())
         if (result.directory ||
-            renamed != result.uri ||
             access.documentId(renamed) != access.documentId(result.uri) ||
             access.inspect(result.uri, loaded.scope.session, true).hash !=
             loaded.state.getString("expectedHash")) {

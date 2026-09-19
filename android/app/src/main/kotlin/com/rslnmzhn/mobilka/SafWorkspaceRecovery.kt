@@ -274,7 +274,7 @@ internal class SafWorkspaceRecovery(
         persist(loaded, "rollbackOldRenamed")
         val exact = access.exact(parent, path.last(), false)
             ?: brokerFail("mutation_indeterminate")
-        if (exact.directory || renamed != exact.uri ||
+        if (exact.directory ||
             access.documentId(renamed) != state.getString("sourceDocId") ||
             access.documentId(exact.uri) != state.getString("sourceDocId") ||
             access.inspect(exact.uri, loaded.scope.session, true).hash !=
