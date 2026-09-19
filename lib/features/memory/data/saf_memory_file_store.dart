@@ -139,18 +139,14 @@ class SafMemoryFileStore
       final parent = await _resolveOrCreateDirectories(
         parts.sublist(0, parts.length - 1),
       );
-      await _resolveExactChild(
+      final existing = await _resolveExactChild(
         parent,
         parts.last,
         expectedDirectory: false,
         allowMissing: true,
       );
-      await _access.write(
-        parent,
-        parts.last,
-        bytes,
-        overwrite: true,
-      );
+      if (existing != null) return false;
+      await _access.write(parent, parts.last, bytes, overwrite: false);
       return true;
     });
   }

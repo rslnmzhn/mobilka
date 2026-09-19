@@ -11,35 +11,55 @@ import '../../workspace/application/session_workspace_boundary.dart';
 import '../../workspace/domain/session_workspace_path.dart';
 import '../../workspace/domain/workspace_models.dart';
 import '../data/artifact_share_bridge.dart';
+import '../data/session_folder_open_bridge.dart';
+
+/// Resolves the current saved SAF location at click time, not a global catalog.
+final sessionFolderOpenerProvider = Provider<Future<bool> Function(String)>((
+  ref,
+) {
+  return (sessionKey) async {
+    try {
+      final location = ref.read(memoryRepositoryProvider).savedLocation();
+      if (location == null || !location.isContentUri) return false;
+      return await const SessionFolderOpenBridge().open(
+        treeUri: location.value,
+        sessionKey: sessionKey,
+      );
+    } catch (_) {
+      return false;
+    }
+  };
+});
 
 /// Provides the list of files stored in the physical session workspace
 /// under `sessions/<sessionKey>/`.
-final sessionWorkspaceFilesProvider =
-    FutureProvider.autoDispose.family<List<WorkspaceEntry>, String>((
-  ref,
-  sessionKey,
-) async {
-  if (sessionKey.isEmpty) return const [];
-  try {
-    final memoryRepo = ref.watch(memoryRepositoryProvider);
-    final location = memoryRepo.savedLocation();
-    if (location == null) return const [];
-    final binding = WorkspaceStore(repository: memoryRepo).captureBinding();
-    if (binding == null) return const [];
-    final boundary = createChatWorkspaceBoundary(binding, sessionKey, memoryRepo);
-    final entries = await boundary.list(
-      SessionWorkspacePath.parse(''),
-      recursive: true,
-    );
-    return entries.where((e) {
-      if (e.type != WorkspaceEntryType.file) return false;
-      final name = e.path.split('/').last;
-      return !name.startsWith('.') && name != 'session.md';
-    }).toList();
-  } catch (_) {
-    return const [];
-  }
-});
+final sessionWorkspaceFilesProvider = FutureProvider.autoDispose
+    .family<List<WorkspaceEntry>, String>((ref, sessionKey) async {
+      if (sessionKey.isEmpty) return const [];
+      try {
+        final memoryRepo = ref.watch(memoryRepositoryProvider);
+        final location = memoryRepo.savedLocation();
+        if (location == null) return const [];
+        final binding = WorkspaceStore(repository: memoryRepo).captureBinding();
+        if (binding == null) return const [];
+        final boundary = createChatWorkspaceBoundary(
+          binding,
+          sessionKey,
+          memoryRepo,
+        );
+        final entries = await boundary.list(
+          SessionWorkspacePath.parse(''),
+          recursive: true,
+        );
+        return entries.where((e) {
+          if (e.type != WorkspaceEntryType.file) return false;
+          final name = e.path.split('/').last;
+          return !name.startsWith('.') && name != 'session.md';
+        }).toList();
+      } catch (_) {
+        return const [];
+      }
+    });
 
 /// Reads text content of a session workspace file.
 Future<String?> readSessionWorkspaceFile(
@@ -52,7 +72,11 @@ Future<String?> readSessionWorkspaceFile(
   final binding = WorkspaceStore(repository: memoryRepo).captureBinding();
   if (binding == null) return null;
   try {
-    final boundary = createChatWorkspaceBoundary(binding, sessionKey, memoryRepo);
+    final boundary = createChatWorkspaceBoundary(
+      binding,
+      sessionKey,
+      memoryRepo,
+    );
     final result = await boundary.read(
       SessionWorkspacePath.parse(relativePath),
       offset: 0,
@@ -76,7 +100,11 @@ Future<void> shareSessionWorkspaceFile(
   final binding = WorkspaceStore(repository: memoryRepo).captureBinding();
   if (binding == null) return;
   try {
-    final boundary = createChatWorkspaceBoundary(binding, sessionKey, memoryRepo);
+    final boundary = createChatWorkspaceBoundary(
+      binding,
+      sessionKey,
+      memoryRepo,
+    );
     final cacheDir = await getTemporaryDirectory();
     final fileName = relativePath.split('/').last;
     final shareDir = Directory(p.join(cacheDir.path, 'share_workspace'));

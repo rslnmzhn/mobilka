@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
+
+import 'chat_attachment_storage.dart';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -8,7 +10,6 @@ import '../../../core/logging/app_logger.dart';
 import '../../agents/application/agents_controller.dart';
 import '../../memory/application/update_memory_file_service.dart';
 import '../../models/application/models_controller.dart';
-import '../../models/domain/model_capabilities.dart';
 import '../../public_source/application/public_source_chat_tool_runtime.dart';
 import '../../workspace/application/workspace_mutation_coordinator.dart';
 import '../../workspace/application/session_workspace_boundary.dart';
@@ -198,20 +199,40 @@ class ChatController extends _$ChatController {
     });
   }
 
-  Future<void> send(
+  Future<bool> send(
     String content, {
     List<ChatAttachment> attachments = const [],
+    bool waitForCompletion = true,
   }) async {
     final text = content.trim();
-    if ((text.isEmpty && attachments.isEmpty) || !_requestAdmission.tryAcquire()) return;
+    if ((text.isEmpty && attachments.isEmpty) ||
+        !_requestAdmission.tryAcquire()) {
+      return false;
+    }
     try {
-      if (state.requireValue.hasInFlightRequest) return;
+      if (state.requireValue.hasInFlightRequest) return false;
       final conversation = await _ensureConversation();
-      if (conversation == null) return;
+      if (conversation == null) return false;
       final revision = ref.read(memoryLocationRevisionProvider);
       _lifecycle.coordinatorForRequest(revision);
-      final request = await _prepareNewRequest(conversation, text, attachments);
-      await _lifecycle.run(request, locationRevision: revision);
+      final ChatStreamRequest request;
+      try {
+        request = await _prepareNewRequest(conversation, text, attachments);
+      } catch (error) {
+        _setError(error.toString());
+        return false;
+      }
+      final operation = _lifecycle.run(request, locationRevision: revision);
+      if (waitForCompletion) {
+        await operation;
+      } else {
+        unawaited(
+          operation.catchError((Object error) {
+            _setError(error.toString());
+          }),
+        );
+      }
+      return true;
     } finally {
       _requestAdmission.release();
     }
@@ -360,59 +381,36 @@ class ChatController extends _$ChatController {
     final now = DateTime.now();
     final requestId = '${now.microsecondsSinceEpoch}-user';
     final assistantId = '${now.microsecondsSinceEpoch}-assistant';
-    final capabilities = ModelCapabilityResolver.resolve(conversation.modelId);
-    final attachments = filterAttachmentsForModel(
-      rawAttachments,
-      visionSupported: capabilities.vision,
-    );
-    if (rawAttachments.isNotEmpty &&
-        attachments.length < rawAttachments.length) {
-      state = AsyncData(
-        state.requireValue.copyWith(
-          errorMessage: 'chat.visionUnsupported'.tr(),
-        ),
-      );
-    }
-
-    final sessionKey = conversation.sessionKey;
-    if (rawAttachments.isNotEmpty && sessionKey != null && sessionKey.isNotEmpty) {
+    final workspaceBinding = _captureWorkspaceBinding();
+    var attachments = rawAttachments;
+    if (rawAttachments.isNotEmpty) {
+      final sessionKey = conversation.sessionKey;
+      if (sessionKey == null ||
+          sessionKey.isEmpty ||
+          workspaceBinding == null) {
+        throw StateError('Attachment workspace is unavailable');
+      }
       final workspace = WorkspaceStore(
         repository: ref.read(memoryRepositoryProvider),
       );
-      for (final attachment in rawAttachments) {
-        try {
-          final bytes = Uint8List.fromList(base64Decode(attachment.dataBase64));
-          final relativePath =
-              '${workspace.sessionFolder(sessionKey)}/${attachment.name}';
-          await workspace.writeBinaryFile(
-            relativePath,
-            bytes,
-            mimeType: attachment.mimeType,
-          );
-        } catch (_) {}
-      }
-    }
-
-    var effectiveText = text;
-    if (rawAttachments.isNotEmpty && attachments.length < rawAttachments.length) {
-      final strippedNames = rawAttachments
-          .where((a) => !attachments.contains(a))
-          .map((a) => a.name)
-          .join(', ');
-      effectiveText = effectiveText.isEmpty
-          ? '[Вложенный файл сохранён в workspace: $strippedNames]'
-          : '$effectiveText\n\n[Вложенный файл сохранён в workspace: $strippedNames]';
-    } else if (effectiveText.isEmpty && rawAttachments.isNotEmpty) {
-      effectiveText = rawAttachments.any((a) => a.isImage)
-          ? 'Что изображено на фото?'
-          : 'Обработай вложенные файлы: ${rawAttachments.map((a) => a.name).join(', ')}';
+      attachments = await storeChatAttachments(
+        attachments: rawAttachments,
+        sessionKey: sessionKey,
+        write: (path, bytes, mimeType) => workspace.writeBinaryFile(
+          path,
+          bytes,
+          mimeType: mimeType,
+          binding: workspaceBinding,
+        ),
+      );
+      await workspaceBinding.revalidateAccess();
     }
 
     final messages = _newRequestMessages(
       requestId,
       assistantId,
-      effectiveText,
-      rawAttachments,
+      text,
+      attachments,
       now,
     );
     final updated = await _automaticTitles.mutate(
@@ -420,8 +418,8 @@ class ChatController extends _$ChatController {
       (latest) => latest.copyWith(
         title: latest.messages.isEmpty
             ? (text.isNotEmpty
-                ? _titleFrom(text)
-                : (attachments.isNotEmpty ? attachments.first.name : null))
+                  ? _titleFrom(text)
+                  : (attachments.isNotEmpty ? attachments.first.name : null))
             : null,
         updatedAt: now,
         pendingRequestMessageId: requestId,
@@ -436,7 +434,7 @@ class ChatController extends _$ChatController {
       assistantId,
       selectedAgentId: policy.agentId,
       allowedTools: policy.allowedTools,
-      workspaceBinding: _captureWorkspaceBinding(),
+      workspaceBinding: workspaceBinding,
     );
   }
 

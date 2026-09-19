@@ -40,6 +40,23 @@ void main() {
     expect(result.originalBytes, original.length);
   });
 
+  test('huge declared raster is rejected before decoding pixels', () {
+    final bytes = Uint8List.fromList(
+      img.encodeBmp(img.Image(width: 1, height: 1)),
+    );
+    final header = ByteData.sublistView(bytes);
+    header.setUint32(18, 100000, Endian.little);
+    header.setUint32(22, 100000, Endian.little);
+    expect(
+      () => processor.process(
+        name: 'huge.bmp',
+        mimeType: 'image/bmp',
+        bytes: bytes,
+      ),
+      throwsFormatException,
+    );
+  });
+
   test('small png stays untouched', () {
     final original = _encodePng(800, 600);
 

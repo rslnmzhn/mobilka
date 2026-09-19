@@ -37,7 +37,8 @@ class ChatScreenBody extends ConsumerWidget {
   final VoidCallback onCreateConversation;
   final ValueChanged<PointerSignalEvent> onPointerSignal;
   final NotificationListenerCallback<ScrollNotification> onScrollNotification;
-  final void Function(String text, List<ChatAttachment> attachments) onSend;
+  final Future<bool> Function(String text, List<ChatAttachment> attachments)
+  onSend;
   final VoidCallback onShowNavigation;
   final bool isNavigationVisible;
 
@@ -81,7 +82,8 @@ class _ChatContent extends ConsumerWidget {
   final VoidCallback onCreateConversation;
   final ValueChanged<PointerSignalEvent> onPointerSignal;
   final NotificationListenerCallback<ScrollNotification> onScrollNotification;
-  final void Function(String text, List<ChatAttachment> attachments) onSend;
+  final Future<bool> Function(String text, List<ChatAttachment> attachments)
+  onSend;
   final VoidCallback onShowNavigation;
   final bool isNavigationVisible;
 
@@ -123,6 +125,7 @@ class _ChatContent extends ConsumerWidget {
           visionNote: 'chat.visionUnsupported'.tr(),
           onCancel: ref.read(chatControllerProvider.notifier).cancel,
           onSend: onSend,
+          onSendAccepted: onSend,
         ),
       ],
     );

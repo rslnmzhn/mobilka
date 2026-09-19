@@ -30,6 +30,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         SessionWorkspaceSafBridge(this, flutterEngine.dartExecutor.binaryMessenger)
+        SessionFolderOpenBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         DocumentWorkerBroker.register(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
             .setMethodCallHandler { call, result ->
@@ -73,10 +74,25 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.rslnmzhn.mobilka/gallery")
-            .setMethodCallHandler { call, result ->
+        galleryChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.rslnmzhn.mobilka/gallery")
+        galleryChannel?.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "pickImages" -> pickImagesFromGallery(result)
+                    "pickFiles" -> pickDocuments(result)
+                    "releasePickedFile" -> {
+                        try {
+                            val path = call.argument<String>("path") ?: ""
+                            val file = File(path)
+                            val directory = File(cacheDir, "picked_images").canonicalFile
+                            if (file.canonicalFile.parentFile == directory && file.name.startsWith("picked_")) {
+                                result.success(!file.exists() || file.delete())
+                            } else {
+                                result.error("invalid_path", "Not an imported attachment", null)
+                            }
+                        } catch (error: Exception) {
+                            result.error("cleanup_failed", "Could not release attachment", null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -343,7 +359,26 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private var galleryChannel: MethodChannel? = null
     private var pendingGalleryResult: MethodChannel.Result? = null
+
+    private fun pickDocuments(result: MethodChannel.Result) {
+        if (pendingGalleryResult != null) {
+            result.error("busy", "Another picker operation is in progress", null)
+            return
+        }
+        pendingGalleryResult = result
+        try {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                type = "*/*"
+                addCategory(Intent.CATEGORY_OPENABLE)
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }, REQUEST_CODE_PICK_GALLERY)
+        } catch (error: Exception) {
+            pendingGalleryResult = null
+            result.error("unavailable", "No document picker found", null)
+        }
+    }
 
     private fun pickImagesFromGallery(result: MethodChannel.Result) {
         if (pendingGalleryResult != null) {
@@ -411,14 +446,16 @@ class MainActivity : FlutterActivity() {
                 return
             }
 
-            Executors.newSingleThreadExecutor().execute {
+            val copyExecutor = Executors.newSingleThreadExecutor()
+            copyExecutor.execute {
+                val createdFiles = mutableListOf<File>()
                 try {
                     val outputList = mutableListOf<Map<String, Any?>>()
                     val targetDir = File(cacheDir, "picked_images").apply { mkdirs() }
 
                     for ((index, uri) in uris.withIndex()) {
                         var displayName: String? = null
-                        val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
+                        val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
 
                         try {
                             contentResolver.query(
@@ -438,19 +475,50 @@ class MainActivity : FlutterActivity() {
                             mimeType.contains("png") -> "png"
                             mimeType.contains("webp") -> "webp"
                             mimeType.contains("gif") -> "gif"
-                            else -> "jpg"
+                            mimeType == "image/jpeg" -> "jpg"
+                            mimeType == "image/heic" -> "heic"
+                            mimeType == "image/heif" -> "heif"
+                            mimeType == "application/pdf" -> "pdf"
+                            mimeType == "text/csv" -> "csv"
+                            mimeType == "text/plain" -> "txt"
+                            mimeType == "application/json" -> "json"
+                            mimeType == "text/markdown" -> "md"
+                            mimeType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "docx"
+                            mimeType == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "xlsx"
+                            else -> "bin"
                         }
                         val safeName = displayName?.takeIf { it.isNotBlank() }
-                            ?: "image_${System.currentTimeMillis()}_$index.$extension"
+                            ?: "attachment_${System.currentTimeMillis()}_$index.$extension"
 
-                        val tempFile = File(targetDir, "${System.currentTimeMillis()}_$safeName")
-                        contentResolver.openInputStream(uri)?.use { input ->
+                        runOnUiThread {
+                            galleryChannel?.invokeMethod("loadingImage", mapOf("name" to safeName))
+                        }
+                        // Provider display names are labels, never filesystem paths.
+                        val tempFile = File.createTempFile("picked_", ".$extension", targetDir)
+                        createdFiles.add(tempFile)
+                        val source = contentResolver.openInputStream(uri)
+                            ?: throw IllegalStateException("Selected attachment is unavailable")
+                        source.use { input ->
                             tempFile.outputStream().use { output ->
-                                input.copyTo(output)
+                                val buffer = ByteArray(64 * 1024)
+                                var total = 0L
+                                while (true) {
+                                    val count = input.read(buffer)
+                                    if (count < 0) break
+                                    total += count
+                                    if (total > 64L * 1024 * 1024) {
+                                        throw IllegalArgumentException("Attachment exceeds import limit")
+                                    }
+                                    output.write(buffer, 0, count)
+                                }
                             }
                         }
 
-                        if (tempFile.exists() && tempFile.length() > 0) {
+                        if (tempFile.length() == 0L) {
+                            tempFile.delete()
+                            throw IllegalStateException("Selected attachment is empty")
+                        }
+                        if (tempFile.exists()) {
                             outputList.add(mapOf(
                                 "path" to tempFile.absolutePath,
                                 "name" to safeName,
@@ -463,9 +531,12 @@ class MainActivity : FlutterActivity() {
                         result.success(outputList)
                     }
                 } catch (e: Exception) {
+                    createdFiles.forEach { it.delete() }
                     runOnUiThread {
                         result.error("read_failed", e.message, null)
                     }
+                } finally {
+                    copyExecutor.shutdown()
                 }
             }
         }

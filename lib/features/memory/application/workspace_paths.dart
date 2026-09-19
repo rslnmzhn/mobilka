@@ -121,21 +121,29 @@ class WorkspaceStore {
     String relativePath,
     Uint8List bytes, {
     String? mimeType,
+    WorkspaceBinding? binding,
   }) async {
-    final location = repository.savedLocation();
+    if (binding != null && binding is! _MemoryWorkspaceBinding) {
+      throw const WorkspaceStorageException.io('Invalid workspace binding.');
+    }
+    final location = binding is _MemoryWorkspaceBinding
+        ? binding._location
+        : repository.savedLocation();
     if (location == null) throw const WorkspaceStorageException.unconfigured();
-    await repository.validateSavedLocationAccess(location);
-    final boundary = repository.boundaryFor(location);
+    if (binding != null) {
+      await binding.revalidateAccess();
+    } else {
+      await repository.validateSavedLocationAccess(location);
+    }
+    final boundary = binding is _MemoryWorkspaceBinding
+        ? binding._boundary
+        : repository.boundaryFor(location);
     if (boundary is! SubPathMemoryFileBoundary) {
       throw const WorkspaceStorageException.io(
         'Workspace storage is unavailable.',
       );
     }
-    return (boundary as SubPathMemoryFileBoundary).writeSubPathBytes(
-      relativePath,
-      bytes,
-      mimeType: mimeType,
-    );
+    return boundary.writeSubPathBytes(relativePath, bytes, mimeType: mimeType);
   }
 
   Future<WorkspaceCompareWriteResult> compareWriteText(

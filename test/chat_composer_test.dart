@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -26,6 +27,7 @@ void main() {
     required void Function(String, List<ChatAttachment>) onSend,
     required VoidCallback onCancel,
     AttachmentPicker? pickAttachment,
+    Future<bool> Function(String, List<ChatAttachment>)? onSendAccepted,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -35,6 +37,7 @@ void main() {
             isStreaming: isStreaming,
             canSend: canSend,
             onSend: onSend,
+            onSendAccepted: onSendAccepted,
             pickAttachment: pickAttachment,
             onCancel: onCancel,
           ),
@@ -44,6 +47,142 @@ void main() {
     await tester.tap(find.byType(TextField));
     await tester.pump();
   }
+
+  testWidgets('typing enables send without a parent rebuild', (tester) async {
+    controller.clear();
+    var sends = 0;
+    await pumpComposer(
+      tester,
+      isStreaming: false,
+      canSend: true,
+      onSend: (_, _) => sends++,
+      onCancel: () {},
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.arrow_upward),
+          )
+          .onPressed,
+      isNull,
+    );
+    await tester.enterText(find.byType(TextField), 'hello');
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.arrow_upward));
+    expect(sends, 1);
+  });
+
+  testWidgets('pending attachment animates and failed send keeps selection', (
+    tester,
+  ) async {
+    controller.clear();
+    final pending = Completer<Object?>();
+    await pumpComposer(
+      tester,
+      isStreaming: false,
+      canSend: true,
+      onSend: (_, _) {},
+      onCancel: () {},
+      pickAttachment: ({required image}) => pending.future,
+      onSendAccepted: (_, _) async => false,
+    );
+    await tester.tap(find.byKey(const Key('attachment-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('attach-document')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.arrow_upward),
+          )
+          .onPressed,
+      isNull,
+    );
+    pending.complete(
+      ChatAttachment(
+        name: 'a.txt',
+        mimeType: 'text/plain',
+        dataBase64: base64Encode([1]),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.arrow_upward));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('attachment-chip-0')), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('gallery cancellation never launches document picker', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    const gallery = MethodChannel('com.rslnmzhn.mobilka/gallery');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(gallery, (call) async {
+      calls.add(call.method);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(gallery, null));
+    await pumpComposer(
+      tester,
+      isStreaming: false,
+      canSend: true,
+      onSend: (_, _) {},
+      onCancel: () {},
+    );
+    await tester.tap(find.byKey(const Key('attachment-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('attach-image')));
+    await tester.pumpAndSettle();
+    expect(calls, ['pickImages']);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byKey(const Key('attachment-chip-0')), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets(
+    'invalid native attachment metadata releases imported file without reopening picker',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      const channel = MethodChannel('com.rslnmzhn.mobilka/gallery');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final calls = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call.method);
+        if (call.method == 'releasePickedFile') {
+          return true;
+        }
+        return [
+          {
+            'path': '/missing-mobilka-test-file',
+            'name': 42,
+            'mimeType': 'image/png',
+          },
+        ];
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      await pumpComposer(
+        tester,
+        isStreaming: false,
+        canSend: true,
+        onSend: (_, _) {},
+        onCancel: () {},
+      );
+      await tester.tap(find.byKey(const Key('attachment-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('attach-image')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(calls, ['pickImages', 'releasePickedFile']);
+      expect(find.byType(SnackBar), findsOneWidget);
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
 
   testWidgets('Enter sends from a physical keyboard', (tester) async {
     var sends = 0;
@@ -273,7 +412,10 @@ void main() {
     // Send button should be enabled and sending should succeed
     final sendButton = tester.widget<IconButton>(
       find.byWidgetPredicate(
-        (w) => w is IconButton && w.icon is Icon && (w.icon as Icon).icon == Icons.arrow_upward,
+        (w) =>
+            w is IconButton &&
+            w.icon is Icon &&
+            (w.icon as Icon).icon == Icons.arrow_upward,
       ),
     );
     expect(sendButton.onPressed, isNotNull);

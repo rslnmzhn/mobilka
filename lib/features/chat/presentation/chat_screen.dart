@@ -293,13 +293,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     },
   );
 
-  void _send(String text, List<ChatAttachment> attachments) {
-    composer.clear();
+  Future<bool> _send(String text, List<ChatAttachment> attachments) async {
+    final accepted = await ref
+        .read(chatControllerProvider.notifier)
+        .send(text, attachments: attachments, waitForCompletion: false);
+    if (!accepted || !mounted) return false;
+    if (composer.text == text) composer.clear();
     _pinnedToBottom = true;
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-    ref
-        .read(chatControllerProvider.notifier)
-        .send(text, attachments: attachments);
+    return true;
   }
 }
 
