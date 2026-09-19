@@ -70,7 +70,10 @@ class ChatRepository
   }) async {
     final settings = await _settingsRepository.load();
     final apiKey = await _settingsRepository.readApiKey();
-    final injectedMessages = await _contextInjector.inject(messages);
+    final injectedMessages = await _contextInjector.inject(
+      messages,
+      toolsSupported: false,
+    );
     return _apiClient.createCompletion(
       baseUrl: settings.baseUrl,
       apiKey: apiKey,
@@ -146,12 +149,6 @@ class ChatRepository
     } on Object catch (error, stackTrace) {
       throw ChatPreparationException('read_api_key', error, stackTrace);
     }
-    late final List<ChatMessage> injectedMessages;
-    try {
-      injectedMessages = await _contextInjector.inject(messages);
-    } on Object catch (error, stackTrace) {
-      throw ChatPreparationException('inject_context', error, stackTrace);
-    }
     // Capability gate (roadmap item 45): endpoints/models without function
     // calling must not receive a tools field at all.
     late final ModelCapabilities capabilities;
@@ -159,6 +156,19 @@ class ChatRepository
       capabilities = ModelCapabilityResolver.resolve(model);
     } on Object catch (error, stackTrace) {
       throw ChatPreparationException('resolve_capabilities', error, stackTrace);
+    }
+    late final List<ChatMessage> injectedMessages;
+    try {
+      final availableToolNames = capabilities.tools
+          ? tools.map((tool) => tool.name).toSet()
+          : const <String>{};
+      injectedMessages = await _contextInjector.inject(
+        messages,
+        availableTools: availableToolNames,
+        toolsSupported: capabilities.tools,
+      );
+    } on Object catch (error, stackTrace) {
+      throw ChatPreparationException('inject_context', error, stackTrace);
     }
     try {
       yield* _apiClient.streamCompletion(

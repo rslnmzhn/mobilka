@@ -12,6 +12,7 @@ import '../../memory/application/update_memory_file_service.dart';
 import '../../models/application/models_controller.dart';
 import '../../public_source/application/public_source_chat_tool_runtime.dart';
 import '../../workspace/application/workspace_mutation_coordinator.dart';
+import '../../workspace/application/workspace_recovery_record.dart';
 import '../../workspace/application/session_workspace_boundary.dart';
 import 'chat_workspace_boundary_factory.dart';
 import '../../workspace/data/workspace_recovery_journal.dart';
@@ -336,7 +337,15 @@ class ChatController extends _$ChatController {
 
   void cancel() {
     final id = state.requireValue.activeConversationId;
-    if (id != null) _lifecycle.cancel(id);
+    if (id != null) {
+      _lifecycle.cancel(id);
+      final conversation = state.requireValue.activeConversation;
+      if (conversation != null &&
+          conversation.pendingWorkspaceProposal != null &&
+          !conversation.isStreaming) {
+        unawaited(rejectPendingWorkspaceProposal());
+      }
+    }
   }
 
   ChatMemoryDecisionService get _memoryDecisionService =>

@@ -1,8 +1,24 @@
 import 'dart:io';
 
 class PublicSourceFailure implements Exception {
-  const PublicSourceFailure(this.code);
+  const PublicSourceFailure(
+    this.code, {
+    this.statusCode,
+    this.finalDomain,
+    this.redirectCount = 0,
+    this.requiresJavaScript = false,
+    this.details,
+  });
+
   final String code;
+  final int? statusCode;
+  final String? finalDomain;
+  final int redirectCount;
+  final bool requiresJavaScript;
+  final String? details;
+
+  @override
+  String toString() => 'PublicSourceFailure($code)';
 }
 
 abstract interface class PublicSourceResolver {
@@ -53,7 +69,11 @@ class PublicTargetPolicy {
   final bool allowCustomPorts;
 
   Future<ValidatedPublicTarget> validate(String rawUrl) async {
-    final uri = _parse(rawUrl, allowedSchemes, allowCustomPorts: allowCustomPorts);
+    final uri = _parse(
+      rawUrl,
+      allowedSchemes,
+      allowCustomPorts: allowCustomPorts,
+    );
     final canonical = canonicalize(uri);
     late final List<InternetAddress> addresses;
     try {

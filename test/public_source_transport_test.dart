@@ -29,9 +29,16 @@ void main() {
       expect(native.request.followRedirects, isFalse);
       expect(native.request.maxRedirects, 0);
       expect(native.request.headers, {
-        'accept': 'text/*, application/json, application/xml',
+        'accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,text/*;q=0.8,application/json;q=0.7,*/*;q=0.5',
+        'accept-language': 'ru,en;q=0.9,en-US;q=0.8',
         'accept-encoding': 'identity',
-        'user-agent': 'mobilka-public-source/1',
+        'sec-ch-ua': '"Not A(Brand";v="99", "Chromium";v="124"',
+        'sec-ch-ua-mobile': '?1',
+        'sec-ch-ua-platform': '"Android"',
+        'upgrade-insecure-requests': '1',
+        'user-agent':
+            'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
       });
       for (final forbidden in [
         'authorization',

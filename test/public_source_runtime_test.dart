@@ -102,6 +102,62 @@ void main() {
       expect(output, {'ok': false, 'error_code': 'internal_error'});
     },
   );
+
+  test(
+    'HTTP 403 returns structured diagnostics with status_code and domain',
+    () async {
+      final forbidden = PublicSourceChatToolRuntime(
+        reader: PublicSourceReader(
+          policy: PublicSourcePolicy(_Resolver()),
+          transport: _StatusTransport(403),
+          guard: const PromptGuard(),
+        ),
+      );
+      final output =
+          jsonDecode(
+                await forbidden.executeTool(
+                  _call('{"url":"https://example.com/secret"}'),
+                  const {'read_public_source'},
+                  context: _context(cancellation),
+                ),
+              )
+              as Map;
+
+      expect(output['ok'], isFalse);
+      expect(output['error_code'], 'http_error');
+      expect(output['status_code'], 403);
+      expect(output['final_domain'], 'example.com');
+      expect(output['suggestion'], contains('403'));
+    },
+  );
+
+  test('SPA shell / challenge returns requires_javascript diagnostics', () async {
+    final spa = PublicSourceChatToolRuntime(
+      reader: PublicSourceReader(
+        policy: PublicSourcePolicy(_Resolver()),
+        transport: _BodyTransport(
+          '<html><body><noscript>Please enable JavaScript to view this site.</noscript><div id="root"></div></body></html>',
+          contentType: 'text/html',
+        ),
+        guard: const PromptGuard(),
+      ),
+    );
+    final output =
+        jsonDecode(
+              await spa.executeTool(
+                _call('{"url":"https://example.com/app"}'),
+                const {'read_public_source'},
+                context: _context(cancellation),
+              ),
+            )
+            as Map;
+
+    expect(output['ok'], isFalse);
+    expect(output['error_code'], 'requires_javascript');
+    expect(output['requires_javascript'], isTrue);
+    expect(output['final_domain'], 'example.com');
+    expect(output['suggestion'], contains('JavaScript'));
+  });
 }
 
 ChatToolCall _call(String arguments) =>
@@ -137,15 +193,45 @@ class _UnexpectedTransport implements PublicSourceTransport {
   }) => throw StateError('unexpected');
 }
 
-class _Response implements PublicSourceResponse {
+class _StatusTransport implements PublicSourceTransport {
+  _StatusTransport(this.statusCode);
+  final int statusCode;
   @override
-  int get status => 200;
+  Future<PublicSourceResponse> open(
+    ValidatedPublicTarget target, {
+    ChatToolCancellation? cancellation,
+  }) async => _Response(status: statusCode);
+}
+
+class _BodyTransport implements PublicSourceTransport {
+  _BodyTransport(this.text, {this.contentType = 'text/plain'});
+  final String text;
+  final String contentType;
+  @override
+  Future<PublicSourceResponse> open(
+    ValidatedPublicTarget target, {
+    ChatToolCancellation? cancellation,
+  }) async => _Response(
+    status: 200,
+    headers: {'content-type': contentType},
+    body: Stream.value(utf8.encode(text)),
+  );
+}
+
+class _Response implements PublicSourceResponse {
+  _Response({
+    this.status = 200,
+    this.headers = const {'content-type': 'text/plain'},
+    this.body = const Stream.empty(),
+  });
+  @override
+  final int status;
   @override
   int get contentLength => 0;
   @override
-  Map<String, String> get headers => const {'content-type': 'text/plain'};
+  final Map<String, String> headers;
   @override
-  Stream<List<int>> get body => const Stream.empty();
+  final Stream<List<int>> body;
   @override
   void abort() {}
 }

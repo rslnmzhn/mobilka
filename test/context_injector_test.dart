@@ -185,6 +185,41 @@ void main() {
       expect(journal.removeCount, 1);
     },
   );
+
+  test('synchronizes active agent prompt tools with available tools', () async {
+    const agentPrompt = '''
+## Документы и OCR
+- `ocr_document`: офлайн-распознавание текста.
+- Если пользователю нужно распознать текст с изображения: вызывай инструмент `ocr_document`.
+''';
+    final injector = ContextInjector(
+      _MemorySource(const {}),
+      const _AgentSource(agentPrompt),
+      () async => null,
+    );
+
+    final messages = await injector.inject(
+      const [],
+      availableTools: {'extract_document', 'read_file'},
+      toolsSupported: true,
+    );
+
+    expect(messages, hasLength(1));
+    final content = messages.single.content;
+    expect(content, contains('[НЕДОСТУПЕН]'));
+    expect(content, contains('Не вызывай ocr_document'));
+    expect(content, contains('<environment_tools>'));
+    expect(content, contains('`extract_document`'));
+    expect(content, contains('`read_file`'));
+    expect(
+      content,
+      isNot(
+        contains(
+          '<environment_tools>\nФактически доступные инструменты для вызова в этой сессии:.*`ocr_document`',
+        ),
+      ),
+    );
+  });
 }
 
 class _Journal implements MemoryRecoveryJournal {
