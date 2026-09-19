@@ -13,13 +13,39 @@ class ChatAttachment {
     required this.name,
     required this.mimeType,
     required this.dataBase64,
+    this.workspacePath,
+    this.sourceSha256,
+    this.includeImageData = true,
   });
+
+  final String? workspacePath;
+  final String? sourceSha256;
+  final bool includeImageData;
+
+  ChatAttachment withWorkspace(String path, String hash) => ChatAttachment(
+    name: name,
+    mimeType: mimeType,
+    dataBase64: dataBase64,
+    workspacePath: path,
+    sourceSha256: hash,
+  );
+
+  ChatAttachment withoutImageData() => ChatAttachment(
+    name: name,
+    mimeType: mimeType,
+    dataBase64: dataBase64,
+    workspacePath: workspacePath,
+    sourceSha256: sourceSha256,
+    includeImageData: false,
+  );
 
   factory ChatAttachment.fromStorageJson(Map<dynamic, dynamic> json) =>
       ChatAttachment(
         name: json['name'].toString(),
         mimeType: json['mimeType'].toString(),
         dataBase64: json['dataBase64'].toString(),
+        workspacePath: json['workspacePath'] as String?,
+        sourceSha256: json['sourceSha256'] as String?,
       );
 
   final String name;
@@ -32,6 +58,8 @@ class ChatAttachment {
     'name': name,
     'mimeType': mimeType,
     'dataBase64': dataBase64,
+    if (workspacePath != null) 'workspacePath': workspacePath,
+    if (sourceSha256 != null) 'sourceSha256': sourceSha256,
   };
 
   /// Wire representation for OpenAI-compatible vision requests.
@@ -128,14 +156,23 @@ class ChatMessage {
       return {'content': content};
     }
     final representable = attachments
-        .where((a) => a.isImage || a.isInlineText)
+        .where((a) => (a.isImage && a.includeImageData) || a.isInlineText)
         .toList(growable: false);
-    if (representable.isEmpty) {
-      // Nothing the provider can consume: send plain text so the model at
-      // least sees the user's message.
-      return {'content': content};
-    }
     var text = content;
+    final files = attachments
+        .where((a) => a.workspacePath != null)
+        .map(
+          (a) => {
+            'name': a.name,
+            'path': a.workspacePath,
+            'source_sha256': a.sourceSha256,
+          },
+        )
+        .toList(growable: false);
+    if (files.isNotEmpty) {
+      text = '$text\n${jsonEncode({'attachments': files})}';
+    }
+    if (representable.isEmpty) return {'content': text};
     for (final attachment in representable) {
       if (!attachment.isImage) {
         final decoded = utf8.decode(base64Decode(attachment.dataBase64));

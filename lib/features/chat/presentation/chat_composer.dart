@@ -12,8 +12,15 @@ import '../application/image_attachment_processor.dart';
 /// Callback picking attachments and returning raw bytes + metadata; injectable
 /// for widget tests. Supports returning a single [ChatAttachment], a [List<ChatAttachment>],
 /// or null if cancelled.
-typedef AttachmentPicker =
-    Future<Object?> Function({required bool image});
+typedef AttachmentPicker = Future<Object?> Function({required bool image});
+
+ProcessedImage _processImage(
+  ({String name, String mimeType, Uint8List bytes}) input,
+) => const ImageAttachmentProcessor().process(
+  name: input.name,
+  mimeType: input.mimeType,
+  bytes: input.bytes,
+);
 
 class ChatComposer extends StatefulWidget {
   const ChatComposer({
@@ -24,6 +31,7 @@ class ChatComposer extends StatefulWidget {
     required this.onSend,
     required this.onCancel,
     this.pickAttachment,
+    this.onSendAccepted,
     this.visionSupported = true,
     this.visionNote = '',
   });
@@ -33,6 +41,7 @@ class ChatComposer extends StatefulWidget {
   final bool canSend;
   final void Function(String text, List<ChatAttachment> attachments) onSend;
   final VoidCallback onCancel;
+  final Future<bool> Function(String, List<ChatAttachment>)? onSendAccepted;
 
   /// Defaults to the system picker (file_selector / Android SAF intent).
   final AttachmentPicker? pickAttachment;
@@ -49,7 +58,33 @@ class ChatComposer extends StatefulWidget {
 
 class _ChatComposerState extends State<ChatComposer> {
   final attachments = <ChatAttachment>[];
-  final _imageProcessor = const ImageAttachmentProcessor();
+  final _pendingFiles = <String>[];
+  bool _isPicking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_refreshSendState);
+  }
+
+  @override
+  void didUpdateWidget(ChatComposer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_refreshSendState);
+      widget.controller.addListener(_refreshSendState);
+    }
+  }
+
+  void _refreshSendState() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_refreshSendState);
+    super.dispose();
+  }
 
   bool get _usesMobileKeyboardAction =>
       defaultTargetPlatform == TargetPlatform.android ||
@@ -68,6 +103,8 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   Future<void> _attach({required bool image}) async {
+    if (_isPicking || widget.isStreaming) return;
+    setState(() => _isPicking = true);
     final picker = widget.pickAttachment ?? _pickViaSystemSelector;
     try {
       final picked = await picker(image: image);
@@ -82,23 +119,31 @@ class _ChatComposerState extends State<ChatComposer> {
       } else {
         list = const [];
       }
-      if (list.isEmpty) return;
-      setState(() => attachments.addAll(list));
+      if (list.isEmpty || !mounted) return;
+      if (widget.pickAttachment != null) {
+        setState(() => attachments.addAll(list));
+      }
     } on Object catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(error.toString())));
       }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPicking = false;
+          _pendingFiles.clear();
+        });
+      }
     }
   }
 
-  Future<List<ChatAttachment>> _pickViaSystemSelector({required bool image}) async {
-    if (image && defaultTargetPlatform == TargetPlatform.android) {
-      final galleryResults = await _pickImagesViaAndroidGallery();
-      if (galleryResults != null) {
-        return galleryResults;
-      }
+  Future<List<ChatAttachment>> _pickViaSystemSelector({
+    required bool image,
+  }) async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return await _pickViaAndroid(image: image) ?? const [];
     }
 
     const imageGroup = XTypeGroup(
@@ -135,6 +180,9 @@ class _ChatComposerState extends State<ChatComposer> {
       acceptedTypeGroups: [image ? imageGroup : documentGroup],
     );
     if (files.isEmpty) return const [];
+    if (mounted) {
+      setState(() => _pendingFiles.addAll(files.map((file) => file.name)));
+    }
 
     final list = <ChatAttachment>[];
     for (final file in files) {
@@ -146,20 +194,36 @@ class _ChatComposerState extends State<ChatComposer> {
     return list;
   }
 
-  Future<List<ChatAttachment>?> _pickImagesViaAndroidGallery() async {
+  Future<List<ChatAttachment>?> _pickViaAndroid({required bool image}) async {
+    const channel = MethodChannel('com.rslnmzhn.mobilka/gallery');
+    final importedPaths = <String>[];
+    channel.setMethodCallHandler((call) async {
+      if (call.method == 'loadingImage' && mounted) {
+        final name = (call.arguments as Map)['name'] as String;
+        setState(() => _pendingFiles.add(name));
+      }
+    });
     try {
-      const channel = MethodChannel('com.rslnmzhn.mobilka/gallery');
-      final rawList = await channel.invokeMethod<List<dynamic>>('pickImages');
+      final rawList = await channel.invokeMethod<List<dynamic>>(
+        image ? 'pickImages' : 'pickFiles',
+      );
       if (rawList == null) return null;
+      importedPaths.addAll(
+        rawList
+            .whereType<Map>()
+            .map((item) => item['path'])
+            .whereType<String>(),
+      );
       final list = <ChatAttachment>[];
       for (final item in rawList) {
         if (item is Map) {
           final path = item['path'] as String?;
-          final name = item['name'] as String? ?? 'image.jpg';
-          final mimeType = item['mimeType'] as String? ?? 'image/jpeg';
+          final name = item['name'] as String? ?? 'attachment.bin';
+          final mimeType =
+              item['mimeType'] as String? ?? 'application/octet-stream';
           if (path != null) {
             final file = XFile(path, name: name, mimeType: mimeType);
-            final processed = await _processFile(file);
+            final processed = await _processFile(file, displayName: name);
             if (processed != null) {
               list.add(processed);
             }
@@ -167,37 +231,66 @@ class _ChatComposerState extends State<ChatComposer> {
         }
       }
       return list;
-    } catch (_) {
-      return null;
+    } finally {
+      channel.setMethodCallHandler(null);
+      for (final path in importedPaths) {
+        try {
+          await channel.invokeMethod<bool>('releasePickedFile', {'path': path});
+        } on PlatformException {
+          // Cleanup failure must not discard already imported attachments.
+        }
+      }
     }
   }
 
-  Future<ChatAttachment?> _processFile(XFile file) async {
+  Future<ChatAttachment?> _processFile(
+    XFile file, {
+    String? displayName,
+  }) async {
+    final sourceName = displayName ?? file.name;
+    if (mounted && !_pendingFiles.contains(sourceName)) {
+      setState(() => _pendingFiles.add(sourceName));
+    }
+    final inputLength = await file.length();
+    final inputLimit =
+        (file.mimeType ?? _mimeTypeFromName(sourceName) ?? '').startsWith(
+          'image/',
+        )
+        ? 64 * 1024 * 1024
+        : maxAttachmentBytes;
+    if (inputLength > inputLimit) {
+      throw StateError('chat.attachmentTooLarge'.tr());
+    }
     final rawBytes = await file.readAsBytes();
     if (rawBytes.isEmpty) return null;
-    var name = file.name;
+    var name = sourceName;
     var mimeType =
         file.mimeType ??
-        _mimeTypeFromName(file.name) ??
+        _mimeTypeFromName(sourceName) ??
         'application/octet-stream';
     var bytes = rawBytes;
     if (mimeType.startsWith('image/')) {
-      final processed = _imageProcessor.process(
-        name: name,
-        mimeType: mimeType,
-        bytes: rawBytes,
-      );
+      final input = (name: name, mimeType: mimeType, bytes: rawBytes);
+      final processed = await compute(_processImage, input);
       bytes = processed.bytes;
       name = processed.name;
       mimeType = processed.mimeType;
     }
     // Guard applies to the payload actually sent, post-compression.
     _validateSize(bytes.length);
-    return ChatAttachment(
+    final encoded = await compute(base64Encode, bytes);
+    final attachment = ChatAttachment(
       name: name,
       mimeType: mimeType,
-      dataBase64: base64Encode(bytes),
+      dataBase64: encoded,
     );
+    if (mounted) {
+      setState(() {
+        _pendingFiles.remove(sourceName);
+        attachments.add(attachment);
+      });
+    }
+    return attachment;
   }
 
   void _validateSize(int length) {
@@ -228,10 +321,22 @@ class _ChatComposerState extends State<ChatComposer> {
     };
   }
 
-  void _send() {
-    widget.onSend(widget.controller.text, List.unmodifiable(attachments));
-    // The caller owns the text controller lifecycle; only local chips reset.
-    setState(attachments.clear);
+  Future<void> _send() async {
+    if (!_canSend) return;
+    final text = widget.controller.text;
+    final selected = List<ChatAttachment>.unmodifiable(attachments);
+    if (widget.onSendAccepted == null) {
+      widget.onSend(text, selected);
+      setState(attachments.clear);
+      return;
+    }
+    setState(() => _isPicking = true);
+    try {
+      final accepted = await widget.onSendAccepted!(text, selected);
+      if (accepted && mounted) setState(attachments.clear);
+    } finally {
+      if (mounted) setState(() => _isPicking = false);
+    }
   }
 
   @override
@@ -242,6 +347,30 @@ class _ChatComposerState extends State<ChatComposer> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_isPicking)
+            SizedBox(
+              height: 44,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final name
+                      in _pendingFiles.isEmpty
+                          ? ['chat.loadingAttachment'.tr()]
+                          : _pendingFiles)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: InputChip(
+                        avatar: const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        label: Text(name),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           if (attachments.isNotEmpty)
             SizedBox(
               height: 44,
@@ -293,19 +422,14 @@ class _ChatComposerState extends State<ChatComposer> {
                 prefixIcon: PopupMenuButton<String>(
                   key: const Key('attachment-menu'),
                   tooltip: 'chat.attach'.tr(),
-                  enabled: !widget.isStreaming,
+                  enabled: !widget.isStreaming && !_isPicking,
                   icon: const Icon(Icons.attach_file),
                   itemBuilder: (_) => [
                     PopupMenuItem(
                       key: const Key('attach-image'),
                       value: 'image',
-                      enabled: widget.visionSupported && !widget.isStreaming,
-                      child: Text(
-                        'chat.attachImage'.tr() +
-                            (widget.visionSupported
-                                ? ''
-                                : ' (${widget.visionNote})'),
-                      ),
+                      enabled: !widget.isStreaming && !_isPicking,
+                      child: Text('chat.attachImage'.tr()),
                     ),
                     PopupMenuItem(
                       key: const Key('attach-document'),
@@ -335,6 +459,7 @@ class _ChatComposerState extends State<ChatComposer> {
 
   bool get _canSend =>
       widget.canSend &&
+      !_isPicking &&
       !widget.isStreaming &&
       (widget.controller.text.trim().isNotEmpty || attachments.isNotEmpty);
 }

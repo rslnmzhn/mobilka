@@ -1,4 +1,5 @@
 import '../domain/chat_message.dart';
+import '../../models/domain/model_capabilities.dart';
 import '../domain/conversation.dart';
 import '../../memory/application/workspace_paths.dart';
 
@@ -98,6 +99,16 @@ ChatStreamRequest buildChatStreamRequest(
             message.role != ChatRole.assistant ||
             (message.status != ChatMessageStatus.interrupted &&
                 message.status != ChatMessageStatus.failed),
+      )
+      .map(
+        (message) =>
+            ModelCapabilityResolver.resolve(conversation.modelId).vision
+            ? message
+            : message.copyWith(
+                attachments: message.attachments
+                    .map((attachment) => attachment.withoutImageData())
+                    .toList(growable: false),
+              ),
       )
       .toList(growable: false),
 );

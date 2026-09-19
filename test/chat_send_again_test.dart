@@ -106,7 +106,13 @@ void main() {
           .requireValue
           .conversationById('target')!
           .messages[3];
-      expect(resent.attachments.map((item) => item.name), ['notes.txt']);
+      expect(resent.attachments.map((item) => item.name), [
+        'image.png',
+        'notes.txt',
+      ]);
+      final wire = streamer.histories.single.last.toJson()['content'] as List;
+      expect(wire.where((part) => part['type'] == 'image_url'), isEmpty);
+      expect(wire.first['text'], contains('notes.txt'));
     },
   );
 

@@ -36,7 +36,7 @@ class SendAgainService {
             .firstOrNull;
         if (original == null ||
             original.role != ChatRole.user ||
-            original.content.trim().isEmpty) {
+            (original.content.trim().isEmpty && original.attachments.isEmpty)) {
           onInvalid();
           return null;
         }
@@ -59,7 +59,7 @@ class SendAgainService {
               role: ChatRole.user,
               content: original.content,
               createdAt: now,
-              attachments: List.unmodifiable(attachments),
+              attachments: List.unmodifiable(original.attachments),
             ),
             ChatMessage(
               id: assistantId,

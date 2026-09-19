@@ -42,6 +42,9 @@ class ArtifactsBottomSheet extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
+                  _OpenSessionFolderButton(
+                    sessionKey: conversation?.sessionKey,
+                  ),
                   IconButton(
                     tooltip: 'common.close'.tr(),
                     onPressed: () => Navigator.of(context).pop(),
@@ -55,6 +58,45 @@ class ArtifactsBottomSheet extends StatelessWidget {
         ),
       ),
     ),
+  );
+}
+
+class _OpenSessionFolderButton extends ConsumerStatefulWidget {
+  const _OpenSessionFolderButton({required this.sessionKey});
+
+  final String? sessionKey;
+
+  @override
+  ConsumerState<_OpenSessionFolderButton> createState() =>
+      _OpenSessionFolderButtonState();
+}
+
+class _OpenSessionFolderButtonState
+    extends ConsumerState<_OpenSessionFolderButton> {
+  bool _opening = false;
+
+  Future<void> _open() async {
+    final sessionKey = widget.sessionKey;
+    if (sessionKey == null || sessionKey.isEmpty || _opening) return;
+    setState(() => _opening = true);
+    var opened = false;
+    try {
+      opened = await ref.read(sessionFolderOpenerProvider)(sessionKey);
+    } catch (_) {
+      // Native/provider failures must not silently open another directory.
+    }
+    if (!mounted) return;
+    setState(() => _opening = false);
+    if (!opened) {
+      showArtifactFeedback(context, 'artifacts.sessionFolderUnavailable');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: 'artifacts.openSessionFolder'.tr(),
+    onPressed: _opening || (widget.sessionKey?.isEmpty ?? true) ? null : _open,
+    icon: const Icon(Icons.drive_file_move_outline),
   );
 }
 
@@ -262,8 +304,8 @@ class _DocumentsTab extends ConsumerWidget {
               file.path.endsWith('.docx')
                   ? Icons.description
                   : (file.path.endsWith('.txt') || file.path.endsWith('.md')
-                      ? Icons.article_outlined
-                      : Icons.insert_drive_file_outlined),
+                        ? Icons.article_outlined
+                        : Icons.insert_drive_file_outlined),
               color: Theme.of(context).colorScheme.primary,
             ),
             title: Text(
@@ -274,10 +316,12 @@ class _DocumentsTab extends ConsumerWidget {
             subtitle: Text(
               '${(file.size ?? 0) ~/ 1024 > 0 ? '${(file.size ?? 0) ~/ 1024} KB' : '${file.size ?? 0} B'} · Workspace',
             ),
-            onTap: () => _openWorkspaceFile(context, ref, sessionKey, file.path),
+            onTap: () =>
+                _openWorkspaceFile(context, ref, sessionKey, file.path),
             trailing: IconButton(
               tooltip: 'artifacts.share'.tr(),
-              onPressed: () => shareSessionWorkspaceFile(ref, sessionKey, file.path),
+              onPressed: () =>
+                  shareSessionWorkspaceFile(ref, sessionKey, file.path),
               icon: const Icon(Icons.share_outlined),
             ),
           ),
@@ -293,7 +337,11 @@ class _DocumentsTab extends ConsumerWidget {
     String relativePath,
   ) async {
     final memoryRepo = ref.read(memoryRepositoryProvider);
-    final text = await readSessionWorkspaceFile(memoryRepo, sessionKey, relativePath);
+    final text = await readSessionWorkspaceFile(
+      memoryRepo,
+      sessionKey,
+      relativePath,
+    );
     if (text == null || !context.mounted) return;
     showModalBottomSheet<void>(
       context: context,

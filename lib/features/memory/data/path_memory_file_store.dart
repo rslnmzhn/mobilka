@@ -100,6 +100,10 @@ class PathMemoryFileStore
       final parent = await guard.parent(parts, create: true);
       if (parent == null) return false;
       final file = File(_join(parent.path, parts.last));
+      if (await FileSystemEntity.type(file.path, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        return false;
+      }
       await _atomicWrite(
         guard: guard,
         parentParts: parts,

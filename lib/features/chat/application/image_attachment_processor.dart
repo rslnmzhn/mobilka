@@ -38,7 +38,18 @@ class ImageAttachmentProcessor {
         processed: false,
       );
     }
-    final decoded = img.decodeImage(bytes);
+    // Reject oversized rasters from their header before allocating full pixels.
+    final decoder = img.findDecoderForData(bytes);
+    final info = decoder?.startDecode(bytes);
+    if (info != null &&
+        (info.width <= 0 ||
+            info.height <= 0 ||
+            info.width * info.height > 24000000)) {
+      throw const FormatException(
+        'Image exceeds the 24 megapixel import limit',
+      );
+    }
+    final decoded = decoder?.decodeFrame(0);
     if (decoded == null) {
       return ProcessedImage(
         name: name,

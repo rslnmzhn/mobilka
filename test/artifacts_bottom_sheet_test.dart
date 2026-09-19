@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:io';
+
+import 'package:mobilka/features/artifacts/application/session_workspace_files_provider.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -69,6 +72,60 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Global legacy artifact'), findsNothing);
       expect(find.byKey(const Key('artifact-create')), findsNothing);
+    },
+  );
+
+  testWidgets('folder button is disabled without a current session', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app(const ArtifactsBottomSheet()));
+    final button = tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, Icons.drive_file_move_outline),
+    );
+    expect(button.onPressed, isNull);
+  });
+
+  testWidgets(
+    'folder button opens only current session and reports unavailable',
+    (tester) async {
+      final pending = Completer<bool>();
+      final calls = <String>[];
+      final conversation = Conversation(
+        id: 'current',
+        title: 'Current',
+        modelId: 'model',
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+        messages: const [],
+        sessionKey: 'current-session',
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionFolderOpenerProvider.overrideWithValue((key) {
+              calls.add(key);
+              return pending.future;
+            }),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: ArtifactsBottomSheet(conversation: conversation),
+            ),
+          ),
+        ),
+      );
+      final finder = find.widgetWithIcon(
+        IconButton,
+        Icons.drive_file_move_outline,
+      );
+      await tester.tap(finder);
+      await tester.pump();
+      expect(calls, [conversation.sessionKey]);
+      expect(tester.widget<IconButton>(finder).onPressed, isNull);
+      pending.complete(false);
+      await tester.pumpAndSettle();
+      expect(find.text('artifacts.sessionFolderUnavailable'), findsOneWidget);
+      expect(tester.widget<IconButton>(finder).onPressed, isNotNull);
     },
   );
 
