@@ -128,6 +128,34 @@ class SafMemoryFileStore
   }
 
   @override
+  Future<bool> writeSubPathBytes(
+    String relativePath,
+    Uint8List bytes, {
+    String? mimeType,
+  }) async {
+    final parts = MemoryFileValidation.subPath(relativePath);
+    if (parts == null) return false;
+    return _lock.synchronized(() async {
+      final parent = await _resolveOrCreateDirectories(
+        parts.sublist(0, parts.length - 1),
+      );
+      await _resolveExactChild(
+        parent,
+        parts.last,
+        expectedDirectory: false,
+        allowMissing: true,
+      );
+      await _access.write(
+        parent,
+        parts.last,
+        bytes,
+        overwrite: true,
+      );
+      return true;
+    });
+  }
+
+  @override
   Future<WorkspaceCompareWriteResult> compareWriteSubPath(
     String relativePath,
     String? expectedContent,

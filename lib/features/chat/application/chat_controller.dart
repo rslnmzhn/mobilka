@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -202,7 +203,7 @@ class ChatController extends _$ChatController {
     List<ChatAttachment> attachments = const [],
   }) async {
     final text = content.trim();
-    if (text.isEmpty || !_requestAdmission.tryAcquire()) return;
+    if ((text.isEmpty && attachments.isEmpty) || !_requestAdmission.tryAcquire()) return;
     try {
       if (state.requireValue.hasInFlightRequest) return;
       final conversation = await _ensureConversation();
@@ -372,17 +373,56 @@ class ChatController extends _$ChatController {
         ),
       );
     }
+
+    final sessionKey = conversation.sessionKey;
+    if (rawAttachments.isNotEmpty && sessionKey != null && sessionKey.isNotEmpty) {
+      final workspace = WorkspaceStore(
+        repository: ref.read(memoryRepositoryProvider),
+      );
+      for (final attachment in rawAttachments) {
+        try {
+          final bytes = Uint8List.fromList(base64Decode(attachment.dataBase64));
+          final relativePath =
+              '${workspace.sessionFolder(sessionKey)}/${attachment.name}';
+          await workspace.writeBinaryFile(
+            relativePath,
+            bytes,
+            mimeType: attachment.mimeType,
+          );
+        } catch (_) {}
+      }
+    }
+
+    var effectiveText = text;
+    if (rawAttachments.isNotEmpty && attachments.length < rawAttachments.length) {
+      final strippedNames = rawAttachments
+          .where((a) => !attachments.contains(a))
+          .map((a) => a.name)
+          .join(', ');
+      effectiveText = effectiveText.isEmpty
+          ? '[Вложенный файл сохранён в workspace: $strippedNames]'
+          : '$effectiveText\n\n[Вложенный файл сохранён в workspace: $strippedNames]';
+    } else if (effectiveText.isEmpty && rawAttachments.isNotEmpty) {
+      effectiveText = rawAttachments.any((a) => a.isImage)
+          ? 'Что изображено на фото?'
+          : 'Обработай вложенные файлы: ${rawAttachments.map((a) => a.name).join(', ')}';
+    }
+
     final messages = _newRequestMessages(
       requestId,
       assistantId,
-      text,
-      attachments,
+      effectiveText,
+      rawAttachments,
       now,
     );
     final updated = await _automaticTitles.mutate(
       conversation.id,
       (latest) => latest.copyWith(
-        title: latest.messages.isEmpty ? _titleFrom(text) : null,
+        title: latest.messages.isEmpty
+            ? (text.isNotEmpty
+                ? _titleFrom(text)
+                : (attachments.isNotEmpty ? attachments.first.name : null))
+            : null,
         updatedAt: now,
         pendingRequestMessageId: requestId,
         messages: [...latest.messages, ...messages],

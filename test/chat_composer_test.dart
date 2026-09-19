@@ -241,4 +241,49 @@ void main() {
       'photo.jpg',
     ]);
   });
+
+  testWidgets('can send with empty text when attachments are present', (
+    tester,
+  ) async {
+    controller.clear();
+    final sends = <(String, List<ChatAttachment>)>[];
+    await pumpComposer(
+      tester,
+      isStreaming: false,
+      canSend: true,
+      onSend: (text, attachments) => sends.add((text, attachments)),
+      onCancel: () {},
+      pickAttachment: ({required bool image}) async {
+        return ChatAttachment(
+          name: 'photo.webp',
+          mimeType: 'image/webp',
+          dataBase64: base64Encode(utf8.encode('webp-data')),
+        );
+      },
+    );
+
+    // Attach image without typing any text
+    await tester.tap(find.byKey(const Key('attachment-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('attach-image')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('attachment-chip-0')), findsOneWidget);
+
+    // Send button should be enabled and sending should succeed
+    final sendButton = tester.widget<IconButton>(
+      find.byWidgetPredicate(
+        (w) => w is IconButton && w.icon is Icon && (w.icon as Icon).icon == Icons.arrow_upward,
+      ),
+    );
+    expect(sendButton.onPressed, isNotNull);
+
+    await tester.tap(find.byIcon(Icons.arrow_upward));
+    await tester.pump();
+
+    expect(sends, hasLength(1));
+    expect(sends.single.$1, isEmpty);
+    expect(sends.single.$2, hasLength(1));
+    expect(sends.single.$2.single.name, 'photo.webp');
+  });
 }
