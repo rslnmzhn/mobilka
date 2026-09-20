@@ -1,4 +1,6 @@
 # mobilka roadmap
+- [ ] OCR attachment path resolution fix:
+  - Устранена ошибка `not_found` при вызове OCR/извлечения документов для вложений чата: `SessionDocumentSnapshotSource.capture` теперь поддерживает гибкое разрешение путей (прямой путь, снятие префикса `sessions/<key>/`, поиск в `artifacts/`, поиск по контрольной сумме SHA-256 или имени файла среди записей сессии). Если модель передаёт исходное имя файла (`Чек.pdf`), относительный путь в artifacts или полный путь сессии, файл безопасно находится и верифицируется по SHA-256 и magic bytes.
 - [ ] Android native OCR worker availability fix:
   - Устранена блокировка OCR-воркера на Android: метод `DocumentWorkerBroker.available()` больше не проверяет наличие файла в `nativeLibraryDir` (где библиотеки отсутствуют при установке APK с `extractNativeLibs="false"`), а проверяет готовность нативного движка через `DocumentWorkerProcessor.isReady()`; в `AndroidManifest.xml` явно установлен `android:extractNativeLibs="true"`.
   - В инструкции агента добавлено прямое правило: если `extract_document` возвращает пустой текст для сканированного PDF без текстового слоя (например, чеки и квитанции), агент обязан вызвать `ocr_document` с `format="pdf"`.

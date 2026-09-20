@@ -91,6 +91,75 @@ void main() {
     );
     expect(boundary.maximum, 7);
   });
+
+  test(
+    'resolves file when model passes bare filename but file is in artifacts',
+    () async {
+      final pdfBytes = utf8.encode('%PDF-1.4 test');
+      final hash = workspaceHash(pdfBytes);
+      final boundary = _BinaryBoundary(
+        pdfBytes,
+        files: {'artifacts/check.pdf': pdfBytes},
+      );
+      final source = SessionDocumentSnapshotSource(
+        resolveBoundary: (_, _) => boundary,
+      );
+      final snapshot = await source.capture(
+        request: _request('check.pdf', hash, 'pdf'),
+        context: _context(),
+        requestId: 'request',
+      );
+      expect(snapshot.sourcePath.value, 'artifacts/check.pdf');
+      expect(snapshot.bytes, pdfBytes);
+    },
+  );
+
+  test(
+    'resolves file when model passes full sessions/sessionKey/ prefix',
+    () async {
+      final pdfBytes = utf8.encode('%PDF-1.4 test');
+      final hash = workspaceHash(pdfBytes);
+      final boundary = _BinaryBoundary(
+        pdfBytes,
+        files: {'artifacts/check.pdf': pdfBytes},
+      );
+      final source = SessionDocumentSnapshotSource(
+        resolveBoundary: (_, _) => boundary,
+      );
+      final snapshot = await source.capture(
+        request: _request('sessions/session/artifacts/check.pdf', hash, 'pdf'),
+        context: _context(),
+        requestId: 'request',
+      );
+      expect(snapshot.sourcePath.value, 'artifacts/check.pdf');
+      expect(snapshot.bytes, pdfBytes);
+    },
+  );
+
+  test(
+    'resolves attachment by hash when model calls with original display name',
+    () async {
+      final pdfBytes = utf8.encode('%PDF-1.4 scanned receipt');
+      final hash = workspaceHash(pdfBytes);
+      final boundary = _BinaryBoundary(
+        pdfBytes,
+        files: {'artifacts/attachment_randomhex123.pdf': pdfBytes},
+      );
+      final source = SessionDocumentSnapshotSource(
+        resolveBoundary: (_, _) => boundary,
+      );
+      final snapshot = await source.capture(
+        request: _request('receipt.pdf', hash, 'pdf'),
+        context: _context(),
+        requestId: 'request',
+      );
+      expect(
+        snapshot.sourcePath.value,
+        'artifacts/attachment_randomhex123.pdf',
+      );
+      expect(snapshot.bytes, pdfBytes);
+    },
+  );
 }
 
 DocumentToolRequest _request(String path, String hash, String format) =>
@@ -113,10 +182,11 @@ ChatToolExecutionContext _context() => const ChatToolExecutionContext(
 );
 
 final class _BinaryBoundary implements BinarySessionWorkspaceBoundary {
-  _BinaryBoundary(this.source, {this.roots = const ['root']});
+  _BinaryBoundary(this.source, {this.roots = const ['root'], this.files});
 
   final List<int> source;
   final List<String> roots;
+  final Map<String, List<int>>? files;
   var rootReads = 0;
   int? maximum;
 
@@ -128,18 +198,41 @@ final class _BinaryBoundary implements BinarySessionWorkspaceBoundary {
   Future<T> synchronized<T>(Future<T> Function() action) => action();
 
   @override
+  Future<List<WorkspaceEntry>> list(
+    SessionWorkspacePath path, {
+    required bool recursive,
+  }) async {
+    if (files == null) return const [];
+    return files!.entries
+        .map(
+          (e) => WorkspaceEntry(
+            path: e.key,
+            type: WorkspaceEntryType.file,
+            size: e.value.length,
+            identity: e.key,
+            sha256: workspaceHash(e.value),
+          ),
+        )
+        .toList();
+  }
+
+  @override
   Future<WorkspaceBinaryReadResult> readBinary(
     SessionWorkspacePath path, {
     required int maxBytes,
   }) async {
     maximum = maxBytes;
-    if (source.length > maxBytes) {
+    final bytes = files != null ? files![path.value] : source;
+    if (bytes == null) {
+      throw const WorkspaceBoundaryException('not_found');
+    }
+    if (bytes.length > maxBytes) {
       throw const FormatException('workspace_file_too_large');
     }
     return WorkspaceBinaryReadResult(
-      bytes: source,
-      size: source.length,
-      sha256: workspaceHash(source),
+      bytes: bytes,
+      size: bytes.length,
+      sha256: workspaceHash(bytes),
       identity: 'file',
       rootIdentity: roots.first,
     );

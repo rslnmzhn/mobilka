@@ -6,6 +6,8 @@ import '../../documents/domain/document_limits.dart';
 import '../../documents/domain/document_snapshot.dart';
 import '../../documents/domain/document_tool_request.dart';
 import '../../workspace/application/session_workspace_boundary.dart';
+import '../../workspace/domain/session_workspace_path.dart';
+import '../../workspace/domain/workspace_models.dart';
 import 'chat_tool_runtime.dart';
 import 'document_tool_runtime.dart';
 
@@ -60,10 +62,14 @@ final class SessionDocumentSnapshotSource implements DocumentSnapshotSource {
           bindingSnapshot.rootIdentity != rootBefore) {
         throw const DocumentException('document_binding_changed');
       }
-      final read = await boundary.readBinary(
-        request.path,
+      final resolved = await _resolveAndReadBinary(
+        boundary: boundary,
+        requestedPath: request.path,
+        expectedSha256: request.sourceHash,
+        sessionKey: sessionKey,
         maxBytes: _limits.sourceBytes,
       );
+      final read = resolved.read;
       final rootAfter = await boundary.rootIdentity();
       if (read.rootIdentity != rootBefore || rootAfter != rootBefore) {
         throw const DocumentException('document_binding_changed');
@@ -82,13 +88,105 @@ final class SessionDocumentSnapshotSource implements DocumentSnapshotSource {
         requestId: requestId,
         sessionKey: sessionKey,
         binding: bindingSnapshot.withRootIdentity(rootBefore),
-        sourcePath: request.path.value,
+        sourcePath: resolved.resolvedPath,
         sourceIdentity: read.identity,
         bytes: read.bytes,
         expectedSha256: read.sha256,
         limits: _limits,
       );
     });
+  }
+
+  Future<({WorkspaceBinaryReadResult read, String resolvedPath})>
+  _resolveAndReadBinary({
+    required BinarySessionWorkspaceBoundary boundary,
+    required SessionWorkspacePath requestedPath,
+    required String expectedSha256,
+    required String sessionKey,
+    required int maxBytes,
+  }) async {
+    // 1. Try reading the exact requested path directly.
+    try {
+      final direct = await boundary.readBinary(
+        requestedPath,
+        maxBytes: maxBytes,
+      );
+      return (read: direct, resolvedPath: requestedPath.value);
+    } on WorkspaceBoundaryException catch (error) {
+      if (error.code != 'not_found') rethrow;
+    }
+
+    // 2. If caller passed 'sessions/<sessionKey>/...', strip the prefix.
+    final sessionPrefix = 'sessions/$sessionKey/';
+    if (requestedPath.value.startsWith(sessionPrefix)) {
+      final stripped = requestedPath.value.substring(sessionPrefix.length);
+      try {
+        final parsed = SessionWorkspacePath.parse(stripped);
+        final read = await boundary.readBinary(parsed, maxBytes: maxBytes);
+        return (read: read, resolvedPath: parsed.value);
+      } on Object {
+        // Fall through to next fallback.
+      }
+    }
+
+    // 3. If caller passed a bare filename (e.g. 'Чек.pdf'), check inside 'artifacts/'.
+    if (requestedPath.components.length == 1) {
+      try {
+        final artifactPath = SessionWorkspacePath.parse(
+          'artifacts/${requestedPath.value}',
+        );
+        final read = await boundary.readBinary(
+          artifactPath,
+          maxBytes: maxBytes,
+        );
+        return (read: read, resolvedPath: artifactPath.value);
+      } on Object {
+        // Fall through to listing fallback.
+      }
+    }
+
+    // 4. Search session workspace entries for matching SHA-256 hash or filename.
+    try {
+      final entries = await boundary.list(
+        SessionWorkspacePath.parse('', allowRoot: true),
+        recursive: true,
+      );
+      // First: check files matching the expected SHA-256 hash
+      for (final entry in entries) {
+        if (entry.type != WorkspaceEntryType.file) continue;
+        try {
+          final entryPath = SessionWorkspacePath.parse(entry.path);
+          final read = await boundary.readBinary(entryPath, maxBytes: maxBytes);
+          if (read.sha256 == expectedSha256) {
+            return (read: read, resolvedPath: entry.path);
+          }
+        } on Object {
+          // Continue scanning
+        }
+      }
+      // Second: check files matching the requested leaf filename
+      final requestedName = requestedPath.components.last.toLowerCase();
+      for (final entry in entries) {
+        if (entry.type != WorkspaceEntryType.file) continue;
+        final entryName = entry.path.split('/').last.toLowerCase();
+        if (entryName == requestedName) {
+          try {
+            final entryPath = SessionWorkspacePath.parse(entry.path);
+            final read = await boundary.readBinary(
+              entryPath,
+              maxBytes: maxBytes,
+            );
+            return (read: read, resolvedPath: entry.path);
+          } on Object {
+            // Continue scanning
+          }
+        }
+      }
+    } on Object {
+      // Fall through to throw not_found
+    }
+
+    throw const WorkspaceBoundaryException('not_found');
   }
 
   static void _validateExtension(String path, DocumentToolInputFormat format) {
