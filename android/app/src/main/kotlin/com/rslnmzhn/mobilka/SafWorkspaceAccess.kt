@@ -206,11 +206,11 @@ internal class SafWorkspaceAccess(context: Context) {
     ): Pair<ByteArray, SafSnapshot> {
         if (maxBytes < 0 || maxBytes > MAX_BINARY_BYTES) brokerFail("invalid_argument")
         validateDocumentUri(scope, uri)
-        val before = querySnapshot(uri)
+        val before = querySnapshot(uri, maxBytes.toLong())
         if (before.directory) brokerFail("wrong_type")
         if (before.size > maxBytes) brokerFail("workspace_file_too_large")
         val bytes = readBounded(uri, scope, before, maxBytes)
-        val after = querySnapshot(uri)
+        val after = querySnapshot(uri, maxBytes.toLong())
         val digest = sha256(bytes)
         if (after.documentId != before.documentId || after.size != before.size ||
             after.directory) brokerFail("metadata_changed")
@@ -358,15 +358,22 @@ internal class SafWorkspaceAccess(context: Context) {
         requireContent(tree)
         requireContent(child)
         if (tree.authority == child.authority) {
+            val parentId = documentId(tree)
+            val childId = documentId(child)
+            val decodedParent = Uri.decode(parentId)
+            val decodedChild = Uri.decode(childId)
+            if (parentId == childId || decodedParent == decodedChild ||
+                childId.startsWith("$parentId/") || childId.startsWith("$parentId%2F") ||
+                decodedChild.startsWith("$decodedParent/")) {
+                return
+            }
             try {
                 if (DocumentsContract.isChildDocument(resolver, tree, child)) return
             } catch (_: Exception) {}
-            if (treeId(tree) == treeId(child)) {
-                val parentId = documentId(tree)
-                val childId = documentId(child)
-                if (parentId == childId || childId.startsWith("$parentId/") || childId.startsWith("$parentId%2F")) {
-                    return
-                }
+            val tId = treeId(tree)
+            val cId = treeId(child)
+            if (tId != null && cId != null && tId == cId) {
+                return
             }
         }
         brokerFail("unsafe_path")
@@ -395,10 +402,14 @@ internal class SafWorkspaceAccess(context: Context) {
         brokerFail("unsafe_path")
     }
 
-    fun treeId(uri: Uri): String = try {
-        DocumentsContract.getTreeDocumentId(uri)
+    fun treeId(uri: Uri): String? = try {
+        if (DocumentsContract.isTreeUri(uri)) {
+            DocumentsContract.getTreeDocumentId(uri)
+        } else {
+            documentId(uri)
+        }
     } catch (_: Exception) {
-        brokerFail("workspace_grant_invalid")
+        null
     }
 
     private fun requireContent(uri: Uri) {
@@ -407,7 +418,7 @@ internal class SafWorkspaceAccess(context: Context) {
         }
     }
 
-    fun querySnapshot(uri: Uri): SafSnapshot {
+    fun querySnapshot(uri: Uri, maxBytes: Long = MAX_BINARY_BYTES.toLong()): SafSnapshot {
         requireContent(uri)
         var result: SafSnapshot? = null
         resolver.query(uri, INSPECT_PROJECTION, null, null, null)?.use { cursor ->
@@ -415,8 +426,8 @@ internal class SafWorkspaceAccess(context: Context) {
                 val size = if (cursor.isNull(2)) null else cursor.getLong(2)
                 val directory = cursor.getString(1) ==
                     DocumentsContract.Document.MIME_TYPE_DIR
-                if (!directory && (size == null || size < 0 || size > MAX_BYTES)) {
-                    brokerFail(if (size != null && size > MAX_BYTES) {
+                if (!directory && (size == null || size < 0 || size > maxBytes)) {
+                    brokerFail(if (size != null && size > maxBytes) {
                         "workspace_file_too_large"
                     } else {
                         "metadata_unavailable"

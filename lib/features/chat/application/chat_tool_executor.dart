@@ -57,6 +57,12 @@ const _safeWorkspaceErrorCodes = <String>{
   'source_file_required',
   'not_found',
   'permission_changed',
+  'workspace_file_too_large',
+  'metadata_changed',
+  'unsafe_path',
+  'workspace_grant_invalid',
+  'workspace_unsupported',
+  'wrong_type',
 };
 
 String _safeWorkspaceErrorCode(String code) =>
@@ -424,8 +430,8 @@ class ChatToolExecutor {
               latest.pendingDocumentProposal != null)) {
         return null;
       }
-      final hasPendingProposal = state.anyProposal != null ||
-          _documentProposal(state) != null;
+      final hasPendingProposal =
+          state.anyProposal != null || _documentProposal(state) != null;
       return latest.copyWith(
         updatedAt: DateTime.now(),
         messages: [
