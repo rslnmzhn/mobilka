@@ -146,9 +146,45 @@ class SafMemoryFileStore
         allowMissing: true,
       );
       if (existing != null) return false;
-      await _access.write(parent, parts.last, bytes, overwrite: false);
+      final effectiveMime = mimeType ?? _detectMimeType(parts.last);
+      final access = _access;
+      if (access is SafMemoryBinaryAccess) {
+        await (access as SafMemoryBinaryAccess).createBinary(
+          parent,
+          parts.last,
+          bytes,
+          mimeType: effectiveMime,
+          overwrite: false,
+        );
+      } else {
+        await access.write(parent, parts.last, bytes, overwrite: false);
+      }
       return true;
     });
+  }
+
+  static String _detectMimeType(String fileName) {
+    final ext = fileName.split('.').last.toLowerCase();
+    return switch (ext) {
+      'pdf' => 'application/pdf',
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'webp' => 'image/webp',
+      'gif' => 'image/gif',
+      'heic' => 'image/heic',
+      'heif' => 'image/heif',
+      'docx' =>
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'xlsx' =>
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'txt' => 'text/plain',
+      'csv' => 'text/csv',
+      'json' => 'application/json',
+      'xml' => 'application/xml',
+      'yaml' || 'yml' => 'application/yaml',
+      'md' => 'text/markdown',
+      _ => 'application/octet-stream',
+    };
   }
 
   @override

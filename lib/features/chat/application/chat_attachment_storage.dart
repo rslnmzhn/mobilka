@@ -19,15 +19,15 @@ Future<List<ChatAttachment>> storeChatAttachments({
   for (final attachment in attachments) {
     final prepared = await compute(_decodeAttachment, attachment.dataBase64);
     final bytes = prepared.$1;
-    // Names supplied by the picker are display data, never path segments.
-    final extension = RegExp(
-      r'\.([a-zA-Z0-9]{1,10})$',
-    ).firstMatch(attachment.name)?.group(1)?.toLowerCase();
-    final id = List.generate(
-      16,
+    // Sanitize the original file name while preserving readable identity and extension.
+    final safeOriginal = attachment.name
+        .replaceAll(RegExp(r'[^a-zA-Z0-9а-яА-ЯёЁ_.-]'), '_')
+        .replaceAll('..', '_');
+    final shortId = List.generate(
+      4,
       (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
-    final name = 'attachment_$id${extension == null ? '' : '.$extension'}';
+    final name = 'att_${shortId}_$safeOriginal';
     final relativePath = 'artifacts/$name';
     final fullPath = 'sessions/$sessionKey/$relativePath';
     if (MemoryFileValidation.subPath(fullPath) == null) {

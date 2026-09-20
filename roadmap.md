@@ -1,4 +1,8 @@
 # mobilka roadmap
+- [ ] File format preservation and MIME propagation fix:
+  - Устранена принудительная конвертация файлов в `.md`: в `SafMemoryFileStore.writeSubPathBytes` и `SafMemoryAccess` передан реальный MIME-тип файла (`application/pdf`, `image/png`, `application/octet-stream` и т.д.) через `SafMemoryBinaryAccess.createBinary` вместо захардкоженного `'text/markdown'`, из-за которого Android StorageProvider дописывал расширение `.md` к бинарным файлам и вложениям.
+  - В системном промпте агента разделены задачи: инструмент `generate_docx` ограничен исключительно форматированными Word документами (.docx); для создания любых обычных файлов пользователя (.txt, .py, .json, .csv и др.) агент инструктируется вызывать `write_file` с точным запрошенным расширением без подмены на `.md`.
+  - `MemoryFileValidation._artifactFile` расширен для поддержки кириллицы и допустимых знаков в именах файлов.
 - [ ] OCR attachment path resolution fix:
   - Устранена ошибка `not_found` при вызове OCR/извлечения документов для вложений чата: `SessionDocumentSnapshotSource.capture` теперь поддерживает гибкое разрешение путей (прямой путь, снятие префикса `sessions/<key>/`, поиск в `artifacts/`, поиск по контрольной сумме SHA-256 или имени файла среди записей сессии). Если модель передаёт исходное имя файла (`Чек.pdf`), относительный путь в artifacts или полный путь сессии, файл безопасно находится и верифицируется по SHA-256 и magic bytes.
 - [ ] Android native OCR worker availability fix:
