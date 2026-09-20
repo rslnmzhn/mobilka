@@ -168,7 +168,7 @@ final class MemoryFileValidation {
     caseSensitive: false,
   );
   static final RegExp _artifactFile = RegExp(
-    r'^[a-z0-9][a-z0-9_.-]*$',
+    r'^[a-zа-яё0-9][a-zа-яё0-9_ .()-]*$',
     caseSensitive: false,
   );
   static final RegExp _memoryFile = RegExp(

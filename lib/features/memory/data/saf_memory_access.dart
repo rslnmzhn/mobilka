@@ -102,14 +102,40 @@ class SafMemoryAccessAdapter
     String fileName,
     Uint8List content, {
     required bool overwrite,
+    String? mimeType,
   }) async {
+    final effectiveMime = mimeType ?? _detectMimeType(fileName);
     await _saf.writeFileBytes(
       directoryUri,
       fileName,
-      'text/markdown',
+      effectiveMime,
       content,
       overwrite: overwrite,
     );
+  }
+
+  static String _detectMimeType(String fileName) {
+    final ext = fileName.split('.').last.toLowerCase();
+    return switch (ext) {
+      'pdf' => 'application/pdf',
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'webp' => 'image/webp',
+      'gif' => 'image/gif',
+      'heic' => 'image/heic',
+      'heif' => 'image/heif',
+      'docx' =>
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'xlsx' =>
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'txt' => 'text/plain',
+      'csv' => 'text/csv',
+      'json' => 'application/json',
+      'xml' => 'application/xml',
+      'yaml' || 'yml' => 'application/yaml',
+      'md' => 'text/markdown',
+      _ => 'application/octet-stream',
+    };
   }
 
   @override
