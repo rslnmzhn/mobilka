@@ -1,12 +1,15 @@
 package com.rslnmzhn.mobilka.documents
 
+import android.util.Log
+
 internal object DocumentWorkerProcessor {
     private val loaded: Boolean by lazy {
         try {
             System.loadLibrary("pdfium")
             System.loadLibrary("mobilka_documents_jni")
             nativeReady()
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            Log.e("DocumentWorkerProcessor", "Failed to load document worker native libraries: ${t.message}", t)
             false
         }
     }
