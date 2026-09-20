@@ -65,10 +65,17 @@ class ToolInstructionSynchronizer {
       );
       synchronizedPrompt = synchronizedPrompt.replaceAll(
         RegExp(
-          r'-\s*Если пользователю нужно распознать текст с изображения[^\n]+(\n\s+[^\n]+)*',
+          r'-\s*Если пользователю нужно распознать текст[^\n]+(\n\s+[^\n]+)*',
           multiLine: true,
         ),
         '- Распознавание текста: инструмент ocr_document отключён в текущей среде, вежливо предупреди пользователя о недоступности OCR на данном устройстве.',
+      );
+      synchronizedPrompt = synchronizedPrompt.replaceAll(
+        RegExp(
+          r'-\s*Если `extract_document` для PDF вернул пустой текст[^\n]+(\n\s+[^\n]+)*',
+          multiLine: true,
+        ),
+        '',
       );
     }
 

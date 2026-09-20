@@ -11,6 +11,7 @@ import android.os.Looper
 import android.os.Message
 import android.os.Messenger
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -48,14 +49,23 @@ internal class DocumentWorkerBroker(private val context: Context) : EventChannel
     private var active: Job? = null
 
     private fun available(): Boolean {
-        val library = File(context.applicationInfo.nativeLibraryDir,
-            System.mapLibraryName("mobilka_documents_jni"))
-        if (!library.isFile) return false
         return try {
-            DocumentWorkerProcessor.isReady() &&
-                context.assets.open("documents/eng.traineddata").use { it.available() > 0 } &&
-                context.assets.open("documents/rus.traineddata").use { it.available() > 0 }
-        } catch (_: Throwable) { false }
+            val ready = DocumentWorkerProcessor.isReady()
+            if (!ready) {
+                Log.w("DocumentWorkerBroker", "DocumentWorkerProcessor isReady() was false")
+                return false
+            }
+            val engOk = context.assets.open("documents/eng.traineddata").use { it.available() > 0 }
+            val rusOk = context.assets.open("documents/rus.traineddata").use { it.available() > 0 }
+            if (!engOk || !rusOk) {
+                Log.w("DocumentWorkerBroker", "Language models missing in assets: eng=$engOk, rus=$rusOk")
+                return false
+            }
+            true
+        } catch (t: Throwable) {
+            Log.w("DocumentWorkerBroker", "Document worker available() failed: ${t.message}", t)
+            false
+        }
     }
 
     override fun onListen(arguments: Any?, sink: EventChannel.EventSink) { events = sink }
