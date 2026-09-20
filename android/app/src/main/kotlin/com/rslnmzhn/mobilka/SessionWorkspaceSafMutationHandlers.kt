@@ -43,7 +43,7 @@ internal class SessionWorkspaceSafMutationHandlers(context: Context) {
         val expected = access.parseUri(access.string(args, "documentUri"))
         access.requireChild(scope.session, expected)
         val document = access.resolve(scope.session, path, true) ?: return null
-        if (access.documentId(document.uri) != access.documentId(expected)) {
+        if (Uri.decode(access.documentId(document.uri)) != Uri.decode(access.documentId(expected))) {
             brokerFail("metadata_changed")
         }
         val hashFile = args["hash"] as? Boolean ?: brokerFail("invalid_argument")
@@ -59,7 +59,7 @@ internal class SessionWorkspaceSafMutationHandlers(context: Context) {
         val document = access.resolve(scope.session, path, false)
             ?: brokerFail("not_found")
         if (document.directory ||
-            access.documentId(document.uri) != access.documentId(expected)) {
+            Uri.decode(access.documentId(document.uri)) != Uri.decode(access.documentId(expected))) {
             brokerFail("metadata_changed")
         }
         val (bytes, snapshot) = access.readStable(document.uri, scope.session, maxBytes)
